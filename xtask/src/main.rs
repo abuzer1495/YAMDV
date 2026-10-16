@@ -1,10 +1,13 @@
 //! YAMDV developer tasks: `cargo xtask <ci|check-imports|size|memprobe|gen-icons>`.
 //! Dev-only; never linked into `yamdv.exe`.
 
+mod golden;
 mod icons;
 mod memprobe;
 mod pe;
+mod sha256;
 mod size;
+mod spec;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -93,10 +96,12 @@ fn memprobe_cmd(args: &[String]) -> Result<(), String> {
         std::fs::write(path, text).map_err(|e| format!("{path}: {e}"))?;
         println!("  json: {path}");
     }
-    if samples.iter().all(|s| s.exit_ok) {
+    let bad = memprobe::check_budget(&opts.budget, &samples);
+    if bad.is_empty() {
+        println!("  budget: OK");
         Ok(())
     } else {
-        Err("process did not exit cleanly after WM_CLOSE".into())
+        Err(format!("BUDGET EXCEEDED: {}", bad.join("; ")))
     }
 }
 
@@ -191,6 +196,10 @@ fn main() -> ExitCode {
         "check-imports" => check_imports(rest),
         "size" => size_cmd(rest),
         "memprobe" => memprobe_cmd(rest),
+        "spec-check" => spec::check(&root()),
+        "golden" => golden::run(&root(), rest),
+        "gen-large" => golden::gen_large(&root(), rest),
+        "spec-patch" => spec::patch(&root()),
         "gen-icons" => icons::generate(&root()).map(|files| {
             for f in files {
                 println!("wrote {f}");
@@ -198,7 +207,7 @@ fn main() -> ExitCode {
         }),
         _ => {
             println!(
-                "usage: cargo xtask <ci | check-imports [<exe>] | size [<exe>] | memprobe <exe> [...] | gen-icons>"
+                "usage: cargo xtask <ci | check-imports [<exe>] | size [<exe>] | memprobe <exe> [...] | gen-icons | spec-check | spec-patch | golden --exe <exe> [--update] | gen-large [<out>]>"
             );
             Ok(())
         }

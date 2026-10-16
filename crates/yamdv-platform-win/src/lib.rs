@@ -1,6 +1,6 @@
-//! All Win32/COM code of YAMDV (ARCHITECTURE §E.8). Phase 001 contains only the window skeleton:
-//! process hardening, the top-level window (DPI, theme, keyboard close), console output for the
-//! CLI and the crash-note panic hook.
+//! All Win32/COM code of YAMDV (ARCHITECTURE §E.8): process hardening, reading windows, the
+//! DirectWrite shaper, backend A rendering, file intake, clipboard, console output and the
+//! crash-note panic hook.
 //!
 //! `unsafe` is denied crate-wide and allowed only in the modules that call Win32; every block has a
 //! `// SAFETY:` comment.
@@ -10,10 +10,20 @@
 pub mod console;
 #[cfg(windows)]
 pub mod crash;
+#[cfg(all(windows, feature = "dev-tools"))]
+pub mod devtools;
+#[cfg(windows)]
+pub mod dwrite;
 #[cfg(windows)]
 pub mod hardening;
 #[cfg(windows)]
 pub mod log;
+#[cfg(windows)]
+pub mod perf;
+#[cfg(windows)]
+pub mod render;
+#[cfg(windows)]
+pub mod sys;
 #[cfg(windows)]
 pub mod theme;
 #[cfg(windows)]

@@ -1,5 +1,16 @@
-//! Source text, encoding, Markdown parsing adapter and extensions, block tree, slugs, outline, link/resource policy, config model, INI parser, i18n tables, action/keymap model.
+//! Source text, encoding, Markdown parsing adapter, document model (block index + lazy detail
+//! trees), slugs, config model, INI parser, i18n tables, theme data.
 //!
-//! Platform-independent (pure) crate; see `docs/ARCHITECTURE.md` §E.2.
-//! PHASE-002: first real content lands in Phase 002. This crate is intentionally empty in Phase 001.
+//! Platform-independent (pure) crate; see `docs/ARCHITECTURE.md` §E.2 and ADR-0007.
 #![forbid(unsafe_code)]
+
+pub mod decode;
+pub mod doc;
+pub mod i18n;
+pub mod ini;
+pub mod log;
+pub mod path;
+pub mod settings;
+mod settings_table;
+pub mod theme;
+mod theme_table;

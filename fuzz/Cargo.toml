@@ -1,0 +1,30 @@
+[package]
+name = "yamdv-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+yamdv-core = { path = "../crates/yamdv-core" }
+yamdv-layout = { path = "../crates/yamdv-layout" }
+
+# Not part of the product workspace (nightly-only, S-TEST-01).
+[workspace]
+
+[[bin]]
+name = "parse_layout"
+path = "fuzz_targets/parse_layout.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ini"
+path = "fuzz_targets/ini.rs"
+test = false
+doc = false
+bench = false

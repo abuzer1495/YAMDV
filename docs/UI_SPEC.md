@@ -37,6 +37,7 @@ Text rendering: ClearType when the system uses it, grayscale on rotated/transpar
 Shared light tokens: `code_border #e0e0e0`, `table_border #dddddd`, `border_subtle #eeeeee`, `zebra_bg = mix(bg, table_header_bg, 50%)`, `text_muted #7a7a7a`, `marker #b0b0b0` (revealed Markdown syntax in F2), `line_number #b8b8b8`, `selection = accent @ 20 %`, `highlight_bg #fff3a3`, `find_match_bg #fff3a3`, `find_current_bg #ffb547`, `error #cc0000`.
 GitHub scheme extras: H1 and H2 get a 1 px bottom border `#d1d9e0` with 0.3 em padding-bottom.
 (The values were sampled from the reference screenshots; `link` and Mint `heading` were minimally darkened to meet R-A11Y-04.)
+The custom-colors alias `border` (R-THEME-06) maps to `code_border` + `table_border` in both modes.
 
 ### B.3.2 Document tokens — dark palettes
 Base for every scheme except GitHub: `bg #1e1e1e`, `text #d4d4d4`, `quote_text #aaaaaa`, `inline_code_bg #3a3a3a`, `code_border #3a3a3a`, `table_border #3a3a3a`, `border_subtle #333333`, `text_muted #9a9a9a`, `marker #6a6a6a`, `line_number #5a5a5a`, `selection = accent @ 30 %`, `highlight_bg #665c1e` (text `#f5f0d0`), `find_match_bg #5c5427`, `find_current_bg #9e6a03`, `error #ff6b6b`.
@@ -221,6 +222,7 @@ Sections: **General · Appearance · Typography & Layout · Sidebar · Reading �
 | `sidebar.show_history` / `show_favorites` / `show_files` | bool | `true` | |
 | `reading.single_newline_break` | bool | `false` | |
 | `reading.smart_punctuation` | bool | `false` | |
+| `reading.subscript_tilde` | bool | `false` | R-MD-06 |
 | `reading.code_line_numbers` | bool | `false` | |
 | `reading.code_wrap` | bool | `false` | |
 | `reading.front_matter` | enum | `collapsed` | `collapsed`, `expanded`, `hidden` |

@@ -28,7 +28,10 @@ Memory is a feature. Everything is lazy, virtualized and measured. "Fast and lig
 | **T9** | Find, 1 MB doc, per keystroke | ≤ 30 ms | ≤ 50 ms |
 | **T10** | PDF export of 100 pages | ≤ 3 s; transient memory ≤ +30 MB, released afterwards | same |
 
+Interim scenarios used before the full corpus exists (Phase 002): **M1b** = `typical-basic.md` (soft ≤ 8.0 MiB), **T1b** = first paint of `typical-basic.md` (soft ≤ 150 ms), **T1L** = first paint of `large-1mb.md` (soft ≤ 300 ms). From Phase 003 on they are replaced by M1 and T1.
+
 ## D.3 Measurement method (normative)
+- **Units:** "MB" in this project means **MiB (2^20 bytes)**, the unit Task Manager uses. Tools always print raw bytes and MiB with two decimals. All budgets in §D.2 are MiB.
 - **Private working set (PWS)** = what Task Manager shows as "Memory (active private working set)". Compute it with `QueryWorkingSet` (psapi): count the working-set pages whose `Shared` bit is 0, × page size. Cross-check with `PROCESS_MEMORY_COUNTERS_EX2::PrivateWorkingSetSize` where available.
 - Also record: `PrivateUsage` (commit), `WorkingSetSize`, `PeakWorkingSetSize`, handle count (`GetProcessHandleCount`), GDI and USER objects (`GetGuiResources`), loaded modules.
 - Protocol: release build · machine idle · window 1280×800 · 3 runs, report the **median** · settle 3 s after the scenario's last action · repeat at 100 % and 150 % scale for M0/M1 · record OS build, CPU, GPU, display scale.
@@ -43,7 +46,7 @@ Memory is a feature. Everything is lazy, virtualized and measured. "Fast and lig
 5. **Glyph caching** is left to DirectWrite/the OS. No own glyph atlas.
 6. **Lazy subsystems:** WIC/COM only when the first image appears; math engine and Cambria Math only when math exists; Mermaid only when diagrams exist; font enumeration only when the font picker opens; History/Files tab data only when the tab is shown.
 7. **Threads:** UI thread + one file-watcher thread + at most one worker for heavy jobs (export, large layout); explicit 256 KB stacks; no thread pools, no async runtime.
-8. **Allocator:** the system heap (default). No arena/segment allocators that reserve large regions. `shrink_to_fit` long-lived buffers after load.
+8. **Allocator:** Rust's default global allocator (the Windows process heap via HeapAlloc). No third-party allocators (mimalloc, jemalloc, bump/arena allocators that reserve large regions). The Windows heap *type* (NT heap vs. SegmentHeap via the manifest) is a measured choice recorded in ADR-0002 (currently the default NT heap). `shrink_to_fit` long-lived buffers after load.
 9. **Compact data:** `u32` offsets/indices, small enums, interned style runs, no per-glyph or per-character heap objects.
 10. **Transient spikes** (file dialogs, printing, PDF export) are allowed; afterwards transient buffers are freed, and a working-set trim (`SetProcessWorkingSetSizeEx(-1, -1)`) MAY be performed **once, right after the transient operation** and on minimize. Periodic or timer-based trimming is **forbidden** — it fakes the metric.
 11. Static data (highlighter keyword tables, emoji table, strings) lives in read-only sections (`&'static`), never copied to the heap at startup.

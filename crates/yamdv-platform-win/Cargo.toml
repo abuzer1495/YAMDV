@@ -8,19 +8,40 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+# Developer tools (`--render-png`, `--autoscroll`, `--perf-log`); never in release builds.
+dev-tools = []
+# Subsystem memory breakdown (`--mem-stats`).
+mem-stats = []
+
+[dependencies]
+yamdv-core = { path = "../yamdv-core" }
+yamdv-layout = { path = "../yamdv-layout" }
+yamdv-ui = { path = "../yamdv-ui" }
+
 [target.'cfg(windows)'.dependencies]
+tiny-skia = { workspace = true }
+windows-core = { workspace = true }
+windows-numerics = { workspace = true }
 windows = { workspace = true, features = [
     "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Graphics_DirectWrite",
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
+    "Win32_Graphics_Imaging",
     "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
     "Win32_System_Console",
+    "Win32_System_DataExchange",
     "Win32_System_Diagnostics_Debug",
     "Win32_System_IO",
     "Win32_System_LibraryLoader",
     "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_ProcessStatus",
     "Win32_System_Registry",
     "Win32_System_SystemServices",
     "Win32_System_SystemInformation",
@@ -29,6 +50,7 @@ windows = { workspace = true, features = [
     "Win32_UI_HiDpi",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
     "Win32_UI_WindowsAndMessaging",
 ] }
 

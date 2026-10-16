@@ -7,11 +7,13 @@ use windows::Win32::System::LibraryLoader::{
 };
 use windows::Win32::System::Memory::{HeapEnableTerminationOnCorruption, HeapSetInformation};
 use windows::Win32::System::SystemServices::{
+    PROCESS_MITIGATION_DYNAMIC_CODE_POLICY, PROCESS_MITIGATION_DYNAMIC_CODE_POLICY_0,
     PROCESS_MITIGATION_IMAGE_LOAD_POLICY, PROCESS_MITIGATION_IMAGE_LOAD_POLICY_0,
     PROCESS_MITIGATION_STRICT_HANDLE_CHECK_POLICY, PROCESS_MITIGATION_STRICT_HANDLE_CHECK_POLICY_0,
 };
 use windows::Win32::System::Threading::{
-    ProcessImageLoadPolicy, ProcessStrictHandleCheckPolicy, SetProcessMitigationPolicy,
+    ProcessDynamicCodePolicy, ProcessImageLoadPolicy, ProcessStrictHandleCheckPolicy,
+    SetProcessMitigationPolicy,
 };
 use windows::Win32::System::WindowsProgramming::{
     BASE_SEARCH_PATH_ENABLE_SAFE_SEARCHMODE, BASE_SEARCH_PATH_PERMANENT,
@@ -33,9 +35,12 @@ const IMAGE_LOAD_FLAGS: u32 = 0b111;
 // HandleExceptionsPermanentlyEnabled.
 const STRICT_HANDLE_FLAGS: u32 = 0b11;
 
+// ProcessDynamicCodePolicy bits: ProhibitDynamicCode.
+const DYNAMIC_CODE_FLAGS: u32 = 0b1;
+
 /// Apply every hardening step and return the outcomes (failures are also logged).
 pub fn apply() -> Vec<Step> {
-    let mut steps = Vec::with_capacity(6);
+    let mut steps = Vec::with_capacity(7);
     let mut push = |name: &'static str, r: windows::core::Result<()>| {
         let result = r.map_err(|e| e.to_string());
         if let Err(e) = &result {
@@ -88,7 +93,20 @@ pub fn apply() -> Vec<Step> {
             size_of::<PROCESS_MITIGATION_STRICT_HANDLE_CHECK_POLICY>(),
         )
     });
-    // PHASE-002: ProcessDynamicCodePolicy (SHOULD, S-PROC-04) is evaluated once DirectWrite, WIC,
-    // IMEs and dialogs exist; it needs an ADR with test results.
+    // S-PROC-04 / F-06: Arbitrary Code Guard (ProhibitDynamicCode). Verified on CI with DirectWrite
+    // text + color emoji (goldens), WIC PNG encode, IFileOpenDialog (M6); see ADR-0001 amendment.
+    let acg = PROCESS_MITIGATION_DYNAMIC_CODE_POLICY {
+        Anonymous: PROCESS_MITIGATION_DYNAMIC_CODE_POLICY_0 {
+            Flags: DYNAMIC_CODE_FLAGS,
+        },
+    };
+    // SAFETY: as above.
+    push("SetProcessMitigationPolicy(DynamicCode)", unsafe {
+        SetProcessMitigationPolicy(
+            ProcessDynamicCodePolicy,
+            (&raw const acg).cast(),
+            size_of::<PROCESS_MITIGATION_DYNAMIC_CODE_POLICY>(),
+        )
+    });
     steps
 }

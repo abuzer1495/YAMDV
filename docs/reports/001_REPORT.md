@@ -156,3 +156,44 @@ Faz 001 tamamlandı. Kurulanlar:
 - İskeletin boşta özel belleği 1,33 MB
 
 3–5 MB hedefi ulaşılabilir. Bilgisayarda yerel GUI testi ve gerçek GPU/DPI ölçümleri doğrulanmadı (Linux ana makine). Engelleyen bir sorun yok.
+
+---
+
+## Amendment (Phase 002, fix item F-04)
+
+These template sections were missing from the original report and are added after the fact. The measured content above is unchanged.
+
+### A. Acceptance criteria
+| AC | Status | Evidence |
+|---|---|---|
+| AC-1 | PASS | Workspace, docs set and toolchain at tag `phase-001` (see §3) |
+| AC-2 | PASS | `cargo xtask ci` gates green locally, and on CI run [38913424764](https://github.com/snipeTR/YAMDV/actions/runs/38913424764) (PR) and [38915093751](https://github.com/snipeTR/YAMDV/actions/runs/38915093751) (main) |
+| AC-3 | PASS | Window skeleton: memprobe on CI, exit_ok true, 1.33 MB PWS (§5) |
+| AC-4 | PASS | Three spikes measured on CI; ADR-0002 chooses backend A |
+| AC-5 | PASS | check-imports: no networking DLLs, CFG/CET flags (§4) |
+| AC-6 | PASS | CI is SHA-pinned, `permissions: contents: read`, no secrets |
+| AC-7 | PASS (with one gap) | The report exists. The template sections missing from it are added in this amendment |
+
+In Phase 001 the GUI behaviour (window, theme switch, Esc/Ctrl+W) was only checked on CI through memprobe and screenshots. Local checks: **NOT VERIFIED**, see owner checklist D.
+
+### B. Repository state
+- Branch `phase/001-foundation` → `main`, PR https://github.com/snipeTR/YAMDV/pull/1
+- Merge commit `df8dabce384877eb5673312c07d4231c0a74e656`, tag `phase-001`
+- CI: PR run 38913424764 (success), main push run 38915093751 (success); the measurement data comes from run 38911412595.
+
+### C. Files added/changed (trimmed)
+```
+.cargo/config.toml  .github/{workflows/ci.yml,scripts/measure.ps1}  Cargo.toml  clippy.toml  deny.toml
+assets/icons/*  crates/{yamdv-app,yamdv-core,yamdv-layout,yamdv-ui,yamdv-editor,yamdv-highlight,
+yamdv-math,yamdv-mermaid,yamdv-export,yamdv-platform-win}/  spikes/  xtask/
+docs/{SPEC,UI_SPEC,SECURITY,PERFORMANCE,ARCHITECTURE,SHORTCUTS,TESTING,ROADMAP,THREAT_MODEL,TRACEABILITY}.md
+docs/adr/ADR-0000…0006  docs/plans/001_PLAN.md  docs/reports/001_REPORT.md  docs/spike/
+```
+
+### D. Manual QA checklist for the owner
+1. Run `yamdv.exe`: a window titled "YAMDV" opens with the theme background and no flicker.
+2. Switch Windows light/dark while it is open: the background follows immediately.
+3. Press Esc, then start it again and press Ctrl+W: the window closes and the process exits (Task Manager shows no `yamdv.exe`).
+4. `yamdv.exe --help` and `yamdv.exe --version` in a console print the help and the version, and exit with code 0. An unknown flag exits with code 2.
+5. Spike A: `spike-a.exe --autoscroll --log a.log`. The reference scene renders correctly, scrolling is smooth and the title shows `SCROLL_DONE`.
+From Phase 002 on, these steps are in the owner kit (`docs/OWNER_KIT.md`).
