@@ -1,0 +1,565 @@
+# Own CommonMark/GFM test vectors (original). One vector per block separated by a line "~~~~~~".
+# Lines starting with "# " before the first vector are comments. "→" stands for a tab.
+~~~~~~
+plain paragraph
+~~~~~~
+two
+lines
+~~~~~~
+para one
+
+para two
+~~~~~~
+  indented up to three
+~~~~~~
+line with hard break  
+next
+~~~~~~
+backslash hard break\
+next
+~~~~~~
+# ATX one
+~~~~~~
+## ATX two ##
+~~~~~~
+###### six
+~~~~~~
+####### seven is a paragraph
+~~~~~~
+#no space
+~~~~~~
+#
+~~~~~~
+# heading with *emphasis* and `code`
+~~~~~~
+Setext one
+===
+~~~~~~
+Setext two
+---
+~~~~~~
+multi line
+setext
+===
+~~~~~~
+# Heading {#custom-id}
+~~~~~~
+## Another {#x .cls}
+~~~~~~
+***
+~~~~~~
+---
+~~~~~~
+___
+~~~~~~
+ * * *
+~~~~~~
+para
+***
+para
+~~~~~~
+    indented code
+    two
+~~~~~~
+→tab indented code
+~~~~~~
+```
+fenced
+```
+~~~~~~
+```rust
+fn main() {}
+```
+~~~~~~
+~~~
+tilde fence
+~~~
+~~~~~~
+````
+```
+nested fence
+```
+````
+~~~~~~
+```
+unclosed fence
+~~~~~~
+  ```
+  indented fence
+  ```
+~~~~~~
+```js title="x"
+info string
+```
+~~~~~~
+```
+
+blank lines
+
+```
+~~~~~~
+> quote
+~~~~~~
+> quote
+lazy continuation
+~~~~~~
+> one
+>
+> two
+~~~~~~
+> > nested
+~~~~~~
+> # heading in quote
+> para
+~~~~~~
+> - list in quote
+> - b
+~~~~~~
+> ```
+> code in quote
+> ```
+~~~~~~
+>
+~~~~~~
+- a
+- b
+~~~~~~
+* star
+* list
+~~~~~~
++ plus
++ list
+~~~~~~
+1. one
+2. two
+~~~~~~
+3. three
+4. four
+~~~~~~
+1) paren
+2) list
+~~~~~~
+- a
+
+- b
+~~~~~~
+- a
+  - b
+    - c
+      - d
+~~~~~~
+1. a
+   1. b
+      1. c
+~~~~~~
+- a
+- b
+1. c
+~~~~~~
+- item
+
+  second paragraph
+~~~~~~
+- item
+  lazy
+~~~~~~
+- ```
+  code in item
+  ```
+~~~~~~
+- > quote in item
+~~~~~~
+-
+  empty first line
+~~~~~~
+- [ ] task
+- [x] done
+~~~~~~
+- [X] upper
+~~~~~~
+1. [ ] ordered task
+~~~~~~
+- a
+- b
+
+- c
+~~~~~~
+10. ten
+11. eleven
+~~~~~~
+-    four spaces
+~~~~~~
+- # heading item
+~~~~~~
+- ***
+~~~~~~
+<div>
+html block
+</div>
+~~~~~~
+<!-- comment -->
+~~~~~~
+<details>
+<summary>sum</summary>
+
+inner *md*
+
+</details>
+~~~~~~
+<pre>
+pre
+</pre>
+~~~~~~
+<custom-tag>
+x
+</custom-tag>
+~~~~~~
+[ref]: /url
+~~~~~~
+[ref]: /url "title"
+
+[ref]
+~~~~~~
+[Ref Label]: /u
+
+[ref   label]
+~~~~~~
+[a]: <with space> 'single'
+
+[a]
+~~~~~~
+[b]:
+  /next-line
+  (paren title)
+
+[b]
+~~~~~~
+[c]
+
+[c]: /later
+~~~~~~
+[full][ref]
+
+[ref]: /u
+~~~~~~
+[collapsed][]
+
+[collapsed]: /u
+~~~~~~
+[missing]
+~~~~~~
+*em*
+~~~~~~
+_em_
+~~~~~~
+**strong**
+~~~~~~
+__strong__
+~~~~~~
+***both***
+~~~~~~
+*nested **strong** em*
+~~~~~~
+intra*word*em
+~~~~~~
+snake_case_word
+~~~~~~
+* not em *
+~~~~~~
+**unclosed
+~~~~~~
+~~strike~~
+~~~~~~
+~single tilde~
+~~~~~~
+^super^
+~~~~~~
+`code`
+~~~~~~
+`` code with ` tick ``
+~~~~~~
+` spaced `
+~~~~~~
+`unclosed code
+~~~~~~
+[link](/url)
+~~~~~~
+[link](/url "title")
+~~~~~~
+[link](<url with spaces>)
+~~~~~~
+[*em* link](/u)
+~~~~~~
+[link](/u(paren))
+~~~~~~
+[empty]()
+~~~~~~
+<https://example.com>
+~~~~~~
+<mail@example.com>
+~~~~~~
+https://autolink.example.com literal
+~~~~~~
+www.example.com
+~~~~~~
+![image](/i.png)
+~~~~~~
+![alt *with* em](/i.png "t")
+~~~~~~
+![ref image][r]
+
+[r]: /i.png
+~~~~~~
+[![nested](/i.png)](/link)
+~~~~~~
+<span>inline html</span>
+~~~~~~
+a <b>bold</b> c
+~~~~~~
+<!-- inline comment --> text
+~~~~~~
+\*escaped\*
+~~~~~~
+\# not heading
+~~~~~~
+\\ backslash
+~~~~~~
+\[not link\]
+~~~~~~
+&amp; &lt; &gt;
+~~~~~~
+&copy; &#169; &#xA9;
+~~~~~~
+&nosuch;
+~~~~~~
+Türkçe çğıöşü İI
+~~~~~~
+日本語の段落
+~~~~~~
+emoji 😀 👨‍👩‍👧
+~~~~~~
+שלום עולם
+~~~~~~
+مرحبا بالعالم
+~~~~~~
+a→tab→in→text
+~~~~~~
+|a|b|
+|-|-|
+|1|2|
+~~~~~~
+| left | center | right |
+|:-----|:------:|------:|
+| 1 | 2 | 3 |
+~~~~~~
+|a|
+|-|
+|`x\|y`|
+~~~~~~
+para before
+|a|
+|-|
+~~~~~~
+text[^1]
+
+[^1]: footnote
+~~~~~~
+[^note]: definition first
+
+use [^note]
+~~~~~~
+[^long]: para one
+
+    para two indented
+~~~~~~
+---
+title: front
+---
+body
+~~~~~~
++++
+toml = 1
++++
+body
+~~~~~~
+$inline$ math
+~~~~~~
+$$
+display
+$$
+~~~~~~
+text $$x$$ inline display
+~~~~~~
+$ not math $
+~~~~~~
+term
+: definition
+~~~~~~
+term one
+: def one
+: def two
+~~~~~~
+term
+: def with *em*
+~~~~~~
+> [!NOTE]
+> note
+~~~~~~
+> [!TIP]
+> tip
+~~~~~~
+> [!IMPORTANT]
+> imp
+~~~~~~
+> [!WARNING]
+> warn
+~~~~~~
+> [!CAUTION]
+> caution
+~~~~~~
+> [!NOTE]
+~~~~~~
+[[Wiki Link]]
+~~~~~~
+[[target|label]]
+~~~~~~
+line one
+line two
+line three
+~~~~~~
+trailing spaces   
+~~~~~~
+para
+    not code (lazy)
+~~~~~~
+# H
+para
+~~~~~~
+para
+# H
+~~~~~~
+para
+> quote interrupts
+~~~~~~
+para
+- list interrupts
+~~~~~~
+para
+2. ordered does not interrupt
+~~~~~~
+para
+1. one interrupts
+~~~~~~
+- a
+ - b
+  - c
+~~~~~~
+> a
+> > b
+> > > c
+~~~~~~
+- > - > nested containers
+~~~~~~
+1. > quote
+   > in ordered
+~~~~~~
+* a
+
+  ```
+  code
+  ```
+* b
+~~~~~~
+<div>
+*not md*
+</div>
+
+*md*
+~~~~~~
+mixed *em **strong** em* and `code` and [link](/u) and ~~del~~
+~~~~~~
+**bold [link](/u) bold**
+~~~~~~
+*a*b*c*
+~~~~~~
+foo*bar*
+~~~~~~
+***
+***
+~~~~~~
+- a
+***
+- b
+~~~~~~
+    code
+
+para
+~~~~~~
+para
+
+    code
+~~~~~~
+```
+a
+```
+```
+b
+```
+~~~~~~
+>     code in quote
+~~~~~~
+- a
+-
+- c
+~~~~~~
+1.
+2. b
+~~~~~~
+<p>raw para</p>
+~~~~~~
+`a` `b` `c`
+~~~~~~
+[a](b) [c](d)
+~~~~~~
+text with \
+backslash break
+~~~~~~
+very long paragraph word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word
+~~~~~~
+averyveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylongwordwithoutspacesthatmustbreak
+~~~~~~
+&#0; null entity
+~~~~~~
+\u0000 literal
+~~~~~~
+# 
+~~~~~~
+#	tab heading
+~~~~~~
+>→tab after marker
+~~~~~~
+-→tab after bullet
+~~~~~~
+1.→tab ordered
+~~~~~~
+| a | b |
+| - | - |
+| 1 |
+~~~~~~
+foo
+bar
+===
+~~~~~~
+Foo
+---
+bar
+~~~~~~
+> foo
+---
+~~~~~~
+- foo
+---
+~~~~~~
+`
+~~~~~~
+***bold italic*** and **_mixed_**

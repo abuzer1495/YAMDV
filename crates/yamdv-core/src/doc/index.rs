@@ -111,13 +111,29 @@ pub struct Index {
     pub front_matter: Option<Range<u32>>,
 }
 
-/// Case-folds a reference label (whitespace collapsed).
+/// Case-folds a reference label: whitespace collapsed, lower-cased, plus the full case folds
+/// `ß`/`ẞ` → `ss` and the Latin ligatures (CommonMark spec example 540), matching pulldown-cmark's
+/// own label matching so lazily built detail trees resolve exactly like the full parse.
 pub fn fold_label(label: &str) -> String {
-    label
+    let lower = label
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
-        .to_lowercase()
+        .to_lowercase();
+    let mut out = String::with_capacity(lower.len());
+    for c in lower.chars() {
+        match c {
+            'ß' => out.push_str("ss"),
+            'ﬀ' => out.push_str("ff"),
+            'ﬁ' => out.push_str("fi"),
+            'ﬂ' => out.push_str("fl"),
+            'ﬃ' => out.push_str("ffi"),
+            'ﬄ' => out.push_str("ffl"),
+            'ﬅ' | 'ﬆ' => out.push_str("st"),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// Is `c` a wide character for estimates (CJK, Hangul, kana, fullwidth, emoji)?

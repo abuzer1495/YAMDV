@@ -493,6 +493,11 @@ version = "0.1.0"
 [[package]]
 name = "yamdv-layout"
 version = "0.1.0"
+dependencies = [
+ "pulldown-cmark",
+ "unicode-segmentation",
+ "yamdv-core",
+]
 
 [[package]]
 name = "yamdv-math"

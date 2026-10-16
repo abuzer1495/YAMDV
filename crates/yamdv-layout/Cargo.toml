@@ -10,3 +10,10 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+yamdv-core = { path = "../yamdv-core" }
+unicode-segmentation = { workspace = true }
+
+[dev-dependencies]
+pulldown-cmark = { workspace = true }
