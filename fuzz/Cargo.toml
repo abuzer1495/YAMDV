@@ -11,6 +11,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 yamdv-core = { path = "../crates/yamdv-core" }
 yamdv-layout = { path = "../crates/yamdv-layout" }
+yamdv-highlight = { path = "../crates/yamdv-highlight" }
 
 # Not part of the product workspace (nightly-only, S-TEST-01).
 [workspace]
@@ -25,6 +26,27 @@ bench = false
 [[bin]]
 name = "ini"
 path = "fuzz_targets/ini.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "html"
+path = "fuzz_targets/html.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "url"
+path = "fuzz_targets/url.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "highlight"
+path = "fuzz_targets/highlight.rs"
 test = false
 doc = false
 bench = false

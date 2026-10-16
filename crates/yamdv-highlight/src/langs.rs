@@ -102,8 +102,8 @@ macro_rules! langs {
             }
         }
 
-        #[cfg(test)]
-        pub(crate) const ALL_NAMES: &[&str] = &[$($($alias),+),*];
+        /// Every alias of every language (tests and fuzzing).
+        pub const ALL_NAMES: &[&str] = &[$($($alias),+),*];
     };
 }
 

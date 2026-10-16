@@ -187,8 +187,13 @@ version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
  "yamdv-core",
+ "yamdv-highlight",
  "yamdv-layout",
 ]
+
+[[package]]
+name = "yamdv-highlight"
+version = "0.1.0"
 
 [[package]]
 name = "yamdv-layout"
@@ -196,4 +201,5 @@ version = "0.1.0"
 dependencies = [
  "unicode-segmentation",
  "yamdv-core",
+ "yamdv-highlight",
 ]

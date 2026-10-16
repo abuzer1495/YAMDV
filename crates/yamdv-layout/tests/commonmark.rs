@@ -73,6 +73,8 @@ fn reference(src: &str) -> (Vec<B>, String) {
     let mut depth = 0usize;
     let mut skip = 0usize;
     let mut image = 0usize;
+    let mut img_src = String::new();
+    let mut img_at = 0usize;
     let mut i = 0;
     while i < evs.len() {
         let (ev, r) = &evs[i];
@@ -127,9 +129,10 @@ fn reference(src: &str) -> (Vec<B>, String) {
                     if ["html", "front", "math"].contains(&k.as_str()) {
                         skip = 1;
                     }
-                } else if matches!(t, Tag::Image { .. }) {
+                } else if let Tag::Image { dest_url, .. } = t {
                     if image == 0 {
-                        text.push_str("[image: ");
+                        img_src = dest_url.to_string();
+                        img_at = text.len();
                     }
                     image += 1;
                 }
@@ -138,7 +141,8 @@ fn reference(src: &str) -> (Vec<B>, String) {
                 if matches!(t, TagEnd::Image) {
                     image -= 1;
                     if image == 0 {
-                        text.push(']');
+                        let alt = text.split_off(img_at);
+                        text.push_str(&yamdv_core::doc::detail::image_label(&img_src, &alt));
                     }
                 } else if !matches!(
                     t,
@@ -168,7 +172,8 @@ fn reference(src: &str) -> (Vec<B>, String) {
                         yamdv_core::html::Tok::Text { text: tt, .. } => text.push_str(&tt),
                         yamdv_core::html::Tok::Open { tag, attrs, .. } if tag == "img" => {
                             let alt = yamdv_core::html::attr(&attrs, "alt").unwrap_or("");
-                            text.push_str(&format!("[image: {alt}]"));
+                            let src = yamdv_core::html::attr(&attrs, "src").unwrap_or("");
+                            text.push_str(&yamdv_core::doc::detail::image_label(src, alt));
                         }
                         yamdv_core::html::Tok::Unsupported(_) => text.push_str("[svg]"),
                         _ => {}

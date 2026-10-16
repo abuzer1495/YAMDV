@@ -82,11 +82,8 @@ fn inline(doc: &Document, d: &Detail, i: usize, sel: &Range<u32>, out: &mut Stri
             }
         }
         if f & style::IMAGE != 0 {
-            // Images only as alt text: "[image: alt]" → "alt".
-            let alt = t
-                .strip_prefix("[image: ")
-                .and_then(|s| s.strip_suffix(']'))
-                .unwrap_or(&t);
+            // Images only as alt text: "▣\u{2009}alt" → "alt" (S-RES-05: nothing embedded).
+            let alt = t.strip_prefix("\u{25A3}\u{2009}").unwrap_or(&t);
             escape(alt, out);
         } else {
             escape(&t, out);

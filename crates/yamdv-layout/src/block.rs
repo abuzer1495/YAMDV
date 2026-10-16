@@ -477,11 +477,13 @@ pub(crate) fn spans(segs: &[Seg], b: &Style, m: &Metrics, pal: &Palette) -> Vec<
             t.color = pal.link;
         }
         if f & (st::MUTED | st::IMAGE) != 0 {
-            // PHASE-003: inline HTML source / image placeholder.
             t.color = pal.text_muted;
         }
         if f & st::IMAGE != 0 {
-            t.italic = true;
+            // P-25 compact image chip: 12 px glyph + alt text in `text_muted`.
+            t.size = 12.0 * b.size / 14.0;
+            t.weight = 400;
+            t.italic = false;
         }
         if f & (st::SUP | st::SUB) != 0 {
             // R-MD-06: 0.75 em. PARTIAL: no baseline shift until inline objects (§4.1.3).
@@ -622,6 +624,18 @@ pub(crate) fn leaf_aligned(
                     rect: Rect::new(x + r.x, y + r.y, r.w, r.h),
                     color: ctx.pal.highlight_bg,
                     radius: 2.0,
+                });
+            }
+        }
+    }
+    // P-25: image chip — line-height tall, radius 4, `code_bg` fill behind glyph + alt text.
+    for (s, seg) in sp.iter().zip(pt.segs.iter().filter(|g| g.style != 0)) {
+        if seg.style & st::IMAGE != 0 {
+            for r in shaped.range_rects(s.range.clone()) {
+                out.items.push(Item::Fill {
+                    rect: Rect::new(x + r.x - 3.0, y + r.y, r.w + 6.0, r.h),
+                    color: ctx.pal.code_bg,
+                    radius: 4.0,
                 });
             }
         }

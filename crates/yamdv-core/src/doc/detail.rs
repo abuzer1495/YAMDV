@@ -157,7 +157,7 @@ pub mod style {
     pub const SUB: u16 = 1 << 6;
     /// Muted text (inline HTML source, PHASE-003).
     pub const MUTED: u16 = 1 << 7;
-    /// Image placeholder `[image: alt]` (muted italic, PHASE-003).
+    /// Image chip `▣ alt` (P-25 compact chip; pixels are PHASE-003b, see CHECKPOINT).
     pub const IMAGE: u16 = 1 << 8;
     /// Footnote reference `[label]` (superscript-styled, link color, PHASE-003).
     pub const FOOTREF: u16 = 1 << 9;
@@ -253,6 +253,38 @@ pub struct Detail {
     pub runs: Vec<Run>,
     /// Link destinations referenced by [`Run::link`].
     pub links: Vec<LinkDest>,
+    /// Images in source order (R-IMG-02/03); each produced one [`style::IMAGE`] run.
+    pub images: Vec<ImageRef>,
+}
+
+/// P-25 chip label: glyph + thin space + alt text, or the file name when the alt text is
+/// empty (`image` for `data:` URIs and over-long names).
+pub fn image_label(src: &str, alt: &str) -> String {
+    let name = if alt.trim().is_empty() {
+        let s = src.split(['?', '#']).next().unwrap_or("");
+        let n = s.rsplit(['/', '\\']).next().unwrap_or("");
+        if n.len() > 40 || n.is_empty() || s.starts_with("data:") {
+            "image"
+        } else {
+            n
+        }
+    } else {
+        alt
+    };
+    format!("\u{25A3}\u{2009}{name}")
+}
+
+/// An image reference from Markdown `![alt](src)`, `![[src|300]]` or HTML `<img>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageRef {
+    /// Source as written (Obsidian size suffix removed).
+    pub src: Box<str>,
+    /// Alt text.
+    pub alt: Box<str>,
+    /// Requested width in logical px (HTML `width`, Obsidian `|300`).
+    pub w: Option<u32>,
+    /// Requested height in logical px.
+    pub h: Option<u32>,
 }
 
 const NONE: u32 = u32::MAX;
@@ -340,7 +372,7 @@ struct Builder<'s> {
     overflow: usize,
     implicit: Option<u32>,
     style: Vec<u16>,
-    image: Option<(usize, String)>,
+    image: Option<(usize, String, String, bool)>,
     image_depth: usize,
     skip: usize,
     /// Open inline HTML elements (tag, style flag) of the current leaf.
@@ -437,7 +469,7 @@ impl Builder<'_> {
 
     fn run(&mut self, kind: RunKind, r: &Range<usize>, text: &str, extra: u16) {
         let range = self.abs(r);
-        if let Some((_, alt)) = self.image.as_mut() {
+        if let Some((_, alt, _, _)) = self.image.as_mut() {
             alt.push_str(text);
             return;
         }
@@ -510,6 +542,27 @@ impl Builder<'_> {
         }
     }
 
+    /// Records an image reference (R-IMG-02/03) and returns its chip label (P-25):
+    /// glyph + alt text, or the file name when the alt text is empty.
+    fn image_ref(&mut self, src: &str, alt: &str, w: &str, h: &str) -> String {
+        let (src, mut req) = crate::image::obsidian_size(src);
+        if let Some(v) = crate::image::html_len(w) {
+            req.w = Some(v);
+        }
+        if let Some(v) = crate::image::html_len(h) {
+            req.h = Some(v);
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let px = |v: Option<f32>| v.map(|v| v.round() as u32);
+        self.d.images.push(ImageRef {
+            src: src.into(),
+            alt: alt.into(),
+            w: px(req.w),
+            h: px(req.h),
+        });
+        image_label(src, alt)
+    }
+
     fn open_link(&mut self, dest: &str, title: &str, wiki: bool) {
         let i = u(self.d.links.len());
         self.d.links.push(LinkDest {
@@ -544,12 +597,11 @@ impl Builder<'_> {
             }
             Tok::Open { tag, attrs, .. } if tag == "img" => {
                 let alt = attr(&attrs, "alt").unwrap_or("").to_string();
-                self.run(
-                    RunKind::Text,
-                    &(base..base),
-                    &format!("[image: {alt}]"),
-                    style::IMAGE,
-                );
+                let src = attr(&attrs, "src").unwrap_or("").to_string();
+                let w = attr(&attrs, "width").unwrap_or("").to_string();
+                let h = attr(&attrs, "height").unwrap_or("").to_string();
+                let label = self.image_ref(&src, &alt, &w, &h);
+                self.run(RunKind::Text, &(base..base), &label, style::IMAGE);
             }
             Tok::Open { tag, attrs, .. } => {
                 if tag == "a" {
@@ -962,9 +1014,15 @@ impl Detail {
                             b.open_link(&dest_url, &title, wiki);
                             b.with_style(style::LINK);
                         }
-                        Tag::Image { .. } => {
+                        Tag::Image {
+                            dest_url,
+                            link_type,
+                            ..
+                        } => {
                             if b.image.is_none() {
-                                b.image = Some((r.start, String::new()));
+                                let wiki = matches!(link_type, LinkType::WikiLink { .. });
+                                b.image =
+                                    Some((r.start, String::new(), dest_url.to_string(), wiki));
                             } else {
                                 b.image_depth += 1;
                                 b.style.push(b.style.last().copied().unwrap_or(0));
@@ -992,8 +1050,15 @@ impl Detail {
                         b.pop();
                     }
                     TagEnd::Image if b.image.is_some() && b.image_depth == 0 => {
-                        if let Some((start, alt)) = b.image.take() {
-                            let label = format!("[image: {alt}]");
+                        if let Some((start, alt, src, wiki)) = b.image.take() {
+                            // Obsidian `![[img.png|300]]`: the size arrives as the link text.
+                            let sized =
+                                wiki && crate::image::obsidian_size(&format!("x|{alt}")).0 == "x";
+                            let label = if sized {
+                                b.image_ref(&src, "", &alt, "")
+                            } else {
+                                b.image_ref(&src, &alt, "", "")
+                            };
                             b.run(RunKind::Text, &(start..r.end), &label, style::IMAGE);
                         }
                     }
@@ -1281,11 +1346,38 @@ mod tests {
         assert!(kinds.contains(&&NodeKind::Table { aligns: vec![0, 0] }));
         assert!(kinds.contains(&&NodeKind::TableRow { head: true }));
         let all: String = ds[0].runs.iter().map(|r| r.text(src)).collect();
-        assert!(all.contains("[image: logo]") && all.contains("Title") && all.contains("two"));
+        assert!(
+            all.contains("\u{25A3}\u{2009}logo") && all.contains("Title") && all.contains("two")
+        );
         assert!(!all.contains('x') || !all.contains("<script>"), "{all}");
         assert!(!all.contains("<"), "{all}");
         let strong = ds[0].runs.iter().find(|r| r.style & style::STRONG != 0);
         assert_eq!(strong.map(|r| r.text(src)), Some("two"));
+    }
+
+    #[test]
+    fn r_img_03_image_refs_and_chip_labels() {
+        let src = "![](a/b/logo.png) ![[pic.png|300]] <img src=\"x.png\" width=\"120px\" height=\"40\" alt=\"X\"> ![](data:image/png;base64,AA)\n";
+        let (_, ds) = tree(src);
+        let im = &ds[0].images;
+        assert_eq!(im.len(), 4, "{im:?}");
+        assert_eq!(&*im[0].src, "a/b/logo.png");
+        assert_eq!(im[2].w, Some(120));
+        assert_eq!(im[2].h, Some(40));
+        let labels: Vec<String> = ds[0]
+            .runs_of(0)
+            .iter()
+            .filter(|r| r.style & style::IMAGE != 0)
+            .map(|r| r.text(src).to_string())
+            .collect();
+        assert_eq!(labels[0], "\u{25A3}\u{2009}logo.png");
+        assert_eq!(
+            labels.last().map(String::as_str),
+            Some("\u{25A3}\u{2009}image")
+        );
+        if let Some(r) = im.iter().find(|r| r.src.starts_with("pic")) {
+            assert_eq!(r.w, Some(300));
+        }
     }
 
     #[test]
@@ -1302,7 +1394,7 @@ mod tests {
                 .find(|r| r.style & f != 0)
                 .map(|r| r.text(src).to_string())
         };
-        assert_eq!(find(style::IMAGE).as_deref(), Some("[image: alt t]"));
+        assert_eq!(find(style::IMAGE).as_deref(), Some("\u{25A3}\u{2009}alt t"));
         // R-MD-14: inline `<b>` is applied as strong, never shown as source.
         assert_eq!(find(style::STRONG).as_deref(), Some("h"));
         assert_eq!(find(style::MUTED), None);

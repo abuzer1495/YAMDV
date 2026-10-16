@@ -15,7 +15,7 @@ mod misc;
 
 use std::ops::Range;
 
-pub use langs::{Lang, lang_for};
+pub use langs::{ALL_NAMES, Lang, lang_for};
 
 /// Token class (R-CODE-01, colors per B.3.4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
