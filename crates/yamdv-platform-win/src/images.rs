@@ -249,15 +249,40 @@ pub fn factory() -> Option<IWICImagingFactory> {
     unsafe { CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER) }.ok()
 }
 
+enum Work {
+    /// Policy + header probe of a source as written, relative to the document.
+    Probe { doc: String },
+    /// Decode at `w × h` device px.
+    Decode { src: Source, w: u32, h: u32 },
+}
+
 struct Job {
     key: Box<str>,
-    src: Source,
-    w: u32,
-    h: u32,
+    work: Work,
     generation: u64,
 }
 
-type Done = (Box<str>, u64, u32, u32, Result<Bitmap, Placeholder>);
+enum Res {
+    Probed(ImgState, Option<Source>),
+    Decoded(u32, u32, Result<Bitmap, Placeholder>),
+}
+
+type Done = (Box<str>, u64, Res);
+
+/// Policy decision first, then (only for allowed local/data sources) the header probe.
+fn probe_job(key: &str, doc: &str) -> Res {
+    match image::resolve_policy(key, doc, &mut WinFs) {
+        Err(p) => Res::Probed(ImgState::Fail(p), None),
+        Ok(s) => Res::Probed(Store::probe_source(&s), Some(s)),
+    }
+}
+
+fn run_job(f: &IWICImagingFactory, j: &Job) -> Res {
+    match &j.work {
+        Work::Probe { doc } => probe_job(&j.key, doc),
+        Work::Decode { src, w, h } => Res::Decoded(*w, *h, decode(f, src, *w, *h)),
+    }
+}
 
 /// Decode worker handle (E.10).
 struct Worker {
@@ -276,9 +301,9 @@ fn spawn(hwnd: isize, done: Arc<Mutex<Vec<Done>>>) -> Option<Worker> {
                 while let Ok(j) = rx.recv_timeout(IDLE_EXIT) {
                     {
                         {
-                            let r = decode(&f, &j.src, j.w, j.h);
+                            let r = run_job(&f, &j);
                             if let Ok(mut d) = done.lock() {
-                                d.push((j.key, j.generation, j.w, j.h, r));
+                                d.push((j.key, j.generation, r));
                             }
                             // SAFETY: posting to a window handle owned by the UI thread.
                             let _ = unsafe {
@@ -382,6 +407,11 @@ impl Store {
         self.pinned.borrow_mut().clear();
     }
 
+    /// Keeps `key` decoded this frame (visible ± 1 screen).
+    pub fn pin(&self, key: &str) {
+        self.pinned.borrow_mut().push(key.into());
+    }
+
     /// Ends a frame: every decoded image not drawn in it moves into the LRU; over-budget
     /// entries are evicted (re-decoded on demand).
     pub fn end_frame(&self) {
@@ -414,6 +444,9 @@ impl Store {
         let need = {
             let mut map = self.map.borrow_mut();
             let e = map.get_mut(key)?;
+            if !matches!(e.state, ImgState::Ready { .. }) {
+                return None;
+            }
             let ok = e.bmp.as_ref().is_some_and(|b| b.w == w && b.h == h);
             if !ok && e.pending != Some((w, h)) {
                 e.pending = Some((w, h));
@@ -423,17 +456,16 @@ impl Store {
             }
         };
         if let Some(src) = need {
+            let j = Job {
+                key: key.into(),
+                work: Work::Decode { src, w, h },
+                generation: self.generation,
+            };
             if let Some(f) = &self.sync {
-                let r = decode(f, &src, w, h);
-                self.finish(key, w, h, r);
+                let r = run_job(f, &j);
+                self.apply(key, r);
             } else {
-                self.queue(Job {
-                    key: key.into(),
-                    src,
-                    w,
-                    h,
-                    generation: self.generation,
-                });
+                self.queue(j);
             }
         }
         let map = self.map.borrow();
@@ -461,10 +493,20 @@ impl Store {
         }
     }
 
-    fn finish(&self, key: &str, w: u32, h: u32, r: Result<Bitmap, Placeholder>) -> bool {
+    /// Applies a worker result; returns whether the layout changes.
+    fn apply(&self, key: &str, r: Res) -> bool {
         let mut map = self.map.borrow_mut();
         let Some(e) = map.get_mut(key) else {
             return false;
+        };
+        let (w, h, r) = match r {
+            Res::Probed(st, src) => {
+                let changed = st != e.state;
+                e.state = st;
+                e.src = src;
+                return changed;
+            }
+            Res::Decoded(w, h, r) => (w, h, r),
         };
         if e.pending == Some((w, h)) {
             e.pending = None;
@@ -491,15 +533,15 @@ impl Store {
             .unwrap_or_default();
         let mut relayout = false;
         let any = !done.is_empty();
-        for (k, generation, w, h, r) in done {
+        for (k, generation, r) in done {
             if generation == self.generation {
-                relayout |= self.finish(&k, w, h, r);
+                relayout |= self.apply(&k, r);
             }
         }
         (any, relayout)
     }
 
-    fn probe_source(src: &Source) -> ImgState {
+    pub(crate) fn probe_source(src: &Source) -> ImgState {
         let head = match src {
             Source::Data(d) => Some(d.get(..d.len().min(65_536)).unwrap_or(&[]).to_vec()),
             Source::File(p) => read_head(p, 65_536),
@@ -522,21 +564,49 @@ impl ImageHost for Store {
         if let Some(e) = self.map.borrow().get(src) {
             return e.state.clone();
         }
-        // The policy decision happens before any file call (S-RES-02).
-        let (state, source) = match image::resolve_policy(src, &self.doc_path, &mut WinFs) {
-            Err(p) => (ImgState::Fail(p), None),
-            Ok(s) => (Self::probe_source(&s), Some(s)),
-        };
+        // Lexical refusals need no I/O: decided here (no layout jump for remote badges etc.).
+        if let Err(p) = image::resolve(src, &self.doc_path) {
+            let st = ImgState::Fail(p);
+            self.map.borrow_mut().insert(
+                src.into(),
+                Entry {
+                    state: st.clone(),
+                    src: None,
+                    bmp: None,
+                    pending: None,
+                },
+            );
+            return st;
+        }
         self.map.borrow_mut().insert(
             src.into(),
             Entry {
-                state: state.clone(),
-                src: source,
+                state: ImgState::Pending,
+                src: None,
                 bmp: None,
                 pending: None,
             },
         );
-        state
+        // File-system policy checks and the header probe run on the worker (E.10); the
+        // estimate is replaced with scroll anchoring when the result arrives.
+        let j = Job {
+            key: src.into(),
+            work: Work::Probe {
+                doc: self.doc_path.clone(),
+            },
+            generation: self.generation,
+        };
+        if let Some(f) = &self.sync {
+            let r = run_job(f, &j);
+            self.apply(src, r);
+            return self
+                .map
+                .borrow()
+                .get(src)
+                .map_or(ImgState::Pending, |e| e.state.clone());
+        }
+        self.queue(j);
+        ImgState::Pending
     }
 }
 

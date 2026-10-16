@@ -980,6 +980,14 @@ impl Win {
                 me.draw(sh, band, cx, geo.as_ref())
             });
             if let View::Doc(d) = &me.view {
+                // P-13: everything within the viewport + one screen keeps its pixels.
+                for (_, _, bl) in d.viewer.visible(&d.content, me.view_h() * 2.0) {
+                    for it in &bl.items {
+                        if let Item::Image { src, .. } = it {
+                            d.images.pin(src);
+                        }
+                    }
+                }
                 d.images.end_frame();
             }
         }
