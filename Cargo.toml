@@ -31,6 +31,8 @@ windows = { version = "=0.62.2", default-features = false }
 # Dev / tooling only (never linked into yamdv.exe).
 object = { version = "=0.40.0", default-features = false, features = ["read_core", "pe", "std"] }
 serde_json = { version = "=1.0.154", default-features = false, features = ["std"] }
+windows-core = { version = "=0.62.2", default-features = false }
+windows-numerics = { version = "=0.3.1", default-features = false }
 tiny-skia = { version = "=0.12.0", default-features = false, features = ["std", "simd"] }
 
 [workspace.lints.rust]
