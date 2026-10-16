@@ -111,6 +111,28 @@ pub enum Item {
         /// Corner radius.
         radius: f32,
     },
+    /// Stroked rounded rectangle with a given line width (task boxes).
+    StrokeW {
+        /// Rectangle.
+        rect: Rect,
+        /// Color.
+        color: u32,
+        /// Corner radius.
+        radius: f32,
+        /// Line width.
+        width: f32,
+    },
+    /// Stroked polyline (vector icons, check marks, chevrons).
+    Line {
+        /// Points.
+        pts: Vec<(f32, f32)>,
+        /// Color.
+        color: u32,
+        /// Line width.
+        width: f32,
+        /// Close the path.
+        closed: bool,
+    },
     /// List bullet.
     Bullet {
         /// Center x.
@@ -173,6 +195,11 @@ pub enum HotKind {
     },
     /// Code block: toggle wrap.
     CodeWrap {
+        /// Detail node.
+        node: usize,
+    },
+    /// Foldable callout / collapsible container title row (R-REN-06).
+    Fold {
         /// Detail node.
         node: usize,
     },
@@ -664,15 +691,15 @@ fn node_margins(kind: &NodeKind, m: &Metrics, tight: bool) -> (f32, f32) {
 }
 
 #[derive(Clone, Copy)]
-struct Env {
-    color: u32,
-    list_depth: usize,
-    tight: bool,
+pub(crate) struct Env {
+    pub(crate) color: u32,
+    pub(crate) list_depth: usize,
+    pub(crate) tight: bool,
 }
 
 /// Lays out `children` vertically; returns the bottom y (without the last margin).
 #[allow(clippy::too_many_arguments)]
-fn stack(
+pub(crate) fn stack(
     ctx: &mut Ctx<'_>,
     src: &str,
     d: &Detail,
@@ -756,6 +783,9 @@ fn node(
             2.0
         }
         NodeKind::BlockQuote(alert) => {
+            if let Some(c) = crate::callout::detect(src, d, i, *alert, ctx.single_newline_break) {
+                return crate::callout::callout(ctx, src, d, i, c, x, y, w, env, out);
+            }
             let bar_at = out.items.len();
             let cx = x + 3.0 + 16.0;
             let cw = (w - 19.0).max(1.0);
@@ -764,18 +794,7 @@ fn node(
                 list_depth: env.list_depth,
                 tight: false,
             };
-            let mut cy = y;
-            if let Some(a) = alert {
-                // PHASE-003: callouts; interim = quote with a localized title line.
-                let title = ctx.strings.alert(*a).to_string();
-                let s = Style {
-                    weight: 600,
-                    ..base(&m, ctx.pal.quote_text)
-                };
-                let sh = shape_text(ctx, &title, s, Some(cw), m.pitch());
-                cy += out.para(cx, cy, sh, None, None);
-            }
-            let bottom = stack(ctx, src, d, &kids, cx, cy, cw, &inner, out);
+            let bottom = stack(ctx, src, d, &kids, cx, y, cw, &inner, out);
             let h = (bottom - y).max(m.pitch());
             out.items.insert(
                 bar_at,
@@ -807,17 +826,43 @@ fn node(
                 let marker_right = content_x - 8.0;
                 match (task, start) {
                     (Some(done), _) => {
-                        // PHASE-003: real checkboxes; interim U+2610 / U+2611.
-                        let s = base(&m, env.color);
-                        let sh = shape_text(
-                            ctx,
-                            if done { "\u{2611}" } else { "\u{2610}" },
-                            s,
-                            None,
-                            m.pitch(),
+                        // B.6.4: vector 16 × 16 box, radius 4, 1.5 px border; checked → accent
+                        // fill with a white check. Not clickable (P-16/P-17).
+                        let r = Rect::new(
+                            marker_right - 16.0,
+                            yy + (m.pitch() - 16.0) / 2.0,
+                            16.0,
+                            16.0,
                         );
-                        let mw = sh.width();
-                        out.para(marker_right - mw, yy, sh, None, None);
+                        if done {
+                            out.items.push(Item::Fill {
+                                rect: r,
+                                color: ctx.pal.accent,
+                                radius: 4.0,
+                            });
+                            out.items.push(Item::Line {
+                                pts: vec![
+                                    (r.x + 4.0, r.y + 8.5),
+                                    (r.x + 7.0, r.y + 11.5),
+                                    (r.x + 12.0, r.y + 5.0),
+                                ],
+                                color: 0xffffff,
+                                width: 2.0,
+                                closed: false,
+                            });
+                        } else {
+                            let border = if crate::code::is_dark(ctx.pal.bg) {
+                                0x6a6a6a
+                            } else {
+                                0xb0b0b0
+                            };
+                            out.items.push(Item::StrokeW {
+                                rect: r,
+                                color: border,
+                                radius: 4.0,
+                                width: 1.5,
+                            });
+                        }
                     }
                     (None, Some(_)) => {
                         let s = base(&m, env.color);

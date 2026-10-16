@@ -604,6 +604,54 @@ impl Band<'_> {
         });
     }
 
+    /// Stroked polyline (vector icons, check marks, chevrons); `closed` joins the last point.
+    pub fn polyline(&self, pts: &[(f32, f32)], color: u32, width: f32, closed: bool) {
+        let (Some(x0), Some(x1), Some(y0), Some(y1)) = (
+            pts.iter().map(|p| p.0).reduce(f32::min),
+            pts.iter().map(|p| p.0).reduce(f32::max),
+            pts.iter().map(|p| p.1).reduce(f32::min),
+            pts.iter().map(|p| p.1).reduce(f32::max),
+        ) else {
+            return;
+        };
+        let bb = Rect::new(
+            x0 - width,
+            y0 - width,
+            x1 - x0 + 2.0 * width,
+            y1 - y0 + 2.0 * width,
+        );
+        if !self.visible(bb.y, bb.h) || !self.clip_allows(&bb) {
+            return;
+        }
+        self.with_clipped(|pm, t, m| {
+            let mut pb = PathBuilder::new();
+            for (k, p) in pts.iter().enumerate() {
+                if k == 0 {
+                    pb.move_to(p.0, p.1);
+                } else {
+                    pb.line_to(p.0, p.1);
+                }
+            }
+            if closed {
+                pb.close();
+            }
+            if let Some(path) = pb.finish() {
+                pm.stroke_path(
+                    &path,
+                    &paint(color, 1.0),
+                    &Stroke {
+                        width,
+                        line_cap: tiny_skia::LineCap::Round,
+                        line_join: tiny_skia::LineJoin::Round,
+                        ..Default::default()
+                    },
+                    t,
+                    m,
+                );
+            }
+        });
+    }
+
     /// Filled circle or ring.
     pub fn circle(&self, cx: f32, cy: f32, r: f32, color: u32, ring: Option<f32>) {
         if !self.visible(cy - r, 2.0 * r)

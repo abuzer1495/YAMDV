@@ -404,6 +404,7 @@ impl Win {
         viewer.code_default = yamdv_layout::code::CodeOpts {
             line_numbers: sh.read.code_line_numbers,
             wrap: sh.read.code_wrap,
+            fold_toggled: false,
         };
         self.warm_pending = true;
         self.view = View::Doc(Box::new(DocView {
@@ -1341,6 +1342,11 @@ impl Win {
                 o.wrap = !o.wrap;
                 d.viewer.set_code_opts(bi, node, o);
             }
+            HotKind::Fold { node } => {
+                let mut o = d.viewer.code_opts(bi, node);
+                o.fold_toggled = !o.fold_toggled;
+                d.viewer.set_code_opts(bi, node, o);
+            }
         }
         self.invalidate();
         true
@@ -1551,6 +1557,21 @@ pub(crate) fn draw_doc(
                     color,
                     radius,
                 } => b.stroke(rect.offset(cx, y), *color, *radius, 1.0),
+                Item::StrokeW {
+                    rect,
+                    color,
+                    radius,
+                    width,
+                } => b.stroke(rect.offset(cx, y), *color, *radius, *width),
+                Item::Line {
+                    pts,
+                    color,
+                    width,
+                    closed,
+                } => {
+                    let moved: Vec<(f32, f32)> = pts.iter().map(|p| (p.0 + cx, p.1 + y)).collect();
+                    b.polyline(&moved, *color, *width, *closed);
+                }
                 Item::Bullet {
                     cx: bx,
                     cy,

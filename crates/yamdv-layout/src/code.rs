@@ -26,6 +26,8 @@ pub struct CodeOpts {
     pub line_numbers: bool,
     /// Soft wrap.
     pub wrap: bool,
+    /// Fold state toggled away from the node's default (callouts, details; session state).
+    pub fold_toggled: bool,
 }
 
 /// Lines per shaped chunk; blocks longer than this are split so no single text layout grows

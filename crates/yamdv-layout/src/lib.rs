@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 
 pub mod block;
+pub mod callout;
 pub mod code;
 pub mod fenwick;
 pub mod geom;
