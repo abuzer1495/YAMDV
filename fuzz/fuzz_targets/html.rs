@@ -15,8 +15,11 @@ fuzz_target!(|data: &[u8]| {
             assert!(!yamdv_core::html::DROP.contains(&tag.as_str()), "{tag}");
             for (k, v) in attrs {
                 assert!(!k.starts_with("on"), "{k}");
-                let l = v.to_ascii_lowercase();
-                assert!(!l.contains("javascript:") && !l.contains("vbscript:"), "{v}");
+                // URL-valued attributes only; text attributes (title, alt) are shown as text.
+                if matches!(k.as_str(), "href" | "src" | "cite" | "background" | "action" | "formaction") {
+                    let l: String = v.chars().filter(|c| !c.is_whitespace() && !c.is_control()).collect::<String>().to_ascii_lowercase();
+                    assert!(!l.contains("javascript:") && !l.contains("vbscript:"), "{k}={v}");
+                }
             }
         }
     }

@@ -7,19 +7,19 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 |---|---|---|
 | B-SIZE | 013 | measured (002): xtask size, soft 4.0 MiB |
 | M0 | 013 | measured (002): memprobe gate ≤ 4.8 MiB |
-| M1 | 013 | planned |
+| M1 | 013 | measured (003): typical.md, CI |
 | M2 | 013 | measured (002): large-1mb.md gate ≤ 16 MiB |
 | M3 | 013 | planned |
 | M4 | 013 | planned |
 | M5 | 013 | planned |
 | M6 | 013 | measured (002): memprobe --open-dialog gate |
 | M7 | 013 | measured (002): commit ≤ 3×PWS gate |
-| R-CODE-01 | 003 | planned |
-| R-CODE-02 | 003 | planned |
-| R-CODE-03 | 003 | planned |
-| R-CODE-04 | 003 | planned |
-| R-CODE-05 | 003 | planned |
-| R-CODE-06 | 003 | planned |
+| R-CODE-01 | 003 | implemented (003) |
+| R-CODE-02 | 003 | implemented (003) |
+| R-CODE-03 | 003 | implemented (003) |
+| R-CODE-04 | 003 | implemented (003) |
+| R-CODE-05 | 003 | partial (003): toolbar not animated |
+| R-CODE-06 | 003 | partial (003): chunked paragraphs, not lazy shaping |
 | R-EDIT-01 | 006 | planned |
 | R-EDIT-02 | 006 | planned |
 | R-EDIT-03 | 006 | planned |
@@ -44,18 +44,18 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-EXT-02 | 005 | planned |
 | R-EXT-03 | 005 | planned |
 | R-EXT-04 | 005 | planned |
-| R-IMG-01 | 003 | planned |
-| R-IMG-02 | 003 | planned |
-| R-IMG-03 | 003 | planned |
-| R-IMG-04 | 003 | planned |
+| R-IMG-01 | 003 | partial (003): header probe for all formats; WIC decode not done |
+| R-IMG-02 | 003 | partial (003): yamdv_core::image::resolve (tests); not wired to a decoder |
+| R-IMG-03 | 003 | partial (003): display_size/obsidian_size/html_len (tests); not used by layout |
+| R-IMG-04 | 003 | partial (003): probe + LRU (tests); no worker/decode |
 | R-IMG-05 | 003 | planned |
-| R-IMG-06 | 003 | planned |
-| R-LINK-01 | 003 | planned |
-| R-LINK-02 | 003 | planned |
-| R-LINK-03 | 003 | planned |
-| R-LINK-04 | 003 | planned |
-| R-LINK-05 | 003 | planned |
-| R-LINK-06 | 003 | planned |
+| R-IMG-06 | 003 | partial (003): P-25 chip for all images; block placeholders + tooltip missing |
+| R-LINK-01 | 003 | implemented (003) |
+| R-LINK-02 | 003 | implemented (003) |
+| R-LINK-03 | 003 | implemented (003) |
+| R-LINK-04 | 003 | partial (003): Ask in-window dialog, not anchored popover |
+| R-LINK-05 | 003 | implemented (003) |
+| R-LINK-06 | 003 | implemented (003) |
 | R-LINK-07 | 003 | planned |
 | R-MAP-01 | 010 | planned |
 | R-MAP-02 | 010 | planned |
@@ -67,23 +67,23 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-MATH-06 | 009 | planned |
 | R-MATH-07 | 009 | planned |
 | R-MD-01 | 002/003 | implemented (002) |
-| R-MD-02 | 002/003 | partial (002): strikethrough only |
-| R-MD-03 | 002/003 | planned |
-| R-MD-04 | 002/003 | planned |
-| R-MD-05 | 002/003 | planned |
-| R-MD-06 | 002/003 | planned |
+| R-MD-02 | 002/003 | implemented (003): GFM tables, tasks, strikethrough, autolinks |
+| R-MD-03 | 002/003 | partial (003): highlight/sup/sub; no baseline shift |
+| R-MD-04 | 002/003 | implemented (003): callouts |
+| R-MD-05 | 002/003 | implemented (003): ==highlight== |
+| R-MD-06 | 002/003 | partial (003): sup/sub 0.75 em, no baseline shift |
 | R-MD-07 | 002/003 | planned |
 | R-MD-08 | 002/003 | planned |
-| R-MD-09 | 002/003 | planned |
+| R-MD-09 | 002/003 | implemented (003) |
 | R-MD-10 | 002/003 | implemented (002) |
-| R-MD-11 | 002/003 | planned |
-| R-MD-12 | 002/003 | planned |
-| R-MD-13 | 002/003 | planned |
-| R-MD-14 | 002/003 | planned |
+| R-MD-11 | 002/003 | implemented (003): definition lists |
+| R-MD-12 | 002/003 | implemented (003): emoji shortcodes (ADR-0014) |
+| R-MD-13 | 002/003 | implemented (003): autolink literals |
+| R-MD-14 | 002/003 | partial (003): sanitizer + structure pass; entity subset, colspan=1 |
 | R-MD-15 | 002/003 | implemented (002) |
 | R-MD-16 | 002/003 | implemented (002) |
 | R-MD-17 | 002/003 | implemented (002) |
-| R-MD-18 | 002/003 | planned |
+| R-MD-18 | 002/003 | implemented (003) |
 | R-MD-19 | 002/003 | planned |
 | R-MMD-01 | 010 | planned |
 | R-MMD-02 | 010 | planned |
@@ -137,20 +137,20 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-REL-04 | 012 | planned |
 | R-REN-01 | 002/003 | implemented (002) |
 | R-REN-02 | 002/003 | implemented (002) |
-| R-REN-03 | 002/003 | partial (002): no highlight/sub/sup/kbd |
-| R-REN-04 | 002/003 | partial (002): no task checkboxes |
+| R-REN-03 | 002/003 | implemented (003) |
+| R-REN-04 | 002/003 | partial (003): vector task boxes; toggle in 006 |
 | R-REN-05 | 002/003 | implemented (002) |
-| R-REN-06 | 002/003 | planned |
-| R-REN-07 | 002/003 | planned |
-| R-REN-08 | 002/003 | planned |
+| R-REN-06 | 002/003 | implemented (003) |
+| R-REN-07 | 002/003 | partial (003): tables; hover toolbar/fullscreen in 005 |
+| R-REN-08 | 002/003 | implemented (003) |
 | R-REN-09 | 002/003 | implemented (002) |
-| R-REN-10 | 002/003 | planned |
-| R-REN-11 | 002/003 | planned |
-| R-REN-12 | 002/003 | planned |
-| R-REN-13 | 002/003 | planned |
-| R-REN-14 | 002/003 | planned |
+| R-REN-10 | 002/003 | partial (003): footnotes; hover tooltip missing |
+| R-REN-11 | 002/003 | implemented (003) |
+| R-REN-12 | 002/003 | implemented (003) |
+| R-REN-13 | 002/003 | implemented (003): front matter card |
+| R-REN-14 | 002/003 | implemented (003) |
 | R-REN-15 | 002/003 | planned |
-| R-REN-16 | 002/003 | partial (002): plain text only |
+| R-REN-16 | 002/003 | partial (003): CF_HTML + Copy as Markdown; menu entry 004 |
 | R-REN-17 | 002/003 | implemented (002) |
 | R-REN-18 | 002/003 | planned |
 | R-REN-19 | 002/003 | implemented (002) |
@@ -199,7 +199,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | S-EXEC-01 | 003/005 | planned |
 | S-EXEC-02 | 003/005 | planned |
 | S-EXEC-03 | 003/005 | planned |
-| S-EXEC-04 | 003/005 | planned |
+| S-EXEC-04 | 003/005 | implemented (003): ShellExecuteExW, no NOZONECHECKS |
 | S-EXP-01 | 011 | planned |
 | S-EXP-02 | 011 | planned |
 | S-EXP-03 | 011 | planned |
@@ -214,17 +214,17 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | S-FILE-08 | 002/005 | planned |
 | S-FILE-09 | 002/005 | planned |
 | S-FILE-10 | 002/005 | planned |
-| S-HTML-01 | 003 | planned |
-| S-HTML-02 | 003 | planned |
-| S-HTML-03 | 003 | planned |
+| S-HTML-01 | 003 | implemented (003): allowlist sanitizer, XSS suite |
+| S-HTML-02 | 003 | implemented (003) |
+| S-HTML-03 | 003 | implemented (003) |
 | S-IPC-01 | 005 | planned |
 | S-IPC-02 | 005 | planned |
 | S-IPC-03 | 005 | planned |
 | S-IPC-04 | 005 | planned |
-| S-LINK-01 | 003 | planned |
-| S-LINK-02 | 003 | planned |
-| S-LINK-03 | 003 | planned |
-| S-LINK-04 | 003 | planned |
+| S-LINK-01 | 003 | implemented (003) |
+| S-LINK-02 | 003 | implemented (003) |
+| S-LINK-03 | 003 | implemented (003) |
+| S-LINK-04 | 003 | implemented (003) |
 | S-NET-01 | 003/012 | partial (001): no networking code; enforced by S-SUP-03/S-NET-03 |
 | S-NET-02 | 003/012 | planned |
 | S-NET-03 | 003/012 | implemented (001): cargo xtask check-imports |
@@ -250,18 +250,18 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | S-PROC-04 | 001 | partial (001): ImageLoad+StrictHandle; DynamicCode SHOULD deferred |
 | S-PROC-05 | 001 | implemented (001): profile + .cargo/config.toml, verified by check-imports |
 | S-PROC-06 | 001 | partial (001): manifest asInvoker; elevation banner planned 004/005 |
-| S-PROC-07 | 001 | planned |
+| S-PROC-07 | 001 | implemented (003): dialog host (ADR-0013) |
 | S-PROC-08 | 001 | planned |
 | S-REG-01 | 005 | planned |
 | S-REG-02 | 005 | planned |
 | S-REG-03 | 005 | planned |
 | S-REG-04 | 005 | planned |
-| S-RES-01 | 003 | planned |
-| S-RES-02 | 003 | planned |
-| S-RES-03 | 003 | planned |
-| S-RES-04 | 003 | planned |
-| S-RES-05 | 003 | planned |
-| S-RES-06 | 003 | planned |
+| S-RES-01 | 003 | partial (003): policy + tests, not wired |
+| S-RES-02 | 003 | partial (003): policy + mock-FS matrix (AC-6); Windows Fs impl not wired |
+| S-RES-03 | 003 | implemented (003): remote never fetched (no image I/O at all) |
+| S-RES-04 | 003 | partial (003): limits + header check (tests) |
+| S-RES-05 | 003 | implemented (003): CF_HTML exports alt text only |
+| S-RES-06 | 003 | implemented (003): DirectWrite system fonts only |
 | S-SUP-01 | 001 | implemented (001): Cargo.lock, cargo deny in CI, --locked |
 | S-SUP-02 | 001 | implemented (001): ADR-0003…0006 |
 | S-SUP-03 | 001 | implemented (001): deny.toml |
@@ -269,13 +269,13 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | S-SUP-05 | 001 | implemented (001): build_support/res.rs |
 | S-SUP-06 | 001 | implemented (001): .github/workflows/ci.yml |
 | S-TEST-01 | 012 | partial (002): 2 fuzz targets |
-| S-TEST-02 | 012 | planned |
+| S-TEST-02 | 012 | partial (003): link, image-path and 66-vector HTML matrices |
 | S-TEST-03 | 012 | implemented (001): cargo xtask check-imports |
 | S-TEST-04 | 012 | partial (001): THREAT_MODEL.md skeleton |
 | S-UI-01 | 004 | planned |
 | S-UI-02 | 004 | planned |
 | S-UI-03 | 004 | planned |
-| T1 | 013 | planned |
+| T1 | 013 | measured (003): typical.md, CI |
 | T2 | 013 | planned |
 | T3 | 013 | planned |
 | T4 | 013 | planned |
