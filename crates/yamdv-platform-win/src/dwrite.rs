@@ -23,7 +23,7 @@ use windows::Win32::Graphics::DirectWrite::{
     DWRITE_TEXT_METRICS, DWRITE_TEXT_RANGE, DWRITE_WORD_WRAPPING_NO_WRAP, DWriteCreateFactory,
     IDWriteFactory, IDWriteFontCollection, IDWriteTextFormat, IDWriteTextLayout,
 };
-use windows::core::{BOOL, HSTRING, IUnknown, PCWSTR, implement, w};
+use windows::core::{BOOL, HSTRING, IUnknown, implement, w};
 use yamdv_layout::Rect;
 use yamdv_layout::shaper::{Family, ParaSpec, Shaped, Style, TextShaper};
 
@@ -331,11 +331,13 @@ impl Shaped for DwShaped {
         // SAFETY: first call queries the count (expected to fail with E_NOT_SUFFICIENT_BUFFER).
         let _ = unsafe { l.HitTestTextRange(range.start, len, 0.0, 0.0, None, &mut count) };
         let mut buf = vec![DWRITE_HIT_TEST_METRICS::default(); count as usize];
+        if count == 0 {
+            return Vec::new();
+        }
         // SAFETY: buffer sized from the first call.
-        if count == 0
-            || unsafe { l.HitTestTextRange(range.start, len, 0.0, 0.0, Some(&mut buf), &mut count) }
-                .is_err()
-        {
+        let r =
+            unsafe { l.HitTestTextRange(range.start, len, 0.0, 0.0, Some(&mut buf), &mut count) };
+        if r.is_err() {
             return Vec::new();
         }
         // Line boxes: snap to the uniform pitch so selection has no gaps between lines (B.6.13).
@@ -361,5 +363,3 @@ impl TextShaper for DwShaper<'_> {
         Box::new(self.0.shape_impl(spec))
     }
 }
-
-/// Keeps `PCWSTR` imported for callers that build wide strings.

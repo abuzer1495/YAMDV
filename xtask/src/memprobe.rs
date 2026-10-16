@@ -5,7 +5,7 @@
 use serde_json::{Value, json};
 
 /// JSON schema identifier written into every memprobe output.
-pub const SCHEMA: &str = "yamdv.memprobe/1";
+pub const SCHEMA: &str = "yamdv.memprobe/2";
 
 /// Parsed command-line options.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,7 +28,30 @@ pub struct Options {
     pub screenshot: Option<String>,
     /// Label stored in the JSON.
     pub label: Option<String>,
+    /// Set the client area to `W×H` px before settling (F-08).
+    pub size: Option<(i32, i32)>,
+    /// Open and cancel the Open dialog (`WM_COMMAND` 0x101) before settling (M6).
+    pub open_dialog: bool,
+    /// Measure CPU time consumed during this many ms after settling (T7).
+    pub cpu_ms: u32,
+    /// Budgets (CI gate): private working set (MiB), commit ÷ PWS ratio, first paint (ms), idle CPU (ms).
+    pub budget: Budget,
 }
+
+/// Soft budgets checked by [`check_budget`]; `None` = not gated.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Budget {
+    /// Max median private working set, MiB.
+    pub pws_mib: Option<f64>,
+    /// Max median commit ÷ PWS (M7).
+    pub commit_ratio: Option<f64>,
+    /// Max median first-paint time, ms.
+    pub first_paint_ms: Option<u64>,
+    /// Max median idle CPU, ms.
+    pub cpu_ms: Option<f64>,
+}
+
+impl Eq for Budget {}
 
 /// Parse memprobe arguments (everything after `memprobe`).
 pub fn parse_args(args: &[String]) -> Result<Options, String> {
@@ -43,7 +66,12 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
         wait_title: None,
         screenshot: None,
         label: None,
+        size: None,
+        open_dialog: false,
+        cpu_ms: 0,
+        budget: Budget::default(),
     };
+    let num = |v: String, n: &str| v.parse::<f64>().map_err(|_| format!("bad {n}"));
     let next = |it: &mut std::slice::Iter<'_, String>, name: &str| {
         it.next()
             .cloned()
@@ -70,13 +98,35 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
             "--wait-title" => o.wait_title = Some(next(&mut it, a)?),
             "--screenshot" => o.screenshot = Some(next(&mut it, a)?),
             "--label" => o.label = Some(next(&mut it, a)?),
+            "--size" => {
+                let v = next(&mut it, a)?;
+                let (w, h) = v.split_once('x').ok_or("bad --size (WxH)")?;
+                let w = w.parse::<i32>().map_err(|_| "bad --size")?;
+                let h = h.parse::<i32>().map_err(|_| "bad --size")?;
+                if !(200..=8000).contains(&w) || !(200..=8000).contains(&h) {
+                    return Err("bad --size".into());
+                }
+                o.size = Some((w, h));
+            }
+            "--open-dialog" => o.open_dialog = true,
+            "--cpu-ms" => o.cpu_ms = next(&mut it, a)?.parse().map_err(|_| "bad --cpu-ms")?,
+            "--budget-pws-mib" => o.budget.pws_mib = Some(num(next(&mut it, a)?, a)?),
+            "--budget-commit-ratio" => o.budget.commit_ratio = Some(num(next(&mut it, a)?, a)?),
+            "--budget-first-paint-ms" => {
+                o.budget.first_paint_ms = Some(
+                    next(&mut it, a)?
+                        .parse()
+                        .map_err(|_| "bad --budget-first-paint-ms")?,
+                );
+            }
+            "--budget-cpu-ms" => o.budget.cpu_ms = Some(num(next(&mut it, a)?, a)?),
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
             s if o.exe.is_empty() => o.exe = s.to_string(),
             s => return Err(format!("unexpected argument {s}")),
         }
     }
     if o.exe.is_empty() {
-        return Err("usage: memprobe <exe> [--doc <file>] [--arg <x>]… [--settle-ms 3000] [--runs 3] [--json out.json] [--wait-title <text>] [--screenshot out.png] [--label <name>]".into());
+        return Err("usage: memprobe <exe> [--doc <file>] [--arg <x>]… [--settle-ms 3000] [--runs 3] [--json out.json] [--wait-title <text>] [--screenshot out.png] [--label <name>] [--size WxH] [--open-dialog] [--cpu-ms N] [--budget-pws-mib X] [--budget-commit-ratio X] [--budget-first-paint-ms N] [--budget-cpu-ms X]".into());
     }
     Ok(o)
 }
@@ -104,6 +154,14 @@ pub struct Sample {
     pub modules: Vec<String>,
     /// Process exited cleanly (exit code 0) after `WM_CLOSE`.
     pub exit_ok: bool,
+    /// First paint in ms since process creation (window property `YAMDV.FirstPaintMs`).
+    pub first_paint_ms: Option<u64>,
+    /// Actual client size (px) at measurement time.
+    pub client: (i32, i32),
+    /// Primary monitor resolution (px).
+    pub monitor: (i32, i32),
+    /// CPU time (kernel + user) during the `--cpu-ms` window, in µs.
+    pub cpu_us: Option<u64>,
 }
 
 /// Median of a list (lower median for even counts). Returns 0 for an empty list.
@@ -145,12 +203,82 @@ pub fn median_sample(samples: &[Sample]) -> Sample {
             .map(|s| s.modules.clone())
             .unwrap_or_default(),
         exit_ok: samples.iter().all(|s| s.exit_ok),
+        first_paint_ms: {
+            let mut v: Vec<u64> = samples.iter().filter_map(|s| s.first_paint_ms).collect();
+            if v.is_empty() {
+                None
+            } else {
+                Some(median(&mut v))
+            }
+        },
+        client: samples.first().map(|s| s.client).unwrap_or_default(),
+        monitor: samples.first().map(|s| s.monitor).unwrap_or_default(),
+        cpu_us: {
+            let mut v: Vec<u64> = samples.iter().filter_map(|s| s.cpu_us).collect();
+            if v.is_empty() {
+                None
+            } else {
+                Some(median(&mut v))
+            }
+        },
     }
+}
+
+/// Rounds MiB to two decimals (P-05).
+fn mib2(v: u64) -> f64 {
+    (mib(v) * 100.0).round() / 100.0
+}
+
+/// Checks the median against the budgets; returns the violations.
+pub fn check_budget(b: &Budget, samples: &[Sample]) -> Vec<String> {
+    let m = median_sample(samples);
+    let mut out = Vec::new();
+    if let Some(x) = b.pws_mib
+        && mib(m.private_ws) > x
+    {
+        out.push(format!("PWS {:.2} MiB > {x} MiB", mib(m.private_ws)));
+    }
+    #[allow(clippy::cast_precision_loss)]
+    if let Some(x) = b.commit_ratio
+        && m.private_ws > 0
+        && m.private_usage as f64 / m.private_ws as f64 > x
+    {
+        out.push(format!(
+            "commit/PWS {:.2} > {x}",
+            m.private_usage as f64 / m.private_ws as f64
+        ));
+    }
+    if let Some(x) = b.first_paint_ms {
+        match m.first_paint_ms {
+            Some(v) if v <= x => {}
+            Some(v) => out.push(format!("first paint {v} ms > {x} ms")),
+            None => out.push("first paint not reported".into()),
+        }
+    }
+    #[allow(clippy::cast_precision_loss)]
+    if let Some(x) = b.cpu_ms {
+        match m.cpu_us {
+            Some(v) if v as f64 / 1000.0 <= x => {}
+            Some(v) => out.push(format!("idle CPU {:.3} ms > {x} ms", v as f64 / 1000.0)),
+            None => out.push("idle CPU not measured".into()),
+        }
+    }
+    if !m.exit_ok {
+        out.push("process did not exit cleanly".into());
+    }
+    out
 }
 
 fn sample_json(s: &Sample) -> Value {
     json!({
         "private_ws_bytes": s.private_ws,
+        "private_ws_mib": mib2(s.private_ws),
+        "private_usage_mib": mib2(s.private_usage),
+        "working_set_mib": mib2(s.working_set),
+        "first_paint_ms": s.first_paint_ms,
+        "client_size": [s.client.0, s.client.1],
+        "monitor_resolution": [s.monitor.0, s.monitor.1],
+        "idle_cpu_us": s.cpu_us,
         "private_ws_counter_bytes": s.private_ws_counter,
         "private_usage_bytes": s.private_usage,
         "working_set_bytes": s.working_set,
@@ -173,6 +301,10 @@ pub fn to_json(opts: &Options, samples: &[Sample]) -> Value {
         "doc": opts.doc,
         "args": opts.args,
         "settle_ms": opts.settle_ms,
+        "requested_size": opts.size.map(|(w, h)| [w, h]),
+        "open_dialog": opts.open_dialog,
+        "cpu_window_ms": opts.cpu_ms,
+        "units": "bytes + MiB (2^20), P-05",
         "runs": samples.len(),
         "method": "QueryWorkingSet shared-bit counting (Appendix D §D.3); median of runs",
         "samples": samples.iter().map(sample_json).collect::<Vec<_>>(),
@@ -212,6 +344,11 @@ pub fn validate(v: &Value) -> Result<(), String> {
         ] {
             if s.get(key).and_then(Value::as_u64).is_none() {
                 return Err(format!("sample key {key} missing or not an integer"));
+            }
+        }
+        for key in ["private_ws_mib", "client_size", "monitor_resolution"] {
+            if s.get(key).is_none() {
+                return Err(format!("sample key {key} missing"));
             }
         }
         if s.get("exit_ok").and_then(Value::as_bool).is_none() {
@@ -262,16 +399,21 @@ pub fn summary(opts: &Options, samples: &[Sample]) -> String {
         ));
     }
     out.push_str(&format!(
-        "  MEDIAN: PWS {:.2} MiB ({} bytes; counter {}), commit {:.2} MiB, WS {:.2} MiB, peak {:.2} MiB, handles {}, GDI {}, USER {}\n  modules ({}): {}\n",
+        "  MEDIAN: PWS {:.2} MiB ({} bytes; counter {}), commit {:.2} MiB ({} bytes), WS {:.2} MiB, peak {:.2} MiB, handles {}, GDI {}, USER {}\n  first paint {:?} ms, idle CPU {:?} µs, client {:?}, monitor {:?}\n  modules ({}): {}\n",
         mib(m.private_ws),
         m.private_ws,
         m.private_ws_counter.map(|c| c.to_string()).unwrap_or_else(|| "n/a".into()),
         mib(m.private_usage),
+        m.private_usage,
         mib(m.working_set),
         mib(m.peak_working_set),
         m.handles,
         m.gdi_objects,
         m.user_objects,
+        m.first_paint_ms,
+        m.cpu_us,
+        m.client,
+        m.monitor,
         m.modules.len(),
         m.modules.join(", ")
     ));
@@ -294,6 +436,7 @@ mod win {
     //! handles we own and buffers sized as the API requires.
     use super::{Options, Sample};
     use std::time::{Duration, Instant};
+    use windows::Win32::Foundation::FILETIME;
     use windows::Win32::Foundation::{CloseHandle, HANDLE, HMODULE, HWND, LPARAM, WPARAM};
     use windows::Win32::Graphics::Gdi::{
         BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS,
@@ -306,14 +449,16 @@ mod win {
         QueryWorkingSet,
     };
     use windows::Win32::System::SystemInformation::{GetSystemInfo, SYSTEM_INFO};
+    use windows::Win32::System::Threading::GetProcessTimes;
     use windows::Win32::System::Threading::{
         CreateProcessW, GR_GDIOBJECTS, GR_USEROBJECTS, GetExitCodeProcess, GetGuiResources,
         GetProcessHandleCount, PROCESS_CREATION_FLAGS, PROCESS_INFORMATION, STARTUPINFOW,
         TerminateProcess, WaitForInputIdle, WaitForSingleObject,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GetClientRect, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
-        PostMessageW, WM_CLOSE,
+        EnumWindows, GetClassNameW, GetClientRect, GetPropW, GetSystemMetrics, GetWindowRect,
+        GetWindowTextW, GetWindowThreadProcessId, IsWindow, IsWindowVisible, PostMessageW,
+        SM_CXSCREEN, SM_CYSCREEN, SWP_NOMOVE, SWP_NOZORDER, SetWindowPos, WM_CLOSE, WM_COMMAND,
     };
     use windows::core::{BOOL, PCWSTR, PWSTR};
 
@@ -357,9 +502,21 @@ mod win {
         }
     }
 
+    fn class(hwnd: HWND) -> String {
+        let mut buf = [0u16; 256];
+        // SAFETY: valid buffer.
+        let n = unsafe { GetClassNameW(hwnd, &mut buf) };
+        String::from_utf16_lossy(buf.get(..usize::try_from(n).unwrap_or(0)).unwrap_or(&[]))
+    }
+
     fn find_window(pid: u32) -> Option<HWND> {
-        struct Search {
+        find_window_class(pid, None)
+    }
+
+    fn find_window_class(pid: u32, want: Option<&str>) -> Option<HWND> {
+        struct Search<'a> {
             pid: u32,
+            want: Option<&'a str>,
             found: Option<HWND>,
         }
         unsafe extern "system" fn cb(hwnd: HWND, lp: LPARAM) -> BOOL {
@@ -370,13 +527,23 @@ mod win {
             // SAFETY: hwnd is a valid window handle supplied by EnumWindows.
             unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
             // SAFETY: as above.
-            if pid == s.pid && unsafe { IsWindowVisible(hwnd) }.as_bool() {
+            // SAFETY: as above.
+            let visible = unsafe { IsWindowVisible(hwnd) }.as_bool();
+            if pid == s.pid
+                && visible
+                && s.want.is_none_or(|w| class(hwnd) == w)
+                && (s.want.is_some() || class(hwnd) != "#32770")
+            {
                 s.found = Some(hwnd);
                 return BOOL(0);
             }
             BOOL(1)
         }
-        let mut s = Search { pid, found: None };
+        let mut s = Search {
+            pid,
+            want,
+            found: None,
+        };
         // SAFETY: the callback only dereferences `s`, which outlives the call.
         let _ = unsafe { EnumWindows(Some(cb), LPARAM(&mut s as *mut Search as isize)) };
         s.found
@@ -547,6 +714,77 @@ mod win {
         }
     }
 
+    fn cpu_100ns(h: HANDLE) -> u64 {
+        let (mut c, mut e, mut k, mut u) = (
+            FILETIME::default(),
+            FILETIME::default(),
+            FILETIME::default(),
+            FILETIME::default(),
+        );
+        // SAFETY: valid process handle and out-pointers.
+        let _ = unsafe { GetProcessTimes(h, &mut c, &mut e, &mut k, &mut u) };
+        let f = |f: FILETIME| (u64::from(f.dwHighDateTime) << 32) | u64::from(f.dwLowDateTime);
+        f(k) + f(u)
+    }
+
+    fn client(hwnd: HWND) -> (i32, i32) {
+        let mut rc = Default::default();
+        // SAFETY: valid hwnd and out-pointer.
+        let _ = unsafe { GetClientRect(hwnd, &mut rc) };
+        (rc.right - rc.left, rc.bottom - rc.top)
+    }
+
+    fn set_client(hwnd: HWND, w: i32, h: i32) {
+        let mut wr = Default::default();
+        // SAFETY: valid hwnd and out-pointer.
+        let _ = unsafe { GetWindowRect(hwnd, &mut wr) };
+        let (cw, ch) = client(hwnd);
+        let (fw, fh) = ((wr.right - wr.left) - cw, (wr.bottom - wr.top) - ch);
+        // SAFETY: valid hwnd (owned by the child; SetWindowPos works cross-process).
+        let _ =
+            unsafe { SetWindowPos(hwnd, None, 0, 0, w + fw, h + fh, SWP_NOMOVE | SWP_NOZORDER) };
+    }
+
+    fn first_paint(hwnd: HWND) -> Option<u64> {
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(20) {
+            // SAFETY: valid hwnd; static NUL-terminated property name.
+            let v = unsafe { GetPropW(hwnd, windows::core::w!("YAMDV.FirstPaintMs")) };
+            if !v.0.is_null() {
+                return Some((v.0 as usize as u64).saturating_sub(1));
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        None
+    }
+
+    fn open_and_cancel_dialog(pid: u32, hwnd: HWND) -> Result<(), String> {
+        // SAFETY: valid window handle owned by the child process.
+        let _ = unsafe { PostMessageW(Some(hwnd), WM_COMMAND, WPARAM(0x101), LPARAM(0)) };
+        let start = Instant::now();
+        let dlg = loop {
+            if let Some(d) = find_window_class(pid, Some("#32770")) {
+                break d;
+            }
+            if start.elapsed() > Duration::from_secs(20) {
+                return Err("Open dialog did not appear".into());
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        std::thread::sleep(Duration::from_millis(1500));
+        // SAFETY: valid dialog handle (WM_CLOSE on a common dialog = Cancel).
+        let _ = unsafe { PostMessageW(Some(dlg), WM_CLOSE, WPARAM(0), LPARAM(0)) };
+        let start = Instant::now();
+        // SAFETY: IsWindow only tests the handle.
+        while unsafe { IsWindow(Some(dlg)) }.as_bool() {
+            if start.elapsed() > Duration::from_secs(10) {
+                return Err("Open dialog did not close".into());
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        Ok(())
+    }
+
     /// Launch, measure and close the target `runs` times.
     pub fn run(opts: &Options) -> Result<Vec<Sample>, String> {
         let mut samples = Vec::new();
@@ -593,6 +831,21 @@ mod win {
                 }
                 std::thread::sleep(Duration::from_millis(20));
             };
+            let fp = first_paint(hwnd);
+            if let Some((w, h)) = opts.size {
+                set_client(hwnd, w, h);
+                std::thread::sleep(Duration::from_millis(300));
+            }
+            if opts.open_dialog {
+                // SAFETY: valid process handle.
+                unsafe { WaitForInputIdle(p.info.hProcess, 15_000) };
+                std::thread::sleep(Duration::from_millis(1000));
+                if let Err(e) = open_and_cancel_dialog(p.info.dwProcessId, hwnd) {
+                    // SAFETY: valid process handle.
+                    let _ = unsafe { TerminateProcess(p.info.hProcess, 1) };
+                    return Err(e);
+                }
+            }
             if let Some(t) = &opts.wait_title {
                 let start = Instant::now();
                 while !title(hwnd).contains(t.as_str()) {
@@ -608,6 +861,16 @@ mod win {
             unsafe { WaitForInputIdle(p.info.hProcess, 15_000) };
             std::thread::sleep(Duration::from_millis(u64::from(opts.settle_ms)));
             let mut sample = measure(p.info.hProcess)?;
+            sample.first_paint_ms = fp;
+            sample.client = client(hwnd);
+            // SAFETY: plain metric queries.
+            sample.monitor =
+                unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
+            if opts.cpu_ms > 0 {
+                let a = cpu_100ns(p.info.hProcess);
+                std::thread::sleep(Duration::from_millis(u64::from(opts.cpu_ms)));
+                sample.cpu_us = Some((cpu_100ns(p.info.hProcess) - a) / 10);
+            }
             if run == 0
                 && let Some(path) = &opts.screenshot
                 && let Err(e) = screenshot(hwnd, path)
@@ -648,7 +911,42 @@ mod tests {
             user_objects: 3,
             modules: vec!["yamdv.exe".into(), "ntdll.dll".into()],
             exit_ok: true,
+            first_paint_ms: Some(pws / 10),
+            client: (1000, 700),
+            monitor: (1024, 768),
+            cpu_us: Some(0),
         }
+    }
+
+    #[test]
+    fn budgets_and_size() {
+        let o = parse_args(
+            &[
+                "a.exe",
+                "--size",
+                "1000x700",
+                "--budget-pws-mib",
+                "4.8",
+                "--open-dialog",
+            ]
+            .map(String::from),
+        )
+        .unwrap();
+        assert_eq!(o.size, Some((1000, 700)));
+        assert!(o.open_dialog);
+        let small = s(1024 * 1024);
+        assert!(check_budget(&o.budget, std::slice::from_ref(&small)).is_empty());
+        let big = s(5 * 1024 * 1024);
+        assert_eq!(check_budget(&o.budget, &[big]).len(), 1);
+        let b = Budget {
+            commit_ratio: Some(1.5),
+            ..Budget::default()
+        };
+        assert_eq!(check_budget(&b, &[small]).len(), 1);
+        assert!(parse_args(&["a.exe", "--size", "10x10"].map(String::from)).is_err());
+        let v = to_json(&o, &[s(1024 * 1024)]);
+        assert_eq!(v["median"]["private_ws_mib"], 1.0);
+        assert_eq!(v["median"]["client_size"][0], 1000);
     }
 
     #[test]

@@ -1,10 +1,10 @@
 //! `cargo xtask size`: executable size against the B-SIZE budget (Appendix D).
 
-/// Current B-SIZE budget in bytes. Phase 001 applies the *soft* budget (≤ 4.0 MB, decimal MB —
-/// the stricter reading of "MB"). The final budget (3.0 MB) becomes a hard gate in Phase 013.
-pub const B_SIZE_SOFT_BYTES: u64 = 4_000_000;
+/// Current B-SIZE soft budget: 4.0 MiB (P-05: "MB" means MiB). The final budget (3.0 MiB) becomes
+/// a hard gate in Phase 013.
+pub const B_SIZE_SOFT_BYTES: u64 = 4 * 1024 * 1024;
 /// Final B-SIZE budget in bytes (informational until Phase 013).
-pub const B_SIZE_FINAL_BYTES: u64 = 3_000_000;
+pub const B_SIZE_FINAL_BYTES: u64 = 3 * 1024 * 1024;
 
 /// Outcome of a size check.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,10 +24,11 @@ impl SizeReport {
     /// Human-readable one-line summary.
     pub fn summary(&self) -> String {
         format!(
-            "size: {} bytes ({:.1} KiB) — budget {} bytes (B-SIZE soft; final {}) — {}",
+            "size: {} bytes ({:.2} MiB) — budget {} bytes ({:.2} MiB, B-SIZE soft; final {}) — {}",
             self.bytes,
-            kib(self.bytes),
+            kib(self.bytes) / 1024.0,
             self.budget,
+            kib(self.budget) / 1024.0,
             B_SIZE_FINAL_BYTES,
             if self.ok() { "OK" } else { "OVER BUDGET" }
         )

@@ -126,6 +126,7 @@ fn shared() -> Option<Rc<Shared>> {
 pub(crate) struct I18nStrings(Lang);
 
 /// Layout strings for `lang`.
+#[cfg_attr(not(feature = "dev-tools"), allow(dead_code))]
 pub(crate) fn strings(lang: Lang) -> I18nStrings {
     I18nStrings(lang)
 }

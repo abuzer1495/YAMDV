@@ -95,10 +95,12 @@ fn memprobe_cmd(args: &[String]) -> Result<(), String> {
         std::fs::write(path, text).map_err(|e| format!("{path}: {e}"))?;
         println!("  json: {path}");
     }
-    if samples.iter().all(|s| s.exit_ok) {
+    let bad = memprobe::check_budget(&opts.budget, &samples);
+    if bad.is_empty() {
+        println!("  budget: OK");
         Ok(())
     } else {
-        Err("process did not exit cleanly after WM_CLOSE".into())
+        Err(format!("BUDGET EXCEEDED: {}", bad.join("; ")))
     }
 }
 
