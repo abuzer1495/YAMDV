@@ -44,3 +44,22 @@ See `docs/reports/002_REPORT.md` §5: M1b and M2 with the `mem-stats` breakdown 
 
 ## Consequences
 Measured memory cost: about 90 bytes per top-level block, including the maps (large-1mb.md: 13,303 blocks → 1,205,180 B index), plus the source text, plus a 2 MiB cap on the detail cache, plus the layouts of at most 3 screens. Phase 006 can splice without a full reparse.
+
+## Amendment (Phase 003, F-11): re-entrancy audit (P-18)
+
+All window state lives in `Rc<RefCell<Win>>`. Every message goes through `reentry::dispatch`. It never panics on a busy borrow: it counts the event and, in debug builds, logs the message id (`reentry` log target). A re-entrant `WM_PAINT` returns 0 without validating, so the region stays invalid. Other re-entrant messages fall back to `DefWindowProcW`.
+
+Audited call sites in `yamdv-platform-win/src/window.rs` that can dispatch messages synchronously:
+
+| Call | Where | Handling |
+|---|---|---|
+| `UpdateWindow` (WM_PAINT) | `set_scroll` | deferred (`Deferred::Update`) |
+| `SetWindowTextW` (WM_SETTEXT) | `set_title` (open, autoscroll) | deferred (`Deferred::Title`) |
+| `SetWindowPos` (WM_WINDOWPOSCHANGED, WM_SIZE) | WM_DPICHANGED | deferred (`Deferred::SetPos`) |
+| `DestroyWindow` (WM_DESTROY, …) | `run_actions` | no borrow held (action queue) |
+| `ShowWindow` | `create_window` | no borrow held |
+| Modal file dialog | was `run_actions` | moved out of process (dialog host, F-09) |
+| `SetCapture` / `ReleaseCapture` (WM_CAPTURECHANGED) | selection, scrollbar drag | message not handled, so `DefWindowProcW` is safe |
+| `SetCursor`, `InvalidateRect`, `ScrollWindowEx(SW_INVALIDATE)`, `SetTimer`, `KillTimer`, `TrackMouseEvent` | various | do not dispatch synchronously |
+
+Deferred calls are flushed by `wndproc` after the handler returns, and after `run_actions` and `create_window`. The test `reentry::tests::synchronous_send_message_is_detected` (Windows CI) provokes a real synchronous `SendMessageW` from inside a handler and asserts that the guard detects it.

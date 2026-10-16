@@ -243,8 +243,9 @@ struct Win {
     drag_dir: f64,
     perf: Vec<f64>,
     auto_phase: u8,
-    /// `UpdateWindow` requested by a handler; done by `wndproc` once the borrow is released.
-    update_pending: bool,
+    /// Win32 calls that dispatch messages synchronously, requested by a handler and run by
+    /// `wndproc` once the borrow is released (P-18).
+    deferred: Vec<Deferred>,
     auto_steps: u32,
 }
 
@@ -272,9 +273,14 @@ impl Win {
         let _ = unsafe { InvalidateRect(Some(self.hwnd), None, false) };
     }
 
-    fn set_title(&self, s: &str) {
-        // SAFETY: valid hwnd; HSTRING outlives the call.
-        let _ = unsafe { SetWindowTextW(self.hwnd, &HSTRING::from(s)) };
+    fn set_title(&mut self, s: &str) {
+        self.defer(Deferred::Title(s.to_string()));
+    }
+
+    fn defer(&mut self, d: Deferred) {
+        if !self.deferred.contains(&d) {
+            self.deferred.push(d);
+        }
     }
 
     fn reduced_motion(&self) -> bool {
@@ -466,7 +472,7 @@ impl Win {
         self.show_scrollbar();
         // Paint the exposed strip right after the handler returns (no RefCell borrow is held
         // then, so the synchronous WM_PAINT reaches `paint`).
-        self.update_pending = true;
+        self.defer(Deferred::Update);
     }
 
     fn scroll_by(&mut self, sh: &Shared, dy: f64, animate: bool) {
@@ -1434,18 +1440,12 @@ fn handle(
             }
             // SAFETY: for WM_DPICHANGED lParam points to the suggested window RECT.
             let rc = unsafe { *(lp.0 as *const RECT) };
-            // SAFETY: valid hwnd.
-            let _ = unsafe {
-                SetWindowPos(
-                    w.hwnd,
-                    None,
-                    rc.left,
-                    rc.top,
-                    rc.right - rc.left,
-                    rc.bottom - rc.top,
-                    SWP_NOZORDER | SWP_NOACTIVATE,
-                )
-            };
+            w.defer(Deferred::SetPos(
+                rc.left,
+                rc.top,
+                rc.right - rc.left,
+                rc.bottom - rc.top,
+            ));
             update_size(w, sh);
             if let View::Doc(d) = &mut w.view {
                 d.viewer.invalidate_layouts();
@@ -1467,7 +1467,52 @@ fn handle(
     (r, actions)
 }
 
+/// Deferred Win32 calls that dispatch messages synchronously (P-18 audit, ADR-0007 amendment).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Deferred {
+    /// `UpdateWindow` (sends WM_PAINT).
+    Update,
+    /// `SetWindowTextW` (sends WM_SETTEXT).
+    Title(String),
+    /// `SetWindowPos` (sends WM_WINDOWPOSCHANGING/CHANGED, WM_SIZE, may paint).
+    SetPos(i32, i32, i32, i32),
+}
+
+fn flush_deferred(hwnd: HWND, win: &Rc<RefCell<Win>>) {
+    let ds = win
+        .try_borrow_mut()
+        .map(|mut w| std::mem::take(&mut w.deferred))
+        .unwrap_or_default();
+    run_deferred(hwnd, ds);
+}
+
+fn run_deferred(hwnd: HWND, ds: Vec<Deferred>) {
+    for d in ds {
+        // SAFETY: valid hwnd; no window-state borrow is held here.
+        unsafe {
+            match d {
+                Deferred::Update => {
+                    let _ = UpdateWindow(hwnd);
+                }
+                Deferred::Title(t) => {
+                    let _ = SetWindowTextW(hwnd, &HSTRING::from(t));
+                }
+                Deferred::SetPos(x, y, w, h) => {
+                    let _ = SetWindowPos(hwnd, None, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+                }
+            }
+        }
+    }
+}
+
 fn run_actions(hwnd: HWND, actions: Vec<Action>) {
+    run_actions_inner(hwnd, actions);
+    if let Some(w) = WINDOWS.with(|m| m.borrow().get(&(hwnd.0 as isize)).cloned()) {
+        flush_deferred(hwnd, &w);
+    }
+}
+
+fn run_actions_inner(hwnd: HWND, actions: Vec<Action>) {
     let Some(sh) = shared() else { return };
     for a in actions {
         match a {
@@ -1522,20 +1567,14 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
     }
     let win = WINDOWS.with(|m| m.borrow().get(&(hwnd.0 as isize)).cloned());
     if let (Some(win), Some(sh)) = (win, shared()) {
-        let out = match win.try_borrow_mut() {
-            Ok(mut w) => Some(handle(&mut w, &sh, msg, wp, lp)),
-            // Re-entrant WM_PAINT while a handler holds the borrow: leave the region invalid so
-            // it is painted once the handler returns (DefWindowProc would validate it unpainted).
-            Err(_) if msg == WM_PAINT => return LRESULT(0),
-            Err(_) => None,
-        };
-        if out.is_some()
-            && win
-                .try_borrow_mut()
-                .is_ok_and(|mut w| std::mem::take(&mut w.update_pending))
-        {
-            // SAFETY: valid hwnd; no borrow is held, so the WM_PAINT it sends is handled.
-            let _ = unsafe { UpdateWindow(hwnd) };
+        let out = crate::reentry::dispatch(&win, msg, |w| handle(w, &sh, msg, wp, lp));
+        // Re-entrant WM_PAINT while a handler holds the borrow: leave the region invalid so it is
+        // painted once the handler returns (DefWindowProc would validate it unpainted).
+        if out.is_none() && msg == WM_PAINT {
+            return LRESULT(0);
+        }
+        if out.is_some() {
+            flush_deferred(hwnd, &win);
         }
         if let Some((r, actions)) = out {
             run_actions(hwnd, actions);
@@ -1660,7 +1699,7 @@ fn create_window(sh: &Shared, path: Option<&str>) {
         drag_dir: 0.0,
         perf: Vec::new(),
         auto_phase: 0,
-        update_pending: false,
+        deferred: Vec::new(),
         auto_steps: 0,
     };
     let rcw = Rc::new(RefCell::new(win));
@@ -1673,6 +1712,7 @@ fn create_window(sh: &Shared, path: Option<&str>) {
     {
         w.open(sh, p, None, false);
     }
+    flush_deferred(hwnd, &rcw);
     // SAFETY: valid hwnd.
     let _ = unsafe { ShowWindow(hwnd, SW_SHOW) };
 }

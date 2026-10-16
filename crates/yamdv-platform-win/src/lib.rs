@@ -21,6 +21,8 @@ pub mod log;
 #[cfg(windows)]
 pub mod perf;
 #[cfg(windows)]
+pub mod reentry;
+#[cfg(windows)]
 pub mod render;
 #[cfg(windows)]
 pub mod sys;
