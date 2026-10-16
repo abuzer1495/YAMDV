@@ -139,7 +139,20 @@ fn placeholder(
     out: &mut Out,
 ) -> f32 {
     let m = ctx.m;
-    let h = PLACEHOLDER_H;
+    let remote = *p == Placeholder::Remote;
+    let tw = (w - 64.0 - if remote { 112.0 } else { 0.0 }).max(40.0);
+    let mut msg = ctx.strings.image_message(p).to_string();
+    if !r.alt.trim().is_empty() {
+        msg.push_str(" \u{2014} ");
+        msg.push_str(&r.alt);
+    }
+    let ms = Style {
+        weight: 600,
+        ..base(&m, ctx.pal.text)
+    };
+    let t = shape_text(ctx, &msg, ms, Some(tw), m.pitch());
+    let th = t.height();
+    let h = (th + 16.0 + 24.0).max(PLACEHOLDER_H);
     let rect = Rect::new(x, y, w, h);
     out.items.push(Item::Fill {
         rect,
@@ -158,18 +171,6 @@ fn placeholder(
     let i = shape_text(ctx, icon(p), ic, None, 28.0);
     let ih = i.height();
     out.para(x + 16.0, y + (h - ih) / 2.0, i, None, None);
-    let mut msg = ctx.strings.image_message(p).to_string();
-    if !r.alt.trim().is_empty() {
-        msg.push_str(" \u{2014} ");
-        msg.push_str(&r.alt);
-    }
-    let ms = Style {
-        weight: 600,
-        ..base(&m, ctx.pal.text)
-    };
-    let remote = *p == Placeholder::Remote;
-    let tw = (w - 64.0 - if remote { 96.0 } else { 0.0 }).max(40.0);
-    let t = shape_text(ctx, &msg, ms, Some(tw), m.pitch());
     out.para(x + 52.0, y + 10.0, t, None, None);
     let shown: String = if r.src.starts_with("data:") {
         "data:".to_string()
@@ -181,7 +182,7 @@ fn placeholder(
         ..base(&m, ctx.pal.text_muted)
     };
     let pth = shape_text(ctx, &shown, ps, Some(tw), 16.0);
-    out.para(x + 52.0, y + h - 26.0, pth, None, None);
+    out.para(x + 52.0, y + 10.0 + th + 2.0, pth, None, None);
     if remote {
         let b = Rect::new(x + w - 104.0, y + (h - 28.0) / 2.0, 88.0, 28.0);
         out.items.push(Item::Stroke {
@@ -281,7 +282,7 @@ mod tests {
             &Fixed(ImgState::Fail(Placeholder::Remote)),
         );
         assert!(image_rect(&bl).is_none());
-        assert_eq!(bl.height, PLACEHOLDER_H);
+        assert!(bl.height >= PLACEHOLDER_H);
         assert!(
             bl.hot.iter().any(
                 |h| matches!(&h.kind, HotKind::CopyUrl { url } if &**url == "https://x/y.png")

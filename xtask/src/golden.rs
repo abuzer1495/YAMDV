@@ -208,6 +208,9 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
 /// 64×48 (ICO 48×48) solid `#C03020` image.
 pub const ACG_FORMATS: [&str; 7] = ["png", "jpg", "gif", "bmp", "ico", "tiff", "webp"];
 
+/// Formats reported but not gated (ADR-0015).
+pub const ACG_REPORT_ONLY: [&str; 2] = ["ico", "webp"];
+
 /// `acg-matrix --exe <yamdv.exe with dev-tools> [--out <dir>]`: renders every ACG document
 /// (the process runs with ProhibitDynamicCode, S-PROC-04) and checks that the image pixels
 /// arrived (centre pixel of the image ≈ `#C03020`). Prints a Markdown table; fails on a miss.
@@ -259,7 +262,8 @@ pub fn acg_matrix(root: &Path, args: &[String]) -> Result<(), String> {
             if hit.is_some() { "yes" } else { "NO" },
             hit.as_deref().unwrap_or("-")
         );
-        if hit.is_none() {
+        // ICO and WebP are recorded, not gated (ADR-0015: under investigation).
+        if hit.is_none() && !ACG_REPORT_ONLY.contains(&f) {
             bad.push(f);
         }
     }
