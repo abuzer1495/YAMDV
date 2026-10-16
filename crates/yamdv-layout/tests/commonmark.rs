@@ -159,8 +159,22 @@ fn reference(src: &str) -> (Vec<B>, String) {
             | Event::Code(t)
             | Event::InlineMath(t)
             | Event::DisplayMath(t)
-            | Event::InlineHtml(t)
             | Event::Html(t) => text.push_str(t),
+            Event::InlineHtml(t) => {
+                // Our renderer shows sanitized inline HTML (R-MD-14): text, breaks, images.
+                let mut budget = yamdv_core::html::MAX_TAGS;
+                for tok in yamdv_core::html::sanitize(t, &mut budget) {
+                    match tok {
+                        yamdv_core::html::Tok::Text { text: tt, .. } => text.push_str(&tt),
+                        yamdv_core::html::Tok::Open { tag, attrs, .. } if tag == "img" => {
+                            let alt = yamdv_core::html::attr(&attrs, "alt").unwrap_or("");
+                            text.push_str(&format!("[image: {alt}]"));
+                        }
+                        yamdv_core::html::Tok::Unsupported(_) => text.push_str("[svg]"),
+                        _ => {}
+                    }
+                }
+            }
             Event::FootnoteReference(l) => match order.iter().position(|o| *o == fold(l)) {
                 Some(p) => text.push_str(&format!("[{}]", p + 1)),
                 None => text.push_str(&format!("[^{l}]")),
@@ -193,7 +207,12 @@ fn node_kind(k: &NodeKind) -> Option<&'static str> {
         NodeKind::DefBody => "dd",
         NodeKind::Placeholder(Placeholder::Table) | NodeKind::Table { .. } => "table",
         NodeKind::TableRow { .. } | NodeKind::TableCell => return None,
-        NodeKind::Placeholder(Placeholder::Html) => "html",
+        NodeKind::Placeholder(Placeholder::Html) | NodeKind::HtmlBlock => "html",
+        NodeKind::Align(_)
+        | NodeKind::Details { .. }
+        | NodeKind::DetailsSummary
+        | NodeKind::Unsupported
+        | NodeKind::Placeholder(Placeholder::Details) => return None,
         NodeKind::Placeholder(Placeholder::Math) => "math",
         NodeKind::Placeholder(Placeholder::Footnotes) | NodeKind::FootnoteDef { .. } => "footnotes",
         NodeKind::Placeholder(Placeholder::FrontMatter) => "front",
@@ -217,6 +236,19 @@ fn pipeline(src: &str, check: bool) -> (usize, usize) {
     for i in 0..n {
         let d = doc.detail(i);
         for (k, node) in d.nodes.iter().enumerate() {
+            // Content of sanitized HTML blocks is ours only (the reference treats them opaquely).
+            let mut p = node.parent;
+            let mut in_html = false;
+            while p != u32::MAX {
+                if matches!(d.nodes[p as usize].kind, NodeKind::HtmlBlock) {
+                    in_html = true;
+                    break;
+                }
+                p = d.nodes[p as usize].parent;
+            }
+            if in_html {
+                continue;
+            }
             if let Some(kind) = node_kind(&node.kind) {
                 let depth = (0..)
                     .scan(node.parent, |p, _| {

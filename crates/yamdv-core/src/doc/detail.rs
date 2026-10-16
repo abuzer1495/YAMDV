@@ -47,6 +47,8 @@ pub enum Placeholder {
     Footnotes,
     /// Front matter (PHASE-003).
     FrontMatter,
+    /// `<details>` without a `<summary>` (label "Details").
+    Details,
 }
 
 /// Node kind.
@@ -104,6 +106,20 @@ pub enum NodeKind {
         /// 1-based note number (order of first reference).
         number: u32,
     },
+    /// Sanitized HTML block (R-MD-14): children are the mapped allowlisted elements.
+    HtmlBlock,
+    /// HTML alignment container (`<div align>`, `<center>`, `<p align>`, `text-align`):
+    /// 1 left, 2 center, 3 right.
+    Align(u8),
+    /// `<details>` (R-REN-14); the first child `DetailsSummary` is the toggle row.
+    Details {
+        /// `open` attribute.
+        open: bool,
+    },
+    /// `<summary>` row (inline leaf).
+    DetailsSummary,
+    /// Inline SVG / MathML placeholder (S-HTML-01).
+    Unsupported,
     /// Interim placeholder card showing source text.
     Placeholder(Placeholder),
 }
@@ -117,6 +133,7 @@ impl NodeKind {
                 | NodeKind::Heading(_)
                 | NodeKind::DefTitle
                 | NodeKind::TableCell
+                | NodeKind::DetailsSummary
                 | NodeKind::Code { .. }
         )
     }
@@ -150,6 +167,12 @@ pub mod style {
     pub const HIGHLIGHT: u16 = 1 << 11;
     /// GFM autolink literal (R-MD-03); always together with [`LINK`].
     pub const AUTOLINK: u16 = 1 << 12;
+    /// Underline (`<u>`, `<ins>`).
+    pub const UNDERLINE: u16 = 1 << 13;
+    /// Keyboard key (`<kbd>`, B.6.3).
+    pub const KBD: u16 = 1 << 14;
+    /// Abbreviation with a title tooltip (`<abbr>`).
+    pub const ABBR: u16 = 1 << 15;
 }
 
 /// Inline run kind.
@@ -230,6 +253,47 @@ fn alert(k: BlockQuoteKind) -> Alert {
     }
 }
 
+/// Style flag of an inline HTML element.
+fn html_style(tag: &str) -> Option<u16> {
+    Some(match tag {
+        "b" | "strong" => style::STRONG,
+        "i" | "em" | "var" => style::EM,
+        "s" | "del" | "strike" => style::STRIKE,
+        "u" | "ins" => style::UNDERLINE,
+        "mark" => style::HIGHLIGHT,
+        "sub" => style::SUB,
+        "sup" | "small" => style::SUP,
+        "kbd" => style::KBD,
+        "code" | "samp" => style::CODE,
+        "a" => style::LINK,
+        "abbr" => style::ABBR,
+        "span" => 0,
+        _ => return None,
+    })
+}
+
+/// Alignment of an HTML element: `align` attribute, `<center>`, or `text-align` style.
+fn html_align(tag: &str, attrs: &[(String, String)]) -> Option<u8> {
+    let parse = |v: &str| match v.trim().to_ascii_lowercase().as_str() {
+        "left" => Some(1),
+        "center" => Some(2),
+        "right" => Some(3),
+        _ => None,
+    };
+    if tag == "center" {
+        return Some(2);
+    }
+    if let Some(v) = crate::html::attr(attrs, "align") {
+        return parse(v);
+    }
+    crate::html::attr(attrs, "style").and_then(|s| {
+        s.split(';')
+            .filter_map(|d| d.split_once(':'))
+            .find(|(k, _)| k.trim() == "text-align")
+            .and_then(|(_, v)| parse(v))
+    })
+}
+
 /// Footnote labels referenced in `s` that are defined in the document (`[^label]`).
 fn footnote_labels(s: &str, index: &Index) -> Vec<String> {
     let mut out = Vec::new();
@@ -261,6 +325,10 @@ struct Builder<'s> {
     image: Option<(usize, String)>,
     image_depth: usize,
     skip: usize,
+    /// Open inline HTML elements (tag, style flag) of the current leaf.
+    html: Vec<(String, u16)>,
+    /// Remaining HTML tag allowance of this tree (S-HTML-03).
+    html_budget: usize,
 }
 
 impl Builder<'_> {
@@ -300,6 +368,8 @@ impl Builder<'_> {
             n.end = end;
             if n.kind.is_inline_leaf() {
                 n.runs.end = nruns;
+                // Unclosed inline HTML never leaks into the next leaf.
+                self.html.clear();
             }
         }
     }
@@ -358,7 +428,9 @@ impl Builder<'_> {
         } else {
             Some(text.into())
         };
-        let style = self.style.last().copied().unwrap_or(0) | extra;
+        let style = self.style.last().copied().unwrap_or(0)
+            | extra
+            | self.html.iter().fold(0, |a, (_, f)| a | f);
         self.d.runs.push(Run {
             kind,
             range,
@@ -396,6 +468,273 @@ impl Builder<'_> {
                 .unwrap_or_else(|| t.get(p.range.clone()).unwrap_or(""));
             self.run(RunKind::Text, &pr, shown, p.extra);
         }
+    }
+
+    /// Inline HTML inside a leaf (R-MD-14): allowlisted tags toggle styles, `<br>` breaks,
+    /// `<img>` becomes the image placeholder; everything else is dropped.
+    fn inline_html(&mut self, r: &Range<usize>, t: &str) {
+        for tok in crate::html::sanitize(t, &mut self.html_budget) {
+            self.html_tok(r.start, tok);
+        }
+    }
+
+    fn html_tok(&mut self, base: usize, tok: crate::html::Tok) {
+        use crate::html::{Tok, attr};
+        match tok {
+            Tok::Text { text, range } => {
+                let rr = base + range.start..base + range.end;
+                self.html_text(&rr, &text);
+            }
+            Tok::Unsupported(_) => {
+                self.run(RunKind::Text, &(base..base), "[svg]", style::MUTED);
+            }
+            Tok::Open { tag, attrs, .. } if tag == "br" => {
+                let _ = attrs;
+                self.run(RunKind::HardBreak, &(base..base), "", 0);
+            }
+            Tok::Open { tag, attrs, .. } if tag == "img" => {
+                let alt = attr(&attrs, "alt").unwrap_or("").to_string();
+                self.run(
+                    RunKind::Text,
+                    &(base..base),
+                    &format!("[image: {alt}]"),
+                    style::IMAGE,
+                );
+            }
+            Tok::Open { tag, .. } => {
+                if let Some(f) = html_style(&tag) {
+                    self.html.push((tag, f));
+                }
+            }
+            Tok::Close(tag) => {
+                if let Some(p) = self.html.iter().rposition(|(t, _)| *t == tag) {
+                    self.html.truncate(p);
+                }
+            }
+        }
+    }
+
+    /// HTML text: whitespace collapsed; whitespace-only text outside a leaf is dropped.
+    fn html_text(&mut self, r: &Range<usize>, text: &str) {
+        let in_leaf = self
+            .stack
+            .last()
+            .is_some_and(|&i| self.d.nodes[i as usize].kind.is_inline_leaf());
+        let in_code = self
+            .stack
+            .last()
+            .is_some_and(|&i| matches!(self.d.nodes[i as usize].kind, NodeKind::Code { .. }));
+        if in_code {
+            self.run(RunKind::Text, r, text, 0);
+            return;
+        }
+        if text.trim().is_empty() && !in_leaf {
+            return;
+        }
+        let mut c = String::with_capacity(text.len());
+        let mut ws = false;
+        for ch in text.chars() {
+            if ch.is_whitespace() && ch != '\u{a0}' {
+                ws = true;
+            } else {
+                if ws && (!c.is_empty() || in_leaf) {
+                    c.push(' ');
+                }
+                ws = false;
+                c.push(ch);
+            }
+        }
+        if ws {
+            c.push(' ');
+        }
+        self.run(RunKind::Text, r, &c, 0);
+    }
+
+    /// Maps a sanitized HTML block to detail nodes (R-MD-14). `r` is the block's slice range.
+    fn html_block(&mut self, r: &Range<usize>) {
+        use crate::html::{Tok, attr};
+        let a = self.abs(r);
+        let src = self
+            .source
+            .get(a.start as usize..a.end as usize)
+            .unwrap_or("");
+        let toks = crate::html::sanitize(src, &mut self.html_budget);
+        let floor = self.stack.len();
+        // Element stack: (tag, pushed node?) so end tags pop exactly what their start pushed.
+        let mut open: Vec<(String, bool)> = Vec::new();
+        let mut table_cols: Vec<(u32, usize)> = Vec::new();
+        for tok in toks {
+            match tok {
+                Tok::Open {
+                    tag,
+                    attrs,
+                    self_closing,
+                } => {
+                    let align = html_align(&tag, &attrs);
+                    let kind = match tag.as_str() {
+                        "p" | "figcaption" => Some(NodeKind::Paragraph { implicit: false }),
+                        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+                            Some(NodeKind::Heading(tag.as_bytes()[1] - b'0'))
+                        }
+                        "blockquote" => Some(NodeKind::BlockQuote(None)),
+                        "ul" => Some(NodeKind::List {
+                            start: None,
+                            tight: true,
+                        }),
+                        "ol" => Some(NodeKind::List {
+                            start: Some(1),
+                            tight: true,
+                        }),
+                        "li" => Some(NodeKind::Item { task: None }),
+                        "dl" => Some(NodeKind::DefList),
+                        "dt" => Some(NodeKind::DefTitle),
+                        "dd" => Some(NodeKind::DefBody),
+                        "pre" => Some(NodeKind::Code {
+                            lang: String::new(),
+                        }),
+                        "hr" => Some(NodeKind::Rule),
+                        "table" => Some(NodeKind::Table { aligns: Vec::new() }),
+                        "tr" => Some(NodeKind::TableRow { head: false }),
+                        "td" | "th" => Some(NodeKind::TableCell),
+                        "details" => Some(NodeKind::Details {
+                            open: attr(&attrs, "open").is_some(),
+                        }),
+                        "summary" => Some(NodeKind::DetailsSummary),
+                        "div" | "center" | "figure" if align.is_some() => {
+                            Some(NodeKind::Align(align.unwrap_or(0)))
+                        }
+                        _ => None,
+                    };
+                    let Some(kind) = kind else {
+                        // Inline element (or a structural tag without a node).
+                        self.html_tok(
+                            r.start,
+                            Tok::Open {
+                                tag: tag.clone(),
+                                attrs,
+                                self_closing,
+                            },
+                        );
+                        if !self_closing {
+                            open.push((tag, false));
+                        }
+                        continue;
+                    };
+                    self.close_implicit();
+                    // Inline leaves cannot hold blocks: close the open leaf first.
+                    while self.stack.len() > floor
+                        && self
+                            .stack
+                            .last()
+                            .is_some_and(|&i| self.d.nodes[i as usize].kind.is_inline_leaf())
+                        && !matches!(kind, NodeKind::TableCell)
+                    {
+                        self.pop();
+                        if let Some(p) = open.iter().rposition(|(_, n)| *n) {
+                            open.truncate(p);
+                        }
+                    }
+                    let is_th = tag == "th";
+                    if is_th
+                        && let Some(&row) = self.stack.last()
+                        && let Some(NodeKind::TableRow { head }) =
+                            self.d.nodes.get_mut(row as usize).map(|n| &mut n.kind)
+                    {
+                        *head = true;
+                    }
+                    if (tag == "td" || tag == "th")
+                        && let Some(t) = table_cols.last_mut()
+                    {
+                        t.1 += 1;
+                    }
+                    let void = matches!(kind, NodeKind::Rule) || self_closing;
+                    let pushed = self.push(kind, a.clone()).is_some();
+                    if tag == "table" && pushed {
+                        table_cols.push((self.stack.last().copied().unwrap_or(0), 0));
+                    }
+                    let cell_align =
+                        matches!(tag.as_str(), "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6")
+                            && align.is_some();
+                    if cell_align && pushed {
+                        // `<p align>` / `<hN align>`: wrap in an alignment container.
+                        if let Some(top) = self.stack.pop() {
+                            let n = self.d.nodes.len() - 1;
+                            let _ = top;
+                            let node = self.d.nodes.remove(n);
+                            if self
+                                .push(NodeKind::Align(align.unwrap_or(0)), a.clone())
+                                .is_some()
+                            {
+                                open.push(("#align".into(), true));
+                            }
+                            let _ = self.push(node.kind, a.clone());
+                        }
+                    }
+                    if void {
+                        if pushed {
+                            self.pop();
+                        }
+                    } else {
+                        open.push((tag, pushed));
+                    }
+                }
+                Tok::Close(tag) => {
+                    let Some(p) = open.iter().rposition(|(t, _)| *t == tag) else {
+                        continue;
+                    };
+                    let mut rest = open.split_off(p);
+                    while let Some((t, pushed)) = rest.pop() {
+                        if pushed {
+                            self.close_implicit();
+                            if t == "table"
+                                && let Some((ti, _)) = table_cols.pop()
+                            {
+                                let rows: Vec<u32> = (ti as usize + 1..self.d.nodes.len())
+                                    .filter(|&k| {
+                                        self.d.nodes[k].parent == ti
+                                            && matches!(
+                                                self.d.nodes[k].kind,
+                                                NodeKind::TableRow { .. }
+                                            )
+                                    })
+                                    .map(u)
+                                    .collect();
+                                let cols = rows
+                                    .iter()
+                                    .map(|&row| {
+                                        self.d.nodes.iter().filter(|n| n.parent == row).count()
+                                    })
+                                    .max()
+                                    .unwrap_or(1)
+                                    .max(1);
+                                if let Some(NodeKind::Table { aligns }) =
+                                    self.d.nodes.get_mut(ti as usize).map(|n| &mut n.kind)
+                                {
+                                    *aligns = vec![0; cols];
+                                }
+                            }
+                            if self.stack.len() > floor {
+                                self.pop();
+                            }
+                            if rest.is_empty() && open.last().is_some_and(|(t, _)| t == "#align") {
+                                open.pop();
+                                if self.stack.len() > floor {
+                                    self.pop();
+                                }
+                            }
+                        } else {
+                            self.html_tok(r.start, Tok::Close(t));
+                        }
+                    }
+                }
+                other => self.html_tok(r.start, other),
+            }
+        }
+        self.close_implicit();
+        while self.stack.len() > floor {
+            self.pop();
+        }
+        self.html.clear();
     }
 
     fn with_style(&mut self, f: u16) {
@@ -448,6 +787,8 @@ impl Detail {
             image: None,
             image_depth: 0,
             skip: 0,
+            html: Vec::new(),
+            html_budget: crate::html::MAX_TAGS,
         };
         let limit = slice.len();
         for (ev, r) in parser.into_offset_iter() {
@@ -505,7 +846,7 @@ impl Detail {
                         Tag::TableHead => Some(NodeKind::TableRow { head: true }),
                         Tag::TableRow => Some(NodeKind::TableRow { head: false }),
                         Tag::TableCell => Some(NodeKind::TableCell),
-                        Tag::HtmlBlock => Some(NodeKind::Placeholder(Placeholder::Html)),
+                        Tag::HtmlBlock => Some(NodeKind::HtmlBlock),
                         Tag::FootnoteDefinition(l) => Some(NodeKind::FootnoteDef {
                             number: index
                                 .footnote_number(l)
@@ -532,8 +873,12 @@ impl Detail {
                             }
                         }
                         let placeholder = matches!(kind, NodeKind::Placeholder(_));
+                        let html = matches!(kind, NodeKind::HtmlBlock);
                         let pushed = b.push(kind, ar);
-                        if placeholder && pushed.is_some() {
+                        if html && pushed.is_some() {
+                            b.html_block(&r);
+                        }
+                        if (placeholder || html) && pushed.is_some() {
                             b.skip = 1;
                         }
                         continue;
@@ -596,7 +941,8 @@ impl Detail {
                 Event::InlineMath(t) | Event::DisplayMath(t) => {
                     b.run(RunKind::Text, &r, &t, style::CODE | style::MATH)
                 }
-                Event::InlineHtml(t) | Event::Html(t) => b.run(RunKind::Text, &r, &t, style::MUTED),
+                Event::InlineHtml(t) => b.inline_html(&r, &t),
+                Event::Html(t) => b.run(RunKind::Text, &r, &t, style::MUTED),
                 Event::FootnoteReference(l) => match index.footnote_number(&l) {
                     // R-REN-10: GitHub numbering by first reference.
                     Some(n) => b.run(RunKind::Text, &r, &format!("[{n}]"), style::FOOTREF),
@@ -844,6 +1190,26 @@ mod tests {
     }
 
     #[test]
+    fn r_md_14_html_blocks_map_to_nodes() {
+        let src = "<div align=\"center\">\n<img src=\"a.png\" alt=\"logo\">\n<h1>Title</h1>\n<p>One <b>two</b> <script>x</script></p>\n<details open><summary>More</summary>body</details>\n<table><tr><th>a</th><th>b</th></tr><tr><td>1</td><td>2</td></tr></table>\n</div>\n";
+        let (_, ds) = tree(src);
+        let kinds: Vec<&NodeKind> = ds[0].nodes.iter().map(|n| &n.kind).collect();
+        assert_eq!(kinds[0], &NodeKind::HtmlBlock);
+        assert_eq!(kinds[1], &NodeKind::Align(2));
+        assert!(kinds.contains(&&NodeKind::Heading(1)));
+        assert!(kinds.contains(&&NodeKind::Details { open: true }));
+        assert!(kinds.contains(&&NodeKind::DetailsSummary));
+        assert!(kinds.contains(&&NodeKind::Table { aligns: vec![0, 0] }));
+        assert!(kinds.contains(&&NodeKind::TableRow { head: true }));
+        let all: String = ds[0].runs.iter().map(|r| r.text(src)).collect();
+        assert!(all.contains("[image: logo]") && all.contains("Title") && all.contains("two"));
+        assert!(!all.contains('x') || !all.contains("<script>"), "{all}");
+        assert!(!all.contains("<"), "{all}");
+        let strong = ds[0].runs.iter().find(|r| r.style & style::STRONG != 0);
+        assert_eq!(strong.map(|r| r.text(src)), Some("two"));
+    }
+
+    #[test]
     fn placeholders_and_inline_kinds() {
         let src = "|a|\n|-|\n|1|\n\nx ![alt *t*](p) <b>h</b> $m$ ~~s~~ `c`\n\n$$\ne\n$$\n\n> [!WARNING]\n> w\n";
         let (_, ds) = tree(src);
@@ -858,7 +1224,9 @@ mod tests {
                 .map(|r| r.text(src).to_string())
         };
         assert_eq!(find(style::IMAGE).as_deref(), Some("[image: alt t]"));
-        assert_eq!(find(style::MUTED).as_deref(), Some("<b>"));
+        // R-MD-14: inline `<b>` is applied as strong, never shown as source.
+        assert_eq!(find(style::STRONG).as_deref(), Some("h"));
+        assert_eq!(find(style::MUTED), None);
         assert_eq!(find(style::MATH).as_deref(), Some("m"));
         assert_eq!(find(style::STRIKE).as_deref(), Some("s"));
         assert_eq!(find(style::CODE).as_deref(), Some("m"));

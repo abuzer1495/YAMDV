@@ -340,6 +340,7 @@ pub fn placeholder_label(p: Placeholder) -> &'static str {
         Placeholder::Math => "math",
         Placeholder::Footnotes => "footnotes",
         Placeholder::FrontMatter => "front matter",
+        Placeholder::Details => "details",
     }
 }
 
@@ -481,6 +482,14 @@ pub(crate) fn spans(segs: &[Seg], b: &Style, m: &Metrics, pal: &Palette) -> Vec<
             // R-MD-06: 0.75 em. PARTIAL: no baseline shift until inline objects (§4.1.3).
             t.size = b.size * 0.75;
         }
+        if f & (st::UNDERLINE | st::ABBR) != 0 {
+            t.underline = true;
+        }
+        if f & st::KBD != 0 {
+            // B.6.3 key cap: code font on the inline-code background.
+            t.family = Family::Code;
+            t.size = b.size * 0.875;
+        }
         if f & st::HIGHLIGHT != 0 && pal.highlight_text != 0 {
             t.color = pal.highlight_text;
         }
@@ -503,7 +512,15 @@ pub(crate) struct Out {
     pub(crate) paras: Vec<LaidPara>,
     pub(crate) regions: Vec<HRegion>,
     pub(crate) hot: Vec<Hot>,
+    /// Horizontal alignment of inline leaves inside an HTML alignment container (0 = start).
+    pub(crate) align: u8,
+    /// This block opens a `<details>` closed in a later block: its last details node toggles
+    /// with the fold key `usize::MAX` (§4.6 item 3).
+    pub(crate) cross_details: bool,
 }
+
+/// Fold key (node) of a cross-block `<details>` toggle.
+pub const CROSS_DETAILS: usize = usize::MAX;
 
 impl Out {
     pub(crate) fn para(
@@ -556,7 +573,8 @@ pub(crate) fn leaf(
     w: f32,
     out: &mut Out,
 ) -> f32 {
-    leaf_aligned(ctx, pt, style, pitch, x, y, w, 0, out)
+    let a = out.align;
+    leaf_aligned(ctx, pt, style, pitch, x, y, w, a, out)
 }
 
 /// [`leaf`] with a horizontal alignment of the shaped box inside `w` (0/1 start, 2 center,
@@ -773,7 +791,9 @@ fn node_margins(kind: &NodeKind, m: &Metrics, tight: bool) -> (f32, f32) {
         NodeKind::List { .. } | NodeKind::DefList => {
             (0.0, if tight { 0.0 } else { m.para_spacing })
         }
-        NodeKind::Item { .. } => (0.0, 0.0),
+        NodeKind::Item { .. } | NodeKind::HtmlBlock | NodeKind::Align(_) => (0.0, 0.0),
+        NodeKind::Details { .. } => (8.0, 8.0),
+        NodeKind::DetailsSummary | NodeKind::Unsupported => (0.0, m.para_spacing),
     }
 }
 
@@ -857,6 +877,31 @@ fn node(
         NodeKind::TableRow { .. } | NodeKind::TableCell => 0.0,
         // R-REN-10: laid out in the notes section (see `layout_with_notes`).
         NodeKind::FootnoteDef { .. } => 0.0,
+        // R-MD-14: sanitized HTML maps onto the ordinary node kinds.
+        NodeKind::HtmlBlock => stack(ctx, src, d, &kids, x, y, w, env, out) - y,
+        NodeKind::Align(a) => {
+            let saved = out.align;
+            out.align = *a;
+            let h = stack(ctx, src, d, &kids, x, y, w, env, out) - y;
+            out.align = saved;
+            h
+        }
+        NodeKind::Details { open } => {
+            crate::front::details(ctx, src, d, i, *open, x, y, w, env, out)
+        }
+        NodeKind::DetailsSummary => {
+            let pt = node_text(src, d, i, ctx.single_newline_break);
+            let s = Style {
+                weight: 600,
+                ..base(&m, env.color)
+            };
+            leaf(ctx, pt, s, m.pitch(), x, y, w, out)
+        }
+        NodeKind::Unsupported => {
+            let label = ctx.strings.placeholder(Placeholder::Html).to_string();
+            let pt = source_text(src, &d.nodes[i].range);
+            card(ctx, pt, Some(&label), x, y, w, out)
+        }
         NodeKind::Placeholder(Placeholder::FrontMatter) => {
             crate::front::front_matter(ctx, src, d, i, x, y, w, out)
         }
@@ -1029,11 +1074,26 @@ fn node(
 
 /// Lays out a top-level block from its detail tree at column width `w`.
 pub fn layout_block(ctx: &mut Ctx<'_>, src: &str, d: &Detail, w: f32) -> BlockLayout {
+    layout_block_in(ctx, src, d, w, 0, false)
+}
+
+/// [`layout_block`] inside cross-block HTML containers: initial alignment and whether the
+/// block opens a cross-block `<details>`.
+pub fn layout_block_in(
+    ctx: &mut Ctx<'_>,
+    src: &str,
+    d: &Detail,
+    w: f32,
+    align: u8,
+    cross_details: bool,
+) -> BlockLayout {
     let mut out = Out {
         items: Vec::new(),
         paras: Vec::new(),
         regions: Vec::new(),
         hot: Vec::new(),
+        align,
+        cross_details,
     };
     let roots: Vec<usize> = d.roots().collect();
     let env = Env {
@@ -1079,6 +1139,8 @@ pub fn layout_with_notes(
         paras: std::mem::take(&mut bl.paras),
         regions: std::mem::take(&mut bl.regions),
         hot: std::mem::take(&mut bl.hot),
+        align: 0,
+        cross_details: false,
     };
     let bottom = crate::front::notes_section(ctx, src, notes, bl.height, w, &mut out);
     BlockLayout {

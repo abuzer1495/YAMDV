@@ -169,6 +169,7 @@ impl Strings for I18nStrings {
                 Placeholder::Math => Msg::LabelMath,
                 Placeholder::Footnotes => Msg::LabelFootnotes,
                 Placeholder::FrontMatter => Msg::LabelFrontMatter,
+                Placeholder::Details => Msg::LabelDetails,
             },
         )
     }
@@ -1354,6 +1355,10 @@ impl Win {
                 let mut o = d.viewer.code_opts(bi, node);
                 o.fold_toggled = !o.fold_toggled;
                 d.viewer.set_code_opts(bi, node, o);
+                if node == yamdv_layout::block::CROSS_DETAILS {
+                    // The container's sibling blocks change height too.
+                    d.viewer.invalidate_layouts();
+                }
             }
             HotKind::FootRef { n, .. } => {
                 self.footnote_jump(sh, FootTarget::Note(n));

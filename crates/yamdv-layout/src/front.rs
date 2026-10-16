@@ -305,6 +305,112 @@ pub(crate) fn notes_section(
     y
 }
 
+/// `<details>` (R-REN-14, B.6.9): summary row with a 12 px chevron and weight 600, content
+/// indented 16; closed unless `open`, toggled by clicking the summary (session state).
+pub(crate) fn details(
+    ctx: &mut Ctx<'_>,
+    src: &str,
+    d: &Detail,
+    i: usize,
+    open: bool,
+    x: f32,
+    y: f32,
+    w: f32,
+    env: &Env,
+    out: &mut Out,
+) -> f32 {
+    let kids: Vec<usize> = d.children(i).collect();
+    let cross = out.cross_details
+        && !d.nodes[i + 1..]
+            .iter()
+            .any(|n| matches!(n.kind, yamdv_core::doc::detail::NodeKind::Details { .. }));
+    let key = if cross {
+        crate::block::CROSS_DETAILS
+    } else {
+        i
+    };
+    let toggled = (ctx.code_opts)(ctx.block, key).fold_toggled;
+    let expanded = open != toggled;
+    let (summary, body): (Vec<usize>, Vec<usize>) = match kids.first() {
+        Some(&k)
+            if matches!(
+                d.nodes[k].kind,
+                yamdv_core::doc::detail::NodeKind::DetailsSummary
+            ) =>
+        {
+            (vec![k], kids[1..].to_vec())
+        }
+        _ => (Vec::new(), kids.clone()),
+    };
+    let pitch = ctx.m.pitch();
+    let chy = y + pitch / 2.0;
+    let chx = x + 6.0;
+    let pts = if expanded {
+        vec![
+            (chx - 4.0, chy - 2.0),
+            (chx, chy + 2.0),
+            (chx + 4.0, chy - 2.0),
+        ]
+    } else {
+        vec![
+            (chx - 2.0, chy - 4.0),
+            (chx + 2.0, chy),
+            (chx - 2.0, chy + 4.0),
+        ]
+    };
+    out.items.push(Item::Line {
+        pts,
+        color: env.color,
+        width: 1.5,
+        closed: false,
+    });
+    let mut bottom = if summary.is_empty() {
+        let label = ctx
+            .strings
+            .placeholder(yamdv_core::doc::detail::Placeholder::Details)
+            .to_string();
+        let st = Style {
+            weight: 600,
+            ..base(&ctx.m, env.color)
+        };
+        let sh = crate::block::shape_text(ctx, &label, st, Some((w - 18.0).max(1.0)), pitch);
+        let h = sh.height().max(pitch);
+        out.para(x + 18.0, y, sh, None, None);
+        y + h
+    } else {
+        stack(
+            ctx,
+            src,
+            d,
+            &summary,
+            x + 18.0,
+            y,
+            (w - 18.0).max(1.0),
+            env,
+            out,
+        )
+        .max(y + pitch)
+    };
+    out.hot.push(Hot {
+        rect: Rect::new(x, y, w, bottom - y),
+        kind: HotKind::Fold { node: key },
+    });
+    if expanded && !body.is_empty() {
+        bottom = stack(
+            ctx,
+            src,
+            d,
+            &body,
+            x + 16.0,
+            bottom + 8.0,
+            (w - 16.0).max(1.0),
+            env,
+            out,
+        );
+    }
+    bottom - y
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

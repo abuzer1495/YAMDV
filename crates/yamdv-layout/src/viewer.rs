@@ -157,7 +157,26 @@ impl Content {
                     let notes = notes(d);
                     return block::layout_with_notes(ctx, &d.source, &det, &notes, w);
                 }
-                block::layout_block(ctx, &d.source, &det, w)
+                if d.index.html_containers.is_empty() {
+                    return block::layout_block(ctx, &d.source, &det, w);
+                }
+                // §4.6 item 3: blocks inside a collapsed cross-block `<details>` are hidden;
+                // blocks inside an alignment container take its alignment.
+                let (align, dets) = d.index.container_ctx(i);
+                let hidden = dets.iter().any(|&(start, open)| {
+                    open == (ctx.code_opts)(start as usize, block::CROSS_DETAILS).fold_toggled
+                });
+                if hidden {
+                    return BlockLayout {
+                        height: 0.0,
+                        items: Vec::new(),
+                        paras: Vec::new(),
+                        regions: Vec::new(),
+                        hot: Vec::new(),
+                    };
+                }
+                let opens = d.index.opens_details(i);
+                block::layout_block_in(ctx, &d.source, &det, w, align, opens)
             }
             Content::Plain { text, chunks } => {
                 let r = chunks.get(i).cloned().unwrap_or(0..0);
