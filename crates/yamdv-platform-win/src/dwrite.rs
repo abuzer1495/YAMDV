@@ -363,4 +363,3 @@ impl TextShaper for DwShaper<'_> {
 }
 
 /// Keeps `PCWSTR` imported for callers that build wide strings.
-pub type Wide = PCWSTR;
