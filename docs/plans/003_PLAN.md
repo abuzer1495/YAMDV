@@ -20,4 +20,4 @@ Previous phase: tag `phase-002` = merge commit `a444acdc5890340f5c581df52b5d2255
 13. Corpus, goldens (P-23), XSS suite, fuzz (4 targets ≥ 10 min), measurements (M1, M6, T1, T4 cold/warm, T7 tooltip/decode, T-IMG, T-DLG), owner kit (F-15), traceability, report.
 
 ## Progress note (update on every push)
-- 2026-10-16 21:3x: milestone 1 done.
+- 2026-10-16: milestone 1 done. F-12 band cap done.

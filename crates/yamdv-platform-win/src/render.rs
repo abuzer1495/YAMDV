@@ -38,9 +38,6 @@ use yamdv_layout::shaper::Shaped;
 
 use crate::dwrite::{DWrite, DwShaped};
 
-/// Band height in device pixels.
-pub const BAND: i32 = 128;
-
 /// `0xRRGGBB` → GDI `COLORREF` (`0x00BBGGRR`).
 pub fn colorref(c: u32) -> COLORREF {
     COLORREF(((c >> 16) & 0xFF) | (c & 0xFF00) | ((c & 0xFF) << 16))
@@ -269,7 +266,12 @@ impl std::fmt::Debug for Renderer {
 
 /// Band buffer bytes (for `mem-stats`).
 pub fn band_bytes(w: i32) -> usize {
-    usize::try_from(w.max(1)).unwrap_or(0) * usize::try_from(BAND).unwrap_or(0) * 4
+    usize::try_from(w.max(1)).unwrap_or(0) * usize::try_from(band_rows(w)).unwrap_or(0) * 4
+}
+
+/// Band height for a width (P-12).
+pub fn band_rows(w: i32) -> i32 {
+    yamdv_layout::geom::band_rows(w)
 }
 
 impl Renderer {
@@ -287,7 +289,7 @@ impl Renderer {
             let brt = gi.CreateBitmapRenderTarget(
                 None,
                 u32::try_from(w_px.max(1)).unwrap_or(1),
-                u32::try_from(BAND).unwrap_or(128),
+                u32::try_from(band_rows(w_px)).unwrap_or(32),
             )?;
             brt.SetPixelsPerDip(scale)?;
             let params = match hwnd {
@@ -325,7 +327,7 @@ impl Renderer {
             if unsafe {
                 self.brt.Resize(
                     u32::try_from(w_px).unwrap_or(1),
-                    u32::try_from(BAND).unwrap_or(128),
+                    u32::try_from(band_rows(w_px)).unwrap_or(32),
                 )
             }
             .is_ok()
@@ -382,7 +384,7 @@ impl Renderer {
         };
         let mut y = rc.top.max(0);
         while y < rc.bottom {
-            let bh = BAND.min(rc.bottom - y);
+            let bh = band_rows(self.w).min(rc.bottom - y);
             let band = Band {
                 r: self,
                 bits,
@@ -428,7 +430,7 @@ impl Renderer {
         let mut out = vec![0u8; stride * usize::try_from(h_px.max(0)).unwrap_or(0)];
         let mut y = 0;
         while y < h_px {
-            let bh = BAND.min(h_px - y);
+            let bh = band_rows(self.w).min(h_px - y);
             let band = Band {
                 r: self,
                 bits,

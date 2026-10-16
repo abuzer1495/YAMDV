@@ -78,6 +78,8 @@ pub const MIN_CLIENT: (i32, i32) = (480, 360);
 pub const IDM_OPEN: usize = 0x101;
 /// Window property holding the first-paint time in ms + 1 (read by `xtask memprobe`).
 pub const PROP_FIRST_PAINT: PCWSTR = w!("YAMDV.FirstPaintMs");
+/// Window property: current band buffer bytes + 1 (read by memprobe, F-12).
+pub const PROP_BAND_BYTES: PCWSTR = w!("YAMDV.BandBytes");
 
 const WM_APP_AUTOSCROLL: u32 = WM_APP + 1;
 const TIMER_ANIM: usize = 1;
@@ -638,6 +640,17 @@ impl Win {
         }
         // SAFETY: matches BeginPaint.
         let _ = unsafe { EndPaint(self.hwnd, &ps) };
+        if let Some(r) = &self.renderer {
+            let bytes = crate::render::band_bytes(r.width());
+            // SAFETY: valid hwnd; the property value is a plain integer, never a handle.
+            unsafe {
+                let _ = SetPropW(
+                    self.hwnd,
+                    PROP_BAND_BYTES,
+                    Some(HANDLE(std::ptr::without_provenance_mut(bytes + 1))),
+                );
+            }
+        }
         if self.auto_phase > 0 {
             self.perf.push(t0.elapsed().as_secs_f64() * 1000.0);
         }

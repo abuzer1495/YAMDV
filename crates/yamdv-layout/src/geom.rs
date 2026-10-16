@@ -43,3 +43,29 @@ impl Rect {
         x >= self.x && x < self.right() && y >= self.y && y < self.bottom()
     }
 }
+
+/// Band buffer cap in bytes (P-12).
+pub const BAND_CAP_BYTES: usize = 524_288;
+
+/// Band height in rows for a band `width_px` wide: `clamp(524288 / (4 × width_px), 32, 128)`.
+pub fn band_rows(width_px: i32) -> i32 {
+    let w = usize::try_from(width_px.max(1)).unwrap_or(1);
+    i32::try_from((BAND_CAP_BYTES / (4 * w)).clamp(32, 128)).unwrap_or(32)
+}
+
+#[cfg(test)]
+mod band_tests {
+    use super::*;
+
+    #[test]
+    fn band_cap() {
+        for (w, rows) in [(1000, 128), (1920, 68), (3840, 34), (7680, 32)] {
+            assert_eq!(band_rows(w), rows, "width {w}");
+            let bytes = usize::try_from(w * band_rows(w) * 4).unwrap_or(0);
+            // ≤ 512 KiB except where the 32-row floor applies beyond 4096 px.
+            if w <= 4096 {
+                assert!(bytes <= BAND_CAP_BYTES, "{w}: {bytes}");
+            }
+        }
+    }
+}

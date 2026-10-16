@@ -162,6 +162,8 @@ pub struct Sample {
     pub monitor: (i32, i32),
     /// CPU time (kernel + user) during the `--cpu-ms` window, in µs.
     pub cpu_us: Option<u64>,
+    /// Band buffer bytes reported by the app (window property `YAMDV.BandBytes`).
+    pub band_bytes: Option<u64>,
 }
 
 /// Median of a list (lower median for even counts). Returns 0 for an empty list.
@@ -213,6 +215,7 @@ pub fn median_sample(samples: &[Sample]) -> Sample {
         },
         client: samples.first().map(|s| s.client).unwrap_or_default(),
         monitor: samples.first().map(|s| s.monitor).unwrap_or_default(),
+        band_bytes: samples.first().and_then(|s| s.band_bytes),
         cpu_us: {
             let mut v: Vec<u64> = samples.iter().filter_map(|s| s.cpu_us).collect();
             if v.is_empty() {
@@ -279,6 +282,7 @@ fn sample_json(s: &Sample) -> Value {
         "client_size": [s.client.0, s.client.1],
         "monitor_resolution": [s.monitor.0, s.monitor.1],
         "idle_cpu_us": s.cpu_us,
+        "band_bytes": s.band_bytes,
         "private_ws_counter_bytes": s.private_ws_counter,
         "private_usage_bytes": s.private_usage,
         "working_set_bytes": s.working_set,
@@ -863,6 +867,9 @@ mod win {
             let mut sample = measure(p.info.hProcess)?;
             sample.first_paint_ms = fp;
             sample.client = client(hwnd);
+            // SAFETY: valid hwnd; static property name.
+            let bb = unsafe { GetPropW(hwnd, windows::core::w!("YAMDV.BandBytes")) };
+            sample.band_bytes = (!bb.0.is_null()).then(|| (bb.0 as usize as u64).saturating_sub(1));
             // SAFETY: plain metric queries.
             sample.monitor =
                 unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
@@ -915,6 +922,7 @@ mod tests {
             client: (1000, 700),
             monitor: (1024, 768),
             cpu_us: Some(0),
+            band_bytes: Some(512_000),
         }
     }
 
