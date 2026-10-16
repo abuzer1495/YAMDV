@@ -58,7 +58,7 @@ Audited call sites in `yamdv-platform-win/src/window.rs` that can dispatch messa
 | `SetWindowPos` (WM_WINDOWPOSCHANGED, WM_SIZE) | WM_DPICHANGED | deferred (`Deferred::SetPos`) |
 | `DestroyWindow` (WM_DESTROY, …) | `run_actions` | no borrow held (action queue) |
 | `ShowWindow` | `create_window` | no borrow held |
-| Modal file dialog | was `run_actions` | moved out of process (dialog host, F-09) |
+| Modal file dialog | `run_actions` | no borrow held; F-09 moves it to the dialog host |
 | `SetCapture` / `ReleaseCapture` (WM_CAPTURECHANGED) | selection, scrollbar drag | message not handled, so `DefWindowProcW` is safe |
 | `SetCursor`, `InvalidateRect`, `ScrollWindowEx(SW_INVALIDATE)`, `SetTimer`, `KillTimer`, `TrackMouseEvent` | various | do not dispatch synchronously |
 
