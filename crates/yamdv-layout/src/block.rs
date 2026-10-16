@@ -218,6 +218,11 @@ pub enum HotKind {
         /// Reference index in [`yamdv_core::doc::index::FootnoteUse::refs`].
         k: u32,
     },
+    /// Link text (R-LINK-*): index into the block's `Detail::links`.
+    Link {
+        /// Link index.
+        link: u32,
+    },
     /// Target rectangle of note `n` in the notes section (not clickable; navigation anchor).
     FootNote {
         /// Note number.
@@ -635,6 +640,18 @@ pub(crate) fn leaf_aligned(
             }
         }
     }
+    // R-LINK-*: link text is activatable (one hot rect per line fragment).
+    for (s, seg) in sp.iter().zip(pt.segs.iter().filter(|g| g.style != 0)) {
+        if seg.link == yamdv_core::doc::detail::NO_LINK {
+            continue;
+        }
+        for r in shaped.range_rects(s.range.clone()) {
+            out.hot.push(Hot {
+                rect: Rect::new(x + r.x, y + r.y, r.w, r.h),
+                kind: HotKind::Link { link: seg.link },
+            });
+        }
+    }
     // R-REN-10: footnote references are activatable.
     for (s, seg) in sp.iter().zip(pt.segs.iter().filter(|g| g.style != 0)) {
         if seg.style & yamdv_core::doc::detail::style::FOOTREF == 0 {
@@ -770,6 +787,7 @@ pub(crate) fn source_text(src: &str, r: &std::ops::Range<u32>) -> ParaText {
             src: r.start..end,
             verbatim: true,
             style: 0,
+            link: yamdv_core::doc::detail::NO_LINK,
         }],
     }
 }

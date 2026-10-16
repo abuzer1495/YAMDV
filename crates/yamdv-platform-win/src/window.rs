@@ -42,6 +42,7 @@ use windows::Win32::Foundation::WAIT_OBJECT_0;
 use windows::Win32::System::DataExchange::COPYDATASTRUCT;
 use windows::Win32::System::Threading::INFINITE;
 use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
+use windows::Win32::UI::Input::KeyboardAndMouse::{VK_LEFT, VK_RIGHT};
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
     GetClientRect, GetCursorPos, GetMessageTime, GetSystemMetrics, HICON, HTCLIENT, IDC_ARROW,
@@ -53,6 +54,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_GETMINMAXINFO, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL,
     WM_PAINT, WM_SETCURSOR, WM_SETTINGCHANGE, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
 };
+use windows::Win32::UI::WindowsAndMessaging::{IDC_HAND, WM_SYSKEYDOWN, WM_XBUTTONUP};
 use windows::Win32::UI::WindowsAndMessaging::{
     MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, QS_ALLINPUT,
     SetForegroundWindow, WM_COPYDATA, WM_MOUSEHWHEEL, WM_QUIT, WaitMessage,
@@ -62,6 +64,7 @@ use yamdv_core::decode::{self, Guard};
 use yamdv_core::doc::detail::{Alert, Placeholder};
 use yamdv_core::doc::{Document, ReadOpts};
 use yamdv_core::i18n::{Lang, Msg, tr};
+use yamdv_core::link as ylink;
 use yamdv_core::path as ypath;
 use yamdv_core::settings::Settings;
 use yamdv_core::theme::{self, Palette};
@@ -122,6 +125,8 @@ struct Shared {
     smooth: bool,
     autohide: bool,
     dev: DevOptions,
+    /// `general.open_external_links`.
+    external: String,
     #[cfg_attr(not(feature = "mem-stats"), allow(dead_code))]
     commit_at_start: u64,
 }
@@ -220,6 +225,10 @@ enum View {
 struct DocView {
     content: Content,
     viewer: Viewer,
+    /// Full path of the document (link resolution, history).
+    path: String,
+    /// Mark-of-the-Web `ZoneId` ≥ 3 (S-LINK-04).
+    internet: bool,
     #[allow(dead_code)]
     info: FileInfo,
     #[allow(dead_code)]
@@ -228,14 +237,33 @@ struct DocView {
 
 #[derive(Debug, Clone)]
 enum Pending {
-    Large { path: String },
-    Binary { path: String, plain: bool },
+    Large {
+        path: String,
+    },
+    Binary {
+        path: String,
+        plain: bool,
+    },
+    /// External URL awaiting the Ask decision (R-LINK-04).
+    Url {
+        url: String,
+    },
+    /// Allowlisted local file awaiting confirmation (S-LINK-03).
+    Local {
+        path: String,
+    },
+    /// Folder / blocked file: show in Explorer (selects, never runs).
+    Reveal {
+        path: String,
+    },
 }
 
 const BTN_CANCEL: u32 = 0;
 const BTN_PLAIN: u32 = 1;
 const BTN_RENDER: u32 = 2;
 const BTN_OPEN: u32 = 3;
+const BTN_COPY: u32 = 4;
+const BTN_REVEAL: u32 = 5;
 
 #[derive(Default)]
 struct Scrollbar {
@@ -265,6 +293,11 @@ struct Win {
     warm: Vec<yamdv_layout::warm::WarmTask>,
     warm_pending: bool,
     toast: Option<Msg>,
+    /// Dynamic suffix of the toast text (link target names).
+    toast_arg: String,
+    /// Navigation history (path, scroll) and position (R-LINK-02).
+    history: Vec<(String, f64)>,
+    hist_pos: usize,
     /// Hovered code block (block, node) — its toolbar is shown (B.6.7).
     code_hover: Option<(usize, usize)>,
     /// Code block whose copy button shows the check mark (1.2 s).
@@ -416,9 +449,20 @@ impl Win {
             front_matter: sh.read.front_matter,
         };
         self.warm_pending = true;
+        // S-LINK-04: the document's own Zone.Identifier stream (a path we build ourselves).
+        let internet = std::fs::read_to_string(format!("{long}:Zone.Identifier"))
+            .ok()
+            .and_then(|z| ylink::zone_id(&z))
+            .is_some_and(|z| z >= 3);
+        if self.history.is_empty() {
+            self.history.push((full.clone(), 0.0));
+            self.hist_pos = 0;
+        }
         self.view = View::Doc(Box::new(DocView {
             content,
             viewer,
+            path: full.clone(),
+            internet,
             info,
             encoding: d.encoding,
         }));
@@ -455,9 +499,210 @@ impl Win {
             (Pending::Large { path }, BTN_PLAIN) => self.open(sh, &path, Some(true), false),
             (Pending::Large { path }, BTN_RENDER) => self.open(sh, &path, Some(false), false),
             (Pending::Binary { path, plain }, BTN_OPEN) => self.open(sh, &path, Some(plain), true),
+            (Pending::Url { url }, BTN_OPEN) => sys::shell_open(&url),
+            (Pending::Url { url }, BTN_COPY) => {
+                if sys::copy_text(self.hwnd, &url) {
+                    self.toast(Msg::Copied);
+                }
+            }
+            (Pending::Local { path }, BTN_OPEN) => sys::shell_open(&path),
+            (Pending::Reveal { path } | Pending::Local { path }, BTN_REVEAL) => {
+                sys::reveal_in_explorer(&path);
+            }
+            (Pending::Reveal { path }, BTN_OPEN) => sys::reveal_in_explorer(&path),
             _ => {}
         }
         self.invalidate();
+    }
+
+    fn ask_text(
+        &mut self,
+        sh: &Shared,
+        title: Msg,
+        body: String,
+        buttons: Vec<(Msg, u32)>,
+        p: Pending,
+    ) {
+        let b = buttons
+            .into_iter()
+            .map(|(m, id)| Button {
+                label: tr(sh.lang, m).to_string(),
+                id,
+            })
+            .collect();
+        self.dialog = Some((
+            ConfirmDialog::new(tr(sh.lang, title), body, b, BTN_CANCEL),
+            p,
+        ));
+        self.invalidate();
+    }
+
+    /// R-LINK-01…06: activates link `link` of block `bi`.
+    fn link_click(&mut self, sh: &Shared, bi: usize, link: u32) {
+        let Some(d) = self.doc() else { return };
+        let internet = d.internet;
+        let doc_path = d.path.clone();
+        let Content::Markdown(doc) = &mut d.content else {
+            return;
+        };
+        let det = doc.detail(bi);
+        let Some(l) = det.links.get(link as usize) else {
+            return;
+        };
+        let (dest, wiki) = (l.dest.to_string(), l.wiki);
+        match ylink::classify(&dest, wiki) {
+            ylink::Target::Anchor(a) => self.jump_anchor(sh, &a),
+            ylink::Target::External(u) => {
+                let url = u.serialize();
+                let mode = match sh.external.as_str() {
+                    "direct" => ylink::ExternalMode::Open,
+                    "never" => ylink::ExternalMode::Never,
+                    _ => ylink::ExternalMode::Ask,
+                };
+                if ylink::must_ask(mode, internet) {
+                    let mut body = url.clone();
+                    if u.is_idn() {
+                        body.push('\n');
+                        body.push_str(tr(sh.lang, Msg::LinkPunycode));
+                        body.push_str(&sys::idn_to_ascii(&u.host).unwrap_or_default());
+                    }
+                    if u.userinfo.is_some() {
+                        body.push_str("\n\n");
+                        body.push_str(tr(sh.lang, Msg::LinkCredentials));
+                    }
+                    let mut buttons = vec![(Msg::Cancel, BTN_CANCEL), (Msg::CopyLink, BTN_COPY)];
+                    if mode != ylink::ExternalMode::Never {
+                        buttons.push((Msg::OpenInBrowser, BTN_OPEN));
+                    }
+                    self.ask_text(sh, Msg::LinkAskTitle, body, buttons, Pending::Url { url });
+                } else if mode == ylink::ExternalMode::Never {
+                    if sys::copy_text(self.hwnd, &url) {
+                        self.toast(Msg::Copied);
+                    }
+                } else {
+                    sys::shell_open(&url);
+                }
+            }
+            ylink::Target::Local { path, fragment } => {
+                let dir = doc_path
+                    .rsplit_once(['\\', '/'])
+                    .map_or(String::new(), |(d, _)| d.to_string());
+                let found = if wiki {
+                    sys::find_wiki(&dir, &path)
+                } else {
+                    let full = format!("{dir}\\{}", path.replace('/', "\\"));
+                    sys::full_path(&full).filter(|f| sys::stat(&ypath::long_form(f)).is_ok())
+                };
+                let Some(full) = found else {
+                    self.toast_with(Msg::LinkNotFound, ypath::file_name(&path));
+                    return;
+                };
+                let is_dir = sys::stat(&ypath::long_form(&full)).is_ok_and(|(_, dir)| dir);
+                if is_dir {
+                    let body = ypath::display_form(&full);
+                    self.ask_text(
+                        sh,
+                        Msg::ShowFolderTitle,
+                        body,
+                        vec![(Msg::Cancel, BTN_CANCEL), (Msg::ShowInExplorer, BTN_OPEN)],
+                        Pending::Reveal { path: full },
+                    );
+                    return;
+                }
+                match ylink::local_kind(&full) {
+                    ylink::LocalKind::Markdown => {
+                        let scroll = self.scroll_pos();
+                        self.history.truncate(self.hist_pos + 1);
+                        if let Some(cur) = self.history.get_mut(self.hist_pos) {
+                            cur.1 = scroll;
+                        }
+                        self.open(sh, &full, None, false);
+                        if self.doc().is_some_and(|d| d.path == full) {
+                            self.history.push((full, 0.0));
+                            self.hist_pos = self.history.len() - 1;
+                            if let Some(f) = fragment {
+                                self.prepare_now(sh);
+                                self.jump_anchor(sh, &f);
+                            }
+                        }
+                    }
+                    ylink::LocalKind::Allowlisted => {
+                        let body = ypath::display_form(&full);
+                        self.ask_text(
+                            sh,
+                            Msg::OpenLocalTitle,
+                            body,
+                            vec![(Msg::Cancel, BTN_CANCEL), (Msg::OpenButton, BTN_OPEN)],
+                            Pending::Local { path: full },
+                        );
+                    }
+                    ylink::LocalKind::Blocked => {
+                        let body = ypath::display_form(&full);
+                        self.ask_text(
+                            sh,
+                            Msg::BlockedSafety,
+                            body,
+                            vec![(Msg::Cancel, BTN_CANCEL), (Msg::ShowInExplorer, BTN_REVEAL)],
+                            Pending::Reveal { path: full },
+                        );
+                    }
+                }
+            }
+            ylink::Target::Blocked => self.toast(Msg::BlockedLinkType),
+        }
+    }
+
+    /// R-LINK-01: `#slug` / `{#id}` / HTML `id`/`name` / heading text (wikilinks) → smooth scroll.
+    fn jump_anchor(&mut self, sh: &Shared, a: &str) {
+        let vh = self.view_h();
+        let Some(d) = self.doc() else { return };
+        let Content::Markdown(doc) = &d.content else {
+            return;
+        };
+        let ix = &doc.index;
+        let lower = a.to_lowercase();
+        let block = ix
+            .headings
+            .iter()
+            .find(|h| h.explicit_id.as_deref() == Some(a) || h.slug == a)
+            .or_else(|| {
+                ix.headings
+                    .iter()
+                    .find(|h| h.slug == lower || h.text.to_lowercase() == lower)
+            })
+            .map(|h| h.block as usize)
+            .or_else(|| ix.html_anchors.get(a).map(|&b| b as usize));
+        let Some(b) = block else {
+            self.toast_with(Msg::LinkNotFound, &format!("#{a}"));
+            return;
+        };
+        let old = d.viewer.scroll;
+        let top = d.viewer.block_top(&d.content, b);
+        d.viewer.scroll_to(top, vh);
+        self.prepare_now(sh);
+        let Some(d) = self.doc() else { return };
+        let target = (d.viewer.block_top(&d.content, b) - 16.0).max(0.0);
+        d.viewer.scroll_to(old, vh);
+        self.scroll_by(sh, target - old, true);
+    }
+
+    /// R-LINK-02: history back (`-1`) / forward (`+1`) with per-entry scroll restore.
+    fn history_go(&mut self, sh: &Shared, dir: i32) {
+        let Some(next) = self.hist_pos.checked_add_signed(dir as isize) else {
+            return;
+        };
+        if next >= self.history.len() {
+            return;
+        }
+        let scroll = self.scroll_pos();
+        if let Some(cur) = self.history.get_mut(self.hist_pos) {
+            cur.1 = scroll;
+        }
+        let (path, y) = self.history[next].clone();
+        self.open(sh, &path, None, false);
+        self.hist_pos = next;
+        self.prepare_now(sh);
+        self.set_scroll(y);
     }
 
     fn geometry(&self, sh: &Shared) -> Option<Geometry> {
@@ -615,6 +860,26 @@ impl Win {
         let (cx, _) = self.col(sh);
         d.viewer
             .hit(&d.content, x - cx, f64::from(y) + d.viewer.scroll)
+    }
+
+    /// Over a link, footnote reference/back-link or fold toggle (hand cursor, B.6.10).
+    fn over_hot(&self, sh: &Shared, x: f32, y: f32) -> bool {
+        let View::Doc(d) = &self.view else {
+            return false;
+        };
+        let (cx, _) = self.col(sh);
+        let doc_y = f64::from(y) + d.viewer.scroll;
+        d.viewer
+            .hot_at(&d.content, x - cx, doc_y)
+            .is_some_and(|(_, k)| {
+                matches!(
+                    k,
+                    HotKind::Link { .. }
+                        | HotKind::FootRef { .. }
+                        | HotKind::FootBack { .. }
+                        | HotKind::Fold { .. }
+                )
+            })
     }
 
     fn over_text(&self, sh: &Shared, x: f32, y: f32) -> bool {
@@ -837,9 +1102,10 @@ impl Win {
             }
         }
         if let Some(m) = self.toast {
+            let text = format!("{}{}", tr(sh.lang, m), self.toast_arg);
             let t = self.shape_ui(
                 sh,
-                tr(sh.lang, m),
+                &text,
                 13.0,
                 400,
                 pal.bg,
@@ -1369,6 +1635,10 @@ impl Win {
                 return true;
             }
             HotKind::FootNote { .. } => return false,
+            HotKind::Link { link } => {
+                self.link_click(sh, bi, link);
+                return true;
+            }
         }
         self.invalidate();
         true
@@ -1471,7 +1741,13 @@ impl Win {
 
     /// Shows a toast for 4 s (B.10).
     fn toast(&mut self, m: Msg) {
+        self.toast_with(m, "");
+    }
+
+    /// Toast with a dynamic suffix (e.g. "Link target not found: <name>").
+    fn toast_with(&mut self, m: Msg, arg: &str) {
         self.toast = Some(m);
+        self.toast_arg = arg.to_string();
         // SAFETY: valid hwnd; one-shot timer (killed when it fires).
         unsafe {
             SetTimer(Some(self.hwnd), TIMER_TOAST, 4000, None);
@@ -1789,6 +2065,21 @@ fn handle(
             actions.extend(w.key(sh, vk));
             Some(LRESULT(0))
         }
+        // R-LINK-02: Alt+← / Alt+→ and mouse X1/X2 move through the history.
+        WM_SYSKEYDOWN if wp.0 == usize::from(VK_LEFT.0) || wp.0 == usize::from(VK_RIGHT.0) => {
+            let dir = if wp.0 == usize::from(VK_LEFT.0) {
+                -1
+            } else {
+                1
+            };
+            w.history_go(sh, dir);
+            Some(LRESULT(0))
+        }
+        WM_XBUTTONUP => {
+            let dir = if (wp.0 >> 16) & 0xFFFF == 1 { -1 } else { 1 };
+            w.history_go(sh, dir);
+            Some(LRESULT(1))
+        }
         WM_COMMAND if (wp.0 & 0xFFFF) == IDM_OPEN => {
             actions.push(Action::OpenDialog);
             Some(LRESULT(0))
@@ -1844,11 +2135,20 @@ fn handle(
                 let _ = ScreenToClient(w.hwnd, &mut pt);
             }
             let (x, y) = (pt.x as f32 / w.scale, pt.y as f32 / w.scale);
-            let ibeam = w.dialog.is_none()
+            let hand = w.dialog.is_none() && w.over_hot(sh, x, y);
+            let ibeam = !hand
+                && w.dialog.is_none()
                 && !(x >= w.cw - 16.0 && w.thumb().is_some())
                 && w.over_text(sh, x, y);
+            let cur = if hand {
+                IDC_HAND
+            } else if ibeam {
+                IDC_IBEAM
+            } else {
+                IDC_ARROW
+            };
             // SAFETY: system cursors; no cleanup needed.
-            unsafe { SetCursor(LoadCursorW(None, if ibeam { IDC_IBEAM } else { IDC_ARROW }).ok()) };
+            unsafe { SetCursor(LoadCursorW(None, cur).ok()) };
             Some(LRESULT(1))
         }
         WM_TIMER => {
@@ -2169,6 +2469,9 @@ fn create_window(sh: &Shared, path: Option<&str>) {
         warm: Vec::new(),
         warm_pending: false,
         toast: None,
+        toast_arg: String::new(),
+        history: Vec::new(),
+        hist_pos: 0,
         code_hover: None,
         code_copied: None,
         hdrag: None,
@@ -2255,6 +2558,7 @@ pub fn run(paths: &[String], dev: DevOptions) -> i32 {
         },
         column_pct: s.int("typography.column_width_pct") as f32 / 100.0,
         smooth: s.bool("reading.smooth_scrolling"),
+        external: s.str("general.open_external_links").to_string(),
         autohide: s.bool("reading.scrollbar_autohide"),
         dev,
         commit_at_start,

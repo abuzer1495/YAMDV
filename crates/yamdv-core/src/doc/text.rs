@@ -29,6 +29,8 @@ pub struct Seg {
     pub verbatim: bool,
     /// Style flags.
     pub style: u16,
+    /// Link index of the run ([`super::detail::NO_LINK`] for none).
+    pub link: u32,
 }
 
 /// Layout string of one inline leaf.
@@ -87,6 +89,7 @@ impl ParaText {
                 src,
                 verbatim: s.verbatim,
                 style: s.style,
+                link: s.link,
             });
             u16_pos += len16;
         }
@@ -123,6 +126,7 @@ impl ParaText {
                 src: r.range.clone(),
                 verbatim,
                 style: r.style,
+                link: r.link,
             });
             p.text.push_str(t);
             u16_pos += len16;

@@ -217,3 +217,91 @@ pub fn ui_language_tag() -> &'static str {
     let id = unsafe { windows::Win32::Globalization::GetUserDefaultUILanguage() };
     if id & 0x3FF == 0x1F { "tr-TR" } else { "en-US" }
 }
+
+/// Hands a validated URL or an allowlisted local file to the default handler (S-EXEC-04,
+/// R-LINK-04): `ShellExecuteExW` with the "open" verb, never `SEE_MASK_NOZONECHECKS`.
+pub fn shell_open(target: &str) {
+    use windows::Win32::UI::Shell::{SEE_MASK_NOASYNC, SHELLEXECUTEINFOW, ShellExecuteExW};
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let file = windows::core::HSTRING::from(target);
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: u32::try_from(std::mem::size_of::<SHELLEXECUTEINFOW>()).unwrap_or(0),
+        fMask: SEE_MASK_NOASYNC,
+        lpVerb: windows::core::w!("open"),
+        lpFile: windows::core::PCWSTR(file.as_ptr()),
+        nShow: SW_SHOWNORMAL.0,
+        ..Default::default()
+    };
+    // SAFETY: `info` is fully initialized and `file` outlives the call.
+    let _ = unsafe { ShellExecuteExW(&mut info) };
+}
+
+/// Opens Explorer with `path` selected (R-LINK-05); never runs the file.
+pub fn reveal_in_explorer(path: &str) {
+    use windows::Win32::UI::Shell::{ILCreateFromPathW, ILFree, SHOpenFolderAndSelectItems};
+    let p = windows::core::HSTRING::from(path);
+    // SAFETY: valid NUL-terminated path; the PIDL is freed below.
+    unsafe {
+        let pidl = ILCreateFromPathW(windows::core::PCWSTR(p.as_ptr()));
+        if !pidl.is_null() {
+            let _ = SHOpenFolderAndSelectItems(pidl, None, 0);
+            ILFree(Some(pidl));
+        }
+    }
+}
+
+/// Punycode form of an IDN host via `IdnToAscii` (offline, S-LINK-02).
+pub fn idn_to_ascii(host: &str) -> Option<String> {
+    use windows::Win32::Globalization::IdnToAscii;
+    let src: Vec<u16> = host.encode_utf16().collect();
+    let mut buf = [0u16; 512];
+    // SAFETY: valid input slice and output buffer.
+    let n = unsafe { IdnToAscii(0, &src, Some(&mut buf)) };
+    let n = usize::try_from(n)
+        .ok()
+        .filter(|&n| n > 0 && n <= buf.len())?;
+    Some(String::from_utf16_lossy(buf.get(..n)?))
+}
+
+/// R-LINK-03: `Page.md` (then `Page.markdown`) in `dir`, then recursively in subfolders (max
+/// depth 4, first match by shortest path). Bounded: at most 10 000 directory entries.
+pub fn find_wiki(dir: &str, name: &str) -> Option<String> {
+    let mut cands = vec![name.replace('/', "\\")];
+    if let Some(stem) = name.strip_suffix(".md") {
+        cands.push(format!("{stem}.markdown"));
+    }
+    let mut level = vec![dir.to_string()];
+    let mut budget = 10_000usize;
+    for _ in 0..=4 {
+        let mut hits: Vec<String> = Vec::new();
+        for d in &level {
+            for c in &cands {
+                let p = format!("{d}\\{c}");
+                if std::path::Path::new(&yamdv_core::path::long_form(&p)).is_file() {
+                    hits.push(p);
+                }
+            }
+        }
+        if let Some(h) = hits.into_iter().min_by_key(String::len) {
+            return Some(h);
+        }
+        let mut next = Vec::new();
+        for d in &level {
+            let Ok(rd) = std::fs::read_dir(yamdv_core::path::long_form(d)) else {
+                continue;
+            };
+            for e in rd.flatten() {
+                if budget == 0 {
+                    return None;
+                }
+                budget -= 1;
+                if e.file_type().is_ok_and(|t| t.is_dir() && !t.is_symlink()) {
+                    next.push(format!("{d}\\{}", e.file_name().to_string_lossy()));
+                }
+            }
+        }
+        next.sort();
+        level = next;
+    }
+    None
+}

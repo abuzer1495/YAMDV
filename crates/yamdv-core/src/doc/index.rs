@@ -888,7 +888,10 @@ mod tests {
         let ix = Index::build(src, ReadOpts::default());
         assert_eq!(ix.html_containers.len(), 2, "{:?}", ix.html_containers);
         let d = ix.html_containers[0];
-        assert_eq!((d.start, d.end, d.kind, d.open), (0, 2, CONTAINER_DETAILS, false));
+        assert_eq!(
+            (d.start, d.end, d.kind, d.open),
+            (0, 2, CONTAINER_DETAILS, false)
+        );
         assert!(ix.opens_details(0));
         assert_eq!(ix.container_ctx(1), (0, vec![(0, false)]));
         assert_eq!(ix.container_ctx(4).0, 2);

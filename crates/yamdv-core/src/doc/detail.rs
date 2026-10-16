@@ -197,6 +197,22 @@ pub struct Run {
     pub owned: Option<Box<str>>,
     /// Style flags ([`style`]).
     pub style: u16,
+    /// Index into [`Detail::links`] for link text (`NO_LINK` otherwise).
+    pub link: u32,
+}
+
+/// [`Run::link`] value for non-link text.
+pub const NO_LINK: u32 = u32::MAX;
+
+/// A link destination of this tree (R-LINK-*).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkDest {
+    /// Destination as written (resolved for reference links).
+    pub dest: Box<str>,
+    /// Link title (tooltip).
+    pub title: Box<str>,
+    /// `[[wikilink]]` target (R-LINK-03).
+    pub wiki: bool,
 }
 
 impl Run {
@@ -235,6 +251,8 @@ pub struct Detail {
     pub nodes: Vec<Node>,
     /// Inline runs.
     pub runs: Vec<Run>,
+    /// Link destinations referenced by [`Run::link`].
+    pub links: Vec<LinkDest>,
 }
 
 const NONE: u32 = u32::MAX;
@@ -329,6 +347,8 @@ struct Builder<'s> {
     html: Vec<(String, u16)>,
     /// Remaining HTML tag allowance of this tree (S-HTML-03).
     html_budget: usize,
+    /// Open links (indices into `d.links`).
+    link: Vec<u32>,
 }
 
 impl Builder<'_> {
@@ -431,11 +451,17 @@ impl Builder<'_> {
         let style = self.style.last().copied().unwrap_or(0)
             | extra
             | self.html.iter().fold(0, |a, (_, f)| a | f);
+        let link = if style & style::LINK != 0 {
+            self.link.last().copied().unwrap_or(NO_LINK)
+        } else {
+            NO_LINK
+        };
         self.d.runs.push(Run {
             kind,
             range,
             owned,
             style,
+            link,
         });
         if let Some(&i) = self.stack.last() {
             self.d.nodes[i as usize].runs.end = u(self.d.runs.len());
@@ -466,8 +492,32 @@ impl Builder<'_> {
             let shown = p
                 .display
                 .unwrap_or_else(|| t.get(p.range.clone()).unwrap_or(""));
-            self.run(RunKind::Text, &pr, shown, p.extra);
+            if p.extra & style::AUTOLINK != 0 {
+                // R-MD-03: www. → http://, bare e-mail → mailto: (GFM).
+                let dest = if shown.contains("://") {
+                    shown.to_string()
+                } else if shown.to_ascii_lowercase().starts_with("www.") {
+                    format!("http://{shown}")
+                } else {
+                    format!("mailto:{shown}")
+                };
+                self.open_link(&dest, "", false);
+                self.run(RunKind::Text, &pr, shown, p.extra);
+                self.link.pop();
+            } else {
+                self.run(RunKind::Text, &pr, shown, p.extra);
+            }
         }
+    }
+
+    fn open_link(&mut self, dest: &str, title: &str, wiki: bool) {
+        let i = u(self.d.links.len());
+        self.d.links.push(LinkDest {
+            dest: dest.into(),
+            title: title.into(),
+            wiki,
+        });
+        self.link.push(i);
     }
 
     /// Inline HTML inside a leaf (R-MD-14): allowlisted tags toggle styles, `<br>` breaks,
@@ -501,13 +551,25 @@ impl Builder<'_> {
                     style::IMAGE,
                 );
             }
-            Tok::Open { tag, .. } => {
+            Tok::Open { tag, attrs, .. } => {
+                if tag == "a" {
+                    let href = attr(&attrs, "href").unwrap_or("").to_string();
+                    let title = attr(&attrs, "title").unwrap_or("").to_string();
+                    if href.is_empty() {
+                        return;
+                    }
+                    self.open_link(&href, &title, false);
+                }
                 if let Some(f) = html_style(&tag) {
                     self.html.push((tag, f));
                 }
             }
             Tok::Close(tag) => {
                 if let Some(p) = self.html.iter().rposition(|(t, _)| *t == tag) {
+                    let links = self.html[p..].iter().filter(|(t, _)| t == "a").count();
+                    for _ in 0..links {
+                        self.link.pop();
+                    }
                     self.html.truncate(p);
                 }
             }
@@ -789,6 +851,7 @@ impl Detail {
             skip: 0,
             html: Vec::new(),
             html_budget: crate::html::MAX_TAGS,
+            link: Vec::new(),
         };
         let limit = slice.len();
         for (ev, r) in parser.into_offset_iter() {
@@ -889,9 +952,15 @@ impl Detail {
                         Tag::Strikethrough => b.with_style(style::STRIKE),
                         Tag::Superscript => b.with_style(style::SUP),
                         Tag::Subscript => b.with_style(style::SUB),
-                        Tag::Link { link_type, .. } => {
-                            let _ = matches!(link_type, LinkType::WikiLink { .. });
-                            b.with_style(style::LINK)
+                        Tag::Link {
+                            link_type,
+                            dest_url,
+                            title,
+                            ..
+                        } => {
+                            let wiki = matches!(link_type, LinkType::WikiLink { .. });
+                            b.open_link(&dest_url, &title, wiki);
+                            b.with_style(style::LINK);
                         }
                         Tag::Image { .. } => {
                             if b.image.is_none() {
@@ -931,6 +1000,10 @@ impl Detail {
                     TagEnd::Image if b.image_depth > 0 => {
                         b.image_depth -= 1;
                         b.style.pop();
+                    }
+                    TagEnd::Link => {
+                        b.style.pop();
+                        b.link.pop();
                     }
                     _ => {
                         b.style.pop();
@@ -1005,7 +1078,13 @@ impl Detail {
 
     /// Approximate heap bytes.
     pub fn heap_bytes(&self) -> usize {
-        self.nodes.capacity() * std::mem::size_of::<Node>()
+        self.links.capacity() * std::mem::size_of::<LinkDest>()
+            + self
+                .links
+                .iter()
+                .map(|l| l.dest.len() + l.title.len())
+                .sum::<usize>()
+            + self.nodes.capacity() * std::mem::size_of::<Node>()
             + self
                 .nodes
                 .iter()

@@ -242,6 +242,7 @@ fn verbatim(s: &str, start: u32) -> ParaText {
             src: start..end,
             verbatim: true,
             style: 0,
+            link: yamdv_core::doc::detail::NO_LINK,
         }],
     }
 }

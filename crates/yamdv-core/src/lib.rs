@@ -11,6 +11,7 @@ pub mod html;
 pub mod i18n;
 pub mod ini;
 pub mod ipc;
+pub mod link;
 pub mod log;
 pub mod path;
 pub mod settings;

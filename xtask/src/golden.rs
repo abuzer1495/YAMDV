@@ -15,7 +15,7 @@ pub const MAX_DIFF_SHARE: f64 = 0.005;
 pub const TILE_ROWS: u32 = 5000;
 
 /// Golden documents (corpus file names in `tests/corpus/002/`).
-pub const DOCS: [(&str, &str); 13] = [
+pub const DOCS: [(&str, &str); 14] = [
     ("typical-basic", "typical-basic.md"),
     ("headings", "headings.md"),
     ("lists", "lists.md"),
@@ -28,6 +28,7 @@ pub const DOCS: [(&str, &str); 13] = [
     ("deflist", "deflist.md"),
     ("inline", "inline.md"),
     ("html", "html.md"),
+    ("links", "links.md"),
     ("plaintext", "plain.txt"),
 ];
 
