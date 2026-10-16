@@ -96,7 +96,7 @@ pub fn size(r: &ImageRef, s: &ImgState, column: f32) -> (f32, f32) {
 }
 
 /// Lays out a block image at (`x`, `y`) in a column of width `w`; returns the height.
-pub fn block(ctx: &mut Ctx<'_>, r: &ImageRef, x: f32, y: f32, w: f32, out: &mut Out) -> f32 {
+pub(crate) fn block(ctx: &mut Ctx<'_>, r: &ImageRef, x: f32, y: f32, w: f32, out: &mut Out) -> f32 {
     let s = ctx.images.state(&r.src);
     if let ImgState::Fail(p) = &s {
         return placeholder(ctx, r, p, x, y, w, out);
