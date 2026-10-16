@@ -260,8 +260,10 @@ fn is_device_name(c: &str) -> bool {
         "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
     ) || (stem.len() == 4
         && (stem.starts_with("COM") || stem.starts_with("LPT"))
-        && stem.as_bytes()[3].is_ascii_digit()
-        && stem.as_bytes()[3] != b'0')
+        && stem
+            .as_bytes()
+            .get(3)
+            .is_some_and(|d| (b'1'..=b'9').contains(d)))
 }
 
 fn check_unc(path: &str, doc_path: &str) -> Result<Source, Placeholder> {

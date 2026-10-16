@@ -49,16 +49,15 @@ pub const PLACEHOLDER_H: f32 = 64.0;
 /// The single image of paragraph node `i` when the paragraph holds nothing else.
 pub fn sole_image<'d>(src: &str, d: &'d Detail, i: usize) -> Option<&'d ImageRef> {
     let node = d.nodes.get(i)?;
-    let runs = d
-        .runs
-        .get(node.runs.start as usize..node.runs.end as usize)?;
+    let (a, b) = (node.runs.start as usize, node.runs.end as usize);
+    let runs = d.runs.get(a..b)?;
     let mut found = None;
-    for r in runs {
+    for (k, r) in runs.iter().enumerate() {
         if r.style & st::IMAGE != 0 {
             if found.is_some() {
                 return None;
             }
-            found = Some(r);
+            found = Some(a + k);
         } else {
             let t = r
                 .owned
@@ -75,7 +74,7 @@ pub fn sole_image<'d>(src: &str, d: &'d Detail, i: usize) -> Option<&'d ImageRef
     let k = d
         .runs
         .iter()
-        .take_while(|r| !std::ptr::eq(*r, first))
+        .take(first)
         .filter(|r| r.style & st::IMAGE != 0)
         .count();
     d.images.get(k)
@@ -91,15 +90,7 @@ pub fn size(r: &ImageRef, s: &ImgState, column: f32) -> (f32, f32) {
     match (s, req.w, req.h) {
         (ImgState::Ready { w, h }, ..) => image::display_size(*w, *h, req, column),
         // Both sizes given: exact without a probe.
-        (_, Some(w), Some(h)) => image::display_size(
-            1,
-            1,
-            image::Req {
-                w: Some(w),
-                h: Some(h),
-            },
-            column,
-        ),
+        (_, Some(_), Some(_)) => image::display_size(1, 1, req, column),
         _ => image::estimate(column),
     }
 }
@@ -107,25 +98,23 @@ pub fn size(r: &ImageRef, s: &ImgState, column: f32) -> (f32, f32) {
 /// Lays out a block image at (`x`, `y`) in a column of width `w`; returns the height.
 pub fn block(ctx: &mut Ctx<'_>, r: &ImageRef, x: f32, y: f32, w: f32, out: &mut Out) -> f32 {
     let s = ctx.images.state(&r.src);
-    match s {
-        ImgState::Fail(p) => placeholder(ctx, r, &p, x, y, w, out),
-        s => {
-            let (iw, ih) = size(r, &s, w);
-            // Centered when narrower than the column (B.6.10).
-            let ix = x + ((w - iw) / 2.0).max(0.0);
-            let rect = Rect::new(ix, y, iw, ih);
-            out.items.push(Item::Image {
-                rect,
-                src: r.src.clone(),
-                ready: matches!(s, ImgState::Ready { .. }),
-            });
-            out.hot.push(Hot {
-                rect,
-                kind: HotKind::Image { src: r.src.clone() },
-            });
-            ih
-        }
+    if let ImgState::Fail(p) = &s {
+        return placeholder(ctx, r, p, x, y, w, out);
     }
+    let (iw, ih) = size(r, &s, w);
+    // Centered when narrower than the column.
+    let ix = x + ((w - iw) / 2.0).max(0.0);
+    let rect = Rect::new(ix, y, iw, ih);
+    out.items.push(Item::Image {
+        rect,
+        src: r.src.clone(),
+        ready: matches!(s, ImgState::Ready { .. }),
+    });
+    out.hot.push(Hot {
+        rect,
+        kind: HotKind::Image { src: r.src.clone() },
+    });
+    ih
 }
 
 fn icon(p: &Placeholder) -> &'static str {
@@ -171,14 +160,15 @@ fn placeholder(
     out.para(x + 16.0, y + (h - ih) / 2.0, i, None, None);
     let mut msg = ctx.strings.image_message(p).to_string();
     if !r.alt.trim().is_empty() {
-        msg.push_str(" — ");
+        msg.push_str(" \u{2014} ");
         msg.push_str(&r.alt);
     }
     let ms = Style {
         weight: 600,
         ..base(&m, ctx.pal.text)
     };
-    let tw = (w - 64.0 - if *p == Placeholder::Remote { 96.0 } else { 0.0 }).max(40.0);
+    let remote = *p == Placeholder::Remote;
+    let tw = (w - 64.0 - if remote { 96.0 } else { 0.0 }).max(40.0);
     let t = shape_text(ctx, &msg, ms, Some(tw), m.pitch());
     out.para(x + 52.0, y + 10.0, t, None, None);
     let shown: String = if r.src.starts_with("data:") {
@@ -192,7 +182,7 @@ fn placeholder(
     };
     let pth = shape_text(ctx, &shown, ps, Some(tw), 16.0);
     out.para(x + 52.0, y + h - 26.0, pth, None, None);
-    if *p == Placeholder::Remote {
+    if remote {
         let b = Rect::new(x + w - 104.0, y + (h - 28.0) / 2.0, 88.0, 28.0);
         out.items.push(Item::Stroke {
             rect: b,
@@ -203,7 +193,8 @@ fn placeholder(
             size: 12.0,
             ..base(&m, ctx.pal.text)
         };
-        let l = shape_text(ctx, ctx.strings.copy_url(), bs, None, 16.0);
+        let label = ctx.strings.copy_url().to_string();
+        let l = shape_text(ctx, &label, bs, None, 16.0);
         let (lw, lh) = (l.width(), l.height());
         out.para(
             b.x + (b.w - lw) / 2.0,
@@ -297,7 +288,7 @@ mod tests {
             )
         );
         let bl = lay(
-            "![a](C:/x.png:ads)\n",
+            "![a](x.png)\n",
             &Fixed(ImgState::Fail(Placeholder::InvalidPath)),
         );
         assert!(

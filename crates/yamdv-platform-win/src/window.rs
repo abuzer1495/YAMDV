@@ -233,6 +233,8 @@ struct DocView {
     info: FileInfo,
     #[allow(dead_code)]
     encoding: &'static str,
+    /// Images of this document (R-IMG-*).
+    images: crate::images::Store,
 }
 
 #[derive(Debug, Clone)]
@@ -465,6 +467,7 @@ impl Win {
             internet,
             info,
             encoding: d.encoding,
+            images: crate::images::Store::new(&full, self.hwnd.0 as isize),
         }));
         self.sel = None;
         self.anim = None;
@@ -964,15 +967,22 @@ impl Win {
                 pal: &self.pal,
                 strings: &strings,
                 single_newline_break: sh.read.single_newline_break,
+                images: &d.images,
             };
             d.viewer.prepare(&mut d.content, &mut env, vh);
         }
         let geo = self.geometry(sh);
         if let Some(r) = &self.renderer {
             let me = &*self;
+            if let View::Doc(d) = &me.view {
+                d.images.begin_frame();
+            }
             r.paint(hdc, ps.rcPaint, me.pal.text, &mut |band| {
                 me.draw(sh, band, cx, geo.as_ref())
             });
+            if let View::Doc(d) = &me.view {
+                d.images.end_frame();
+            }
         }
         // SAFETY: matches BeginPaint.
         let _ = unsafe { EndPaint(self.hwnd, &ps) };
@@ -1112,7 +1122,16 @@ impl Win {
             }
             View::Doc(d) => {
                 let sel = self.sel.map(|(a, c)| a.min(c)..a.max(c));
-                draw_doc(b, &d.content, &d.viewer, pal, cx, sel, self.view_h());
+                draw_doc(
+                    b,
+                    &d.content,
+                    &d.viewer,
+                    pal,
+                    cx,
+                    sel,
+                    self.view_h(),
+                    Some(&d.images),
+                );
                 self.draw_code_toolbar(sh, b, d, pal, cx);
                 if let Some(t) = self.thumb()
                     && self.sb.alpha > 0.0
@@ -1687,6 +1706,7 @@ impl Win {
                 pal: &self.pal,
                 strings: &strings,
                 single_newline_break: sh.read.single_newline_break,
+                images: &d.images,
             };
             d.viewer.prepare(&mut d.content, &mut env, vh);
         }
@@ -1897,6 +1917,7 @@ pub(crate) fn draw_doc(
     cx: f32,
     sel: Option<Range<u32>>,
     vh: f64,
+    images: Option<&crate::images::Store>,
 ) {
     let sel_alpha = f32::from(pal.selection_alpha_pct) / 100.0;
     for (bi, y, bl) in viewer.visible(content, vh) {
@@ -1967,6 +1988,18 @@ pub(crate) fn draw_doc(
                 }
                 // Drawn by the window on hover (not part of static renders).
                 Item::CodeToolbar { .. } => {}
+                Item::Image { rect, src, .. } => {
+                    let r = rect.offset(cx, y);
+                    let (wp, hp) = (
+                        (r.w * b.scale).round().max(1.0) as u32,
+                        (r.h * b.scale).round().max(1.0) as u32,
+                    );
+                    match images.and_then(|s| s.pixels(src, wp, hp)) {
+                        Some(bm) => b.image(r.x, r.y, bm.w, bm.h, &bm.px),
+                        // Decoding: a quiet `code_bg` box of the final size (no layout shift).
+                        None => b.fill(r, pal.code_bg, 1.0, 4.0),
+                    }
+                }
                 Item::PushClip(r) => b.push_clip(r.offset(cx, y)),
                 Item::PopClip => b.pop_clip(),
                 Item::HScrollBar(ri) => {
@@ -2189,6 +2222,18 @@ fn handle(
                     // SAFETY: valid hwnd.
                     let _ =
                         unsafe { PostMessageW(Some(w.hwnd), WM_APP_WARM, WPARAM(0), LPARAM(0)) };
+                }
+            }
+            Some(LRESULT(0))
+        }
+        crate::images::WM_IMAGE_DONE => {
+            if let View::Doc(d) = &mut w.view {
+                let (any, relayout) = d.images.collect();
+                if relayout {
+                    d.viewer.invalidate_layouts();
+                }
+                if any {
+                    w.invalidate();
                 }
             }
             Some(LRESULT(0))
