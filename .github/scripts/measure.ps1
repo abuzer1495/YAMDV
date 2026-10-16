@@ -25,9 +25,13 @@ Get-ChildItem target/release/*.exe | Select-Object FullName, Length | Format-Tab
 Probe 'M0' $rel @('--runs', '5', '--budget-pws-mib', '4.8', '--budget-commit-ratio', '3', '--budget-first-paint-ms', '100', '--screenshot', "$m/M0.png")
 Probe 'M1b' $rel @('--doc', $typ, '--runs', '5', '--budget-pws-mib', '8.0', '--budget-commit-ratio', '3', '--budget-first-paint-ms', '150', '--screenshot', "$m/M1b.png")
 Probe 'M2' $rel @('--doc', $large, '--runs', '5', '--budget-pws-mib', '16', '--budget-commit-ratio', '3', '--budget-first-paint-ms', '300', '--screenshot', "$m/M2.png")
-# M6: M1b, open + cancel Ctrl+O, wait 2 s; budget M1b + 1 MiB
-$m1b = (Get-Content "$m/M1b.json" -Raw | ConvertFrom-Json).median.private_ws_mib
-Probe 'M6' $rel @('--doc', $typ, '--runs', '3', '--open-dialog', '--settle-ms', '2000', '--budget-pws-mib', "$($m1b + 1)")
+# M6 (P-10, F-09): Ctrl+O shows the dialog in the out-of-process host; cancel, wait 2 s, no trim.
+# Budget: PWS <= M1 + 1 MiB and commit <= M1 commit + 1.5 MiB; module count unchanged; T-DLG reported.
+$m1j = (Get-Content "$m/M1b.json" -Raw | ConvertFrom-Json).median
+Probe 'M6' $rel @('--doc', $typ, '--runs', '3', '--open-dialog', '--settle-ms', '2000', '--budget-pws-mib', "$($m1j.private_ws_mib + 1)", '--budget-commit-mib', "$($m1j.private_usage_mib + 1.5)")
+$m6 = (Get-Content "$m/M6.json" -Raw | ConvertFrom-Json).median
+Write-Host "T-DLG = $($m6.t_dlg_ms) ms (soft 400); modules before/after = $($m6.modules_before_dialog)/$($m6.module_count)"
+if ($m6.t_dlg_ms -gt 400) { Write-Host "::warning::T-DLG $($m6.t_dlg_ms) ms > 400 ms (soft, report only)" }
 # T7: idle CPU 30 s on the empty state and on a document
 Probe 'T7-empty' $rel @('--runs', '1', '--cpu-ms', '30000', '--budget-cpu-ms', '1')
 Probe 'T7-doc' $rel @('--doc', $typ, '--runs', '1', '--cpu-ms', '30000', '--budget-cpu-ms', '1')

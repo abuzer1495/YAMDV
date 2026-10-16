@@ -8,6 +8,7 @@ pub mod decode;
 pub mod doc;
 pub mod i18n;
 pub mod ini;
+pub mod ipc;
 pub mod log;
 pub mod path;
 pub mod settings;

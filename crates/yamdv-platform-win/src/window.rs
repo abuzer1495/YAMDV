@@ -38,16 +38,24 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 use windows::Win32::UI::Shell::{DragAcceptFiles, DragFinish, DragQueryFileW, HDROP};
 /// `WM_MOUSELEAVE` (lives in UI::Controls in windows-rs; avoided pulling that feature).
 const WM_MOUSELEAVE: u32 = 0x02A3;
+use windows::Win32::Foundation::WAIT_OBJECT_0;
+use windows::Win32::System::DataExchange::COPYDATASTRUCT;
+use windows::Win32::System::Threading::INFINITE;
+use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
-    GetClientRect, GetCursorPos, GetMessageTime, GetMessageW, GetSystemMetrics, HICON, HTCLIENT,
-    IDC_ARROW, IDC_IBEAM, IMAGE_ICON, KillTimer, LR_DEFAULTSIZE, LR_SHARED, LoadCursorW,
-    LoadImageW, MINMAXINFO, MSG, PostMessageW, PostQuitMessage, RegisterClassExW, SM_CXDOUBLECLK,
+    GetClientRect, GetCursorPos, GetMessageTime, GetSystemMetrics, HICON, HTCLIENT, IDC_ARROW,
+    IDC_IBEAM, IMAGE_ICON, KillTimer, LR_DEFAULTSIZE, LR_SHARED, LoadCursorW, LoadImageW,
+    MINMAXINFO, MSG, PostMessageW, PostQuitMessage, RegisterClassExW, SM_CXDOUBLECLK,
     SM_CYDOUBLECLK, SW_INVALIDATE, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, ScrollWindowEx,
     SetCursor, SetPropW, SetTimer, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage,
     WINDOW_EX_STYLE, WM_APP, WM_COMMAND, WM_DESTROY, WM_DPICHANGED, WM_DROPFILES, WM_ERASEBKGND,
     WM_GETMINMAXINFO, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL,
     WM_PAINT, WM_SETCURSOR, WM_SETTINGCHANGE, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, QS_ALLINPUT,
+    SetForegroundWindow, WM_COPYDATA, WM_QUIT, WaitMessage,
 };
 use windows::core::{HSTRING, PCWSTR, w};
 use yamdv_core::decode::{self, Guard};
@@ -89,6 +97,7 @@ const TIMER_SB_HIDE: usize = 2;
 const TIMER_SB_FADE: usize = 3;
 const TIMER_DRAG: usize = 4;
 const TIMER_MEMSTATS: usize = 6;
+const TIMER_TOAST: usize = 7;
 const LINE_STEP: f64 = 40.0;
 
 /// Developer options (feature `dev-tools`; never in release builds).
@@ -120,6 +129,8 @@ thread_local! {
     static SHARED: RefCell<Option<Rc<Shared>>> = const { RefCell::new(None) };
     static WINDOWS: RefCell<HashMap<isize, Rc<RefCell<Win>>>> = RefCell::new(HashMap::new());
     static PENDING_OPEN: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    /// The dialog host this UI thread waits for (F-09); at most one at a time.
+    static HOST: RefCell<Option<crate::dialog_host::HostWait>> = const { RefCell::new(None) };
 }
 
 fn shared() -> Option<Rc<Shared>> {
@@ -244,6 +255,7 @@ struct Win {
     first_paint: bool,
     warm: Vec<yamdv_layout::warm::WarmTask>,
     warm_pending: bool,
+    toast: Option<Msg>,
     drag_dir: f64,
     perf: Vec<f64>,
     auto_phase: u8,
@@ -255,6 +267,8 @@ struct Win {
 
 enum Action {
     OpenDialog,
+    /// Validated dialog-host answer (S-IPC-05).
+    HostResult(yamdv_core::ipc::Outcome),
     NewWindow(String),
     Close,
 }
@@ -800,6 +814,25 @@ impl Win {
                 }
             }
         }
+        if let Some(m) = self.toast {
+            let t = self.shape_ui(
+                sh,
+                tr(sh.lang, m),
+                13.0,
+                400,
+                pal.bg,
+                Some((self.cw - 64.0).max(100.0)),
+            );
+            let (tw, th) = (t.width() + 32.0, t.height() + 20.0);
+            let r = Rect::new(
+                ((self.cw - tw) / 2.0).round(),
+                (self.ch - th - 24.0).round(),
+                tw,
+                th,
+            );
+            b.fill(r, pal.text, 0.92, 8.0);
+            b.text(t.as_ref(), r.x + 16.0, r.y + 10.0);
+        }
         if let (Some((d, _)), Some(g)) = (&self.dialog, geo) {
             b.fill(
                 Rect::new(0.0, 0.0, self.cw, self.ch),
@@ -1158,7 +1191,26 @@ impl Win {
         let _ = unsafe { PostMessageW(Some(self.hwnd), WM_APP_AUTOSCROLL, WPARAM(0), LPARAM(0)) };
     }
 
+    /// Shows a toast for 4 s (B.10).
+    fn toast(&mut self, m: Msg) {
+        self.toast = Some(m);
+        // SAFETY: valid hwnd; one-shot timer (killed when it fires).
+        unsafe {
+            SetTimer(Some(self.hwnd), TIMER_TOAST, 4000, None);
+            let _ = InvalidateRect(Some(self.hwnd), None, false);
+        }
+    }
+
     fn timer(&mut self, sh: &Shared, id: usize) {
+        if id == TIMER_TOAST {
+            self.toast = None;
+            // SAFETY: valid hwnd.
+            unsafe {
+                let _ = KillTimer(Some(self.hwnd), TIMER_TOAST);
+                let _ = InvalidateRect(Some(self.hwnd), None, false);
+            }
+            return;
+        }
         match id {
             TIMER_ANIM => self.tick_anim(),
             TIMER_SB_HIDE => {
@@ -1379,6 +1431,29 @@ fn handle(
     let mut actions = Vec::new();
     let r = match msg {
         WM_ERASEBKGND => Some(LRESULT(1)),
+        WM_COPYDATA => {
+            // SAFETY: for WM_COPYDATA, lParam points to a COPYDATASTRUCT valid during the call.
+            let cds = unsafe { &*(lp.0 as *const COPYDATASTRUCT) };
+            let sender = HWND(wp.0 as *mut core::ffi::c_void);
+            let out = HOST.with(|h| {
+                let mut h = h.borrow_mut();
+                let hw = h.as_mut()?;
+                let o = crate::dialog_host::accept(hw, w.hwnd, sender, cds)?;
+                hw.answered = true;
+                crate::log::warn(
+                    "dialog-host",
+                    &format!("answer after {} ms", hw.started.elapsed().as_millis()),
+                );
+                Some(o)
+            });
+            match out {
+                Some(o) => {
+                    actions.push(Action::HostResult(o));
+                    Some(LRESULT(1))
+                }
+                None => Some(LRESULT(0)),
+            }
+        }
         WM_PAINT => {
             w.paint(sh);
             Some(LRESULT(0))
@@ -1561,14 +1636,33 @@ fn run_actions_inner(hwnd: HWND, actions: Vec<Action>) {
             }
             Action::NewWindow(p) => create_window(&sh, Some(&p)),
             Action::OpenDialog => {
-                let f = sys::Filters {
-                    markdown: tr(sh.lang, Msg::FilterMarkdown),
-                    text: tr(sh.lang, Msg::FilterText),
-                    all: tr(sh.lang, Msg::FilterAll),
+                if HOST.with(|h| h.borrow().is_some()) {
+                    continue;
+                }
+                match crate::dialog_host::launch(hwnd) {
+                    Some(h) => {
+                        // SAFETY: valid hwnd; WM_ENABLE is not handled by us (no re-entry).
+                        let _ = unsafe { EnableWindow(hwnd, false) };
+                        HOST.with(|x| *x.borrow_mut() = Some(h));
+                    }
+                    None => show_toast(hwnd, Msg::DialogHostFailed),
+                }
+            }
+            Action::HostResult(o) => {
+                // SAFETY: valid hwnd.
+                unsafe {
+                    let _ = EnableWindow(hwnd, true);
+                    let _ = SetForegroundWindow(hwnd);
+                }
+                let paths = match o {
+                    yamdv_core::ipc::Outcome::Paths(p) => p,
+                    yamdv_core::ipc::Outcome::Cancel => Vec::new(),
+                    yamdv_core::ipc::Outcome::Error => {
+                        show_toast(hwnd, Msg::DialogHostFailed);
+                        Vec::new()
+                    }
                 };
-                // Modal: no window state is borrowed while the dialog runs.
-                let paths = sys::open_dialog(hwnd, &f);
-                sys::trim_working_set();
+                // Returned paths are treated exactly like user-opened paths (S-IPC-05).
                 let mut it = paths.into_iter();
                 if let Some(first) = it.next() {
                     let win = WINDOWS.with(|m| m.borrow().get(&(hwnd.0 as isize)).cloned());
@@ -1736,6 +1830,7 @@ fn create_window(sh: &Shared, path: Option<&str>) {
         first_paint: false,
         warm: Vec::new(),
         warm_pending: false,
+        toast: None,
         drag_dir: 0.0,
         perf: Vec::new(),
         auto_phase: 0,
@@ -1758,7 +1853,7 @@ fn create_window(sh: &Shared, path: Option<&str>) {
 }
 
 /// Reads `settings.ini` (read-only in this phase, R-SET-05) and returns the settings.
-fn load_settings() -> Settings {
+pub(crate) fn load_settings() -> Settings {
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_string_lossy().into_owned()))
@@ -1829,19 +1924,62 @@ pub fn run(paths: &[String], dev: DevOptions) -> i32 {
     }
     let _ = PENDING_OPEN.with(|p| p.borrow().len());
     let mut msg = MSG::default();
+    // Message loop that also waits on the dialog host's process handle (F-09).
     loop {
-        // SAFETY: standard message loop; msg is a valid out-pointer.
-        let r = unsafe { GetMessageW(&mut msg, None, 0, 0) };
-        if r.0 <= 0 {
-            break;
+        let h = HOST.with(|h| h.borrow().as_ref().map(|h| h.process));
+        if let Some(ph) = h {
+            // SAFETY: valid process handle; returns on input or when the host exits.
+            let r = unsafe {
+                MsgWaitForMultipleObjectsEx(Some(&[ph]), INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE)
+            };
+            if r == WAIT_OBJECT_0 {
+                host_exited();
+                continue;
+            }
+        } else {
+            // SAFETY: blocks until a message is available.
+            let _ = unsafe { WaitMessage() };
         }
-        // SAFETY: msg was filled by GetMessageW.
-        unsafe {
-            let _ = TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+        // SAFETY: standard message pump; msg is a valid out-pointer.
+        while unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE) }.as_bool() {
+            if msg.message == WM_QUIT {
+                return i32::try_from(msg.wParam.0).unwrap_or(0);
+            }
+            // SAFETY: msg was filled by PeekMessageW.
+            unsafe {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
         }
     }
-    i32::try_from(msg.wParam.0).unwrap_or(0)
+}
+
+/// The dialog host process ended: re-enable the owner if no answer arrived; toast on failure.
+fn host_exited() {
+    let Some(h) = HOST.with(|h| h.borrow_mut().take()) else {
+        return;
+    };
+    if h.answered {
+        return;
+    }
+    // SAFETY: valid (or stale, then harmless) hwnd.
+    let _ = unsafe { EnableWindow(h.owner, true) };
+    let code = crate::dialog_host::exit_code(&h);
+    crate::log::warn(
+        "dialog-host",
+        &format!("exited without an answer, code {code:?}"),
+    );
+    show_toast(h.owner, Msg::DialogHostFailed);
+}
+
+/// Shows a transient toast in `hwnd` (B.10).
+fn show_toast(hwnd: HWND, m: Msg) {
+    let Some(win) = WINDOWS.with(|x| x.borrow().get(&(hwnd.0 as isize)).cloned()) else {
+        return;
+    };
+    if let Ok(mut w) = win.try_borrow_mut() {
+        w.toast(m);
+    }
 }
 
 /// Selection range helper for tests and tooling.

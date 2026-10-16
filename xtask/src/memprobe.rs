@@ -49,6 +49,8 @@ pub struct Budget {
     pub first_paint_ms: Option<u64>,
     /// Max median idle CPU, ms.
     pub cpu_ms: Option<f64>,
+    /// Commit (private usage) budget in MiB (M6, P-10).
+    pub commit_mib: Option<f64>,
 }
 
 impl Eq for Budget {}
@@ -120,13 +122,14 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
                 );
             }
             "--budget-cpu-ms" => o.budget.cpu_ms = Some(num(next(&mut it, a)?, a)?),
+            "--budget-commit-mib" => o.budget.commit_mib = Some(num(next(&mut it, a)?, a)?),
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
             s if o.exe.is_empty() => o.exe = s.to_string(),
             s => return Err(format!("unexpected argument {s}")),
         }
     }
     if o.exe.is_empty() {
-        return Err("usage: memprobe <exe> [--doc <file>] [--arg <x>]… [--settle-ms 3000] [--runs 3] [--json out.json] [--wait-title <text>] [--screenshot out.png] [--label <name>] [--size WxH] [--open-dialog] [--cpu-ms N] [--budget-pws-mib X] [--budget-commit-ratio X] [--budget-first-paint-ms N] [--budget-cpu-ms X]".into());
+        return Err("usage: memprobe <exe> [--doc <file>] [--arg <x>]… [--settle-ms 3000] [--runs 3] [--json out.json] [--wait-title <text>] [--screenshot out.png] [--label <name>] [--size WxH] [--open-dialog] [--cpu-ms N] [--budget-pws-mib X] [--budget-commit-ratio X] [--budget-first-paint-ms N] [--budget-cpu-ms X] [--budget-commit-mib X]".into());
     }
     Ok(o)
 }
@@ -164,6 +167,10 @@ pub struct Sample {
     pub cpu_us: Option<u64>,
     /// Band buffer bytes reported by the app (window property `YAMDV.BandBytes`).
     pub band_bytes: Option<u64>,
+    /// `Ctrl+O` → host dialog visible, ms (T-DLG).
+    pub dlg_ms: Option<u64>,
+    /// Main-process module count right before `Ctrl+O` (F-09: unchanged after the dialog).
+    pub modules_before_dialog: Option<usize>,
 }
 
 /// Median of a list (lower median for even counts). Returns 0 for an empty list.
@@ -216,6 +223,15 @@ pub fn median_sample(samples: &[Sample]) -> Sample {
         client: samples.first().map(|s| s.client).unwrap_or_default(),
         monitor: samples.first().map(|s| s.monitor).unwrap_or_default(),
         band_bytes: samples.first().and_then(|s| s.band_bytes),
+        dlg_ms: {
+            let mut v: Vec<u64> = samples.iter().filter_map(|s| s.dlg_ms).collect();
+            if v.is_empty() {
+                None
+            } else {
+                Some(median(&mut v))
+            }
+        },
+        modules_before_dialog: samples.first().and_then(|s| s.modules_before_dialog),
         cpu_us: {
             let mut v: Vec<u64> = samples.iter().filter_map(|s| s.cpu_us).collect();
             if v.is_empty() {
@@ -266,6 +282,19 @@ pub fn check_budget(b: &Budget, samples: &[Sample]) -> Vec<String> {
             None => out.push("idle CPU not measured".into()),
         }
     }
+    if let Some(x) = b.commit_mib
+        && mib(m.private_usage) > x
+    {
+        out.push(format!("commit {:.2} MiB > {x} MiB", mib(m.private_usage)));
+    }
+    if let Some(before) = m.modules_before_dialog
+        && m.modules.len() > before
+    {
+        out.push(format!(
+            "module count grew after the dialog: {before} -> {}",
+            m.modules.len()
+        ));
+    }
     if !m.exit_ok {
         out.push("process did not exit cleanly".into());
     }
@@ -283,6 +312,9 @@ fn sample_json(s: &Sample) -> Value {
         "monitor_resolution": [s.monitor.0, s.monitor.1],
         "idle_cpu_us": s.cpu_us,
         "band_bytes": s.band_bytes,
+        "t_dlg_ms": s.dlg_ms,
+        "modules_before_dialog": s.modules_before_dialog,
+        "module_count": s.modules.len(),
         "private_ws_counter_bytes": s.private_ws_counter,
         "private_usage_bytes": s.private_usage,
         "working_set_bytes": s.working_set,
@@ -459,10 +491,12 @@ mod win {
         GetProcessHandleCount, PROCESS_CREATION_FLAGS, PROCESS_INFORMATION, STARTUPINFOW,
         TerminateProcess, WaitForInputIdle, WaitForSingleObject,
     };
+    use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
     use windows::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GetClassNameW, GetClientRect, GetPropW, GetSystemMetrics, GetWindowRect,
-        GetWindowTextW, GetWindowThreadProcessId, IsWindow, IsWindowVisible, PostMessageW,
-        SM_CXSCREEN, SM_CYSCREEN, SWP_NOMOVE, SWP_NOZORDER, SetWindowPos, WM_CLOSE, WM_COMMAND,
+        EnumWindows, GW_OWNER, GetClassNameW, GetClientRect, GetPropW, GetSystemMetrics, GetWindow,
+        GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsWindow, IsWindowVisible,
+        PostMessageW, SM_CXSCREEN, SM_CYSCREEN, SWP_NOMOVE, SWP_NOZORDER, SetWindowPos, WM_CLOSE,
+        WM_COMMAND,
     };
     use windows::core::{BOOL, PCWSTR, PWSTR};
 
@@ -762,31 +796,63 @@ mod win {
         None
     }
 
-    fn open_and_cancel_dialog(pid: u32, hwnd: HWND) -> Result<(), String> {
+    /// A visible `#32770` window owned by `owner`, in any process (the dialog host, F-09).
+    fn find_owned_dialog(owner: HWND) -> Option<HWND> {
+        struct Search {
+            owner: HWND,
+            found: Option<HWND>,
+        }
+        unsafe extern "system" fn cb(hwnd: HWND, lp: LPARAM) -> BOOL {
+            // SAFETY: lp is the address of the `Search` on the caller's stack, alive for the
+            // duration of EnumWindows.
+            let s = unsafe { &mut *(lp.0 as *mut Search) };
+            // SAFETY: hwnd is a valid window handle supplied by EnumWindows.
+            let visible = unsafe { IsWindowVisible(hwnd) }.as_bool();
+            // SAFETY: as above.
+            let own = unsafe { GetWindow(hwnd, GW_OWNER) }.ok();
+            if visible && own == Some(s.owner) && class(hwnd) == "#32770" {
+                s.found = Some(hwnd);
+                return BOOL(0);
+            }
+            BOOL(1)
+        }
+        let mut s = Search { owner, found: None };
+        // SAFETY: the callback only dereferences `s`, which outlives the call.
+        let _ = unsafe { EnumWindows(Some(cb), LPARAM(&mut s as *mut Search as isize)) };
+        s.found
+    }
+
+    /// Ctrl+O (via the menu command id), wait for the host's dialog, cancel it, wait until the
+    /// main window is enabled again. Returns T-DLG in ms.
+    fn open_and_cancel_dialog(hwnd: HWND) -> Result<u64, String> {
+        let t0 = Instant::now();
         // SAFETY: valid window handle owned by the child process.
         let _ = unsafe { PostMessageW(Some(hwnd), WM_COMMAND, WPARAM(0x101), LPARAM(0)) };
-        let start = Instant::now();
         let dlg = loop {
-            if let Some(d) = find_window_class(pid, Some("#32770")) {
+            if let Some(d) = find_owned_dialog(hwnd) {
                 break d;
             }
-            if start.elapsed() > Duration::from_secs(20) {
+            if t0.elapsed() > Duration::from_secs(20) {
                 return Err("Open dialog did not appear".into());
             }
-            std::thread::sleep(Duration::from_millis(50));
+            std::thread::sleep(Duration::from_millis(5));
         };
+        let ms = u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX);
         std::thread::sleep(Duration::from_millis(1500));
         // SAFETY: valid dialog handle (WM_CLOSE on a common dialog = Cancel).
         let _ = unsafe { PostMessageW(Some(dlg), WM_CLOSE, WPARAM(0), LPARAM(0)) };
         let start = Instant::now();
-        // SAFETY: IsWindow only tests the handle.
-        while unsafe { IsWindow(Some(dlg)) }.as_bool() {
+        let busy = || {
+            // SAFETY: IsWindow / IsWindowEnabled only test the handles.
+            unsafe { IsWindow(Some(dlg)).as_bool() || !IsWindowEnabled(hwnd).as_bool() }
+        };
+        while busy() {
             if start.elapsed() > Duration::from_secs(10) {
-                return Err("Open dialog did not close".into());
+                return Err("Open dialog did not close / main window not re-enabled".into());
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        Ok(())
+        Ok(ms)
     }
 
     /// Launch, measure and close the target `runs` times.
@@ -836,6 +902,7 @@ mod win {
                 std::thread::sleep(Duration::from_millis(20));
             };
             let fp = first_paint(hwnd);
+            let (mut dlg_ms, mut modules_before) = (None, None);
             if let Some((w, h)) = opts.size {
                 set_client(hwnd, w, h);
                 std::thread::sleep(Duration::from_millis(300));
@@ -844,10 +911,14 @@ mod win {
                 // SAFETY: valid process handle.
                 unsafe { WaitForInputIdle(p.info.hProcess, 15_000) };
                 std::thread::sleep(Duration::from_millis(1000));
-                if let Err(e) = open_and_cancel_dialog(p.info.dwProcessId, hwnd) {
-                    // SAFETY: valid process handle.
-                    let _ = unsafe { TerminateProcess(p.info.hProcess, 1) };
-                    return Err(e);
+                modules_before = Some(modules(p.info.hProcess).len());
+                match open_and_cancel_dialog(hwnd) {
+                    Ok(ms) => dlg_ms = Some(ms),
+                    Err(e) => {
+                        // SAFETY: valid process handle.
+                        let _ = unsafe { TerminateProcess(p.info.hProcess, 1) };
+                        return Err(e);
+                    }
                 }
             }
             if let Some(t) = &opts.wait_title {
@@ -866,6 +937,8 @@ mod win {
             std::thread::sleep(Duration::from_millis(u64::from(opts.settle_ms)));
             let mut sample = measure(p.info.hProcess)?;
             sample.first_paint_ms = fp;
+            sample.dlg_ms = dlg_ms;
+            sample.modules_before_dialog = modules_before;
             sample.client = client(hwnd);
             // SAFETY: valid hwnd; static property name.
             let bb = unsafe { GetPropW(hwnd, windows::core::w!("YAMDV.BandBytes")) };
@@ -923,6 +996,8 @@ mod tests {
             monitor: (1024, 768),
             cpu_us: Some(0),
             band_bytes: Some(512_000),
+            dlg_ms: None,
+            modules_before_dialog: None,
         }
     }
 

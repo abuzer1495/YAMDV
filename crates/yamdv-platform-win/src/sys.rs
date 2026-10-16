@@ -19,7 +19,6 @@ use windows::Win32::System::DataExchange::{
 };
 use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
 use windows::Win32::System::Ole::CF_UNICODETEXT;
-use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
 use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
 use windows::Win32::UI::Shell::{
     FOS_ALLOWMULTISELECT, FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM, FileOpenDialog, IFileOpenDialog,
@@ -121,14 +120,16 @@ pub struct Filters<'a> {
 pub const MD_PATTERN: &str = "*.md;*.markdown;*.mdown;*.mkd;*.mkdn;*.mdwn;*.mdtxt;*.mdtext";
 
 /// `IFileOpenDialog` with multi-select. Returns the chosen paths (empty on cancel).
-pub fn open_dialog(owner: HWND, f: &Filters<'_>) -> Vec<String> {
+/// Runs only in the dialog-host process (S-PROC-07). `None` when the dialog could not be
+/// shown; `Some(vec![])` when the user cancelled.
+pub fn open_dialog(owner: HWND, f: &Filters<'_>) -> Option<Vec<String>> {
     // SAFETY: COM is initialized (apartment-threaded) by `app::run`; all objects are released by
     // their Drop impls; strings outlive the calls.
     unsafe {
         let Ok(dlg) =
             CoCreateInstance::<_, IFileOpenDialog>(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)
         else {
-            return Vec::new();
+            return None;
         };
         let names = [
             HSTRING::from(f.markdown),
@@ -153,11 +154,16 @@ pub fn open_dialog(owner: HWND, f: &Filters<'_>) -> Vec<String> {
             let _ = dlg
                 .SetOptions(opts | FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST | FOS_FORCEFILESYSTEM);
         }
-        if dlg.Show(Some(owner)).is_err() {
-            return Vec::new();
+        if let Err(e) = dlg.Show(Some(owner)) {
+            // HRESULT_FROM_WIN32(ERROR_CANCELLED)
+            return if e.code().0 as u32 == 0x8007_04C7 {
+                Some(Vec::new())
+            } else {
+                None
+            };
         }
         let Ok(items) = dlg.GetResults() else {
-            return Vec::new();
+            return None;
         };
         let n = items.GetCount().unwrap_or(0);
         let mut out = Vec::new();
@@ -171,15 +177,7 @@ pub fn open_dialog(owner: HWND, f: &Filters<'_>) -> Vec<String> {
                 CoTaskMemFree(Some(p.0 as *const core::ffi::c_void));
             }
         }
-        out
-    }
-}
-
-/// Trims the working set once (D.4 rule 10, after transient UI such as the open dialog).
-pub fn trim_working_set() {
-    // SAFETY: (-1, -1) asks the system to trim the current process's working set.
-    unsafe {
-        let _ = SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
+        Some(out)
     }
 }
 

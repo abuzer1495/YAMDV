@@ -28,6 +28,9 @@ fn main() {
             write(Stream::Err, &msg);
             cli::EXIT_USAGE
         }
+        cli::Command::DialogHost { owner, nonce } => {
+            yamdv_platform_win::dialog_host::run_host(owner, nonce)
+        }
         cli::Command::Run { paths, dev } => run(&paths, dev),
     };
     std::process::exit(code);

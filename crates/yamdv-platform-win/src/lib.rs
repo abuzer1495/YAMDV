@@ -13,6 +13,8 @@ pub mod crash;
 #[cfg(all(windows, feature = "dev-tools"))]
 pub mod devtools;
 #[cfg(windows)]
+pub mod dialog_host;
+#[cfg(windows)]
 pub mod dwrite;
 #[cfg(windows)]
 pub mod hardening;
