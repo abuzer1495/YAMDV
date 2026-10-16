@@ -39,6 +39,10 @@ fn colorref(c: u32) -> COLORREF {
     COLORREF(((c >> 16) & 0xFF) | (c & 0xFF00) | ((c & 0xFF) << 16))
 }
 
+/// Marker drawing effect: makes DirectWrite split glyph runs at color-range boundaries.
+#[implement()]
+struct RunBreak;
+
 #[implement(IDWriteTextRenderer)]
 struct Renderer {
     scale: f32,
@@ -412,6 +416,18 @@ impl crate::app::Backend for BackendA {
             log.kv("dwrite.factory4", f4.is_some());
             log.pws("gdi_interop");
             let renderer: IDWriteTextRenderer = Renderer { scale: s.scale }.into();
+            let brk: IUnknown = RunBreak.into();
+            for t in &s.texts {
+                for r in &t.ranges {
+                    t.layout.SetDrawingEffect(
+                        &brk,
+                        windows::Win32::Graphics::DirectWrite::DWRITE_TEXT_RANGE {
+                            startPosition: r.start,
+                            length: r.len,
+                        },
+                    )?;
+                }
+            }
             Ok(Self {
                 brt,
                 params,
