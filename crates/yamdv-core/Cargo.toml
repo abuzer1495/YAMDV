@@ -1,0 +1,12 @@
+[package]
+name = "yamdv-core"
+description = "Source text, encoding, Markdown parsing adapter and extensions, block tree, slugs, outline, link/resource policy, config model, INI parser, i18n tables, action/keymap model."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

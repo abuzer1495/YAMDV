@@ -1,0 +1,20 @@
+[package]
+name = "yamdv-app"
+description = "YAMDV application binary (yamdv.exe): composition root, CLI."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "yamdv"
+path = "src/main.rs"
+
+[dependencies]
+yamdv-platform-win = { path = "../yamdv-platform-win" }
+
+[lints]
+workspace = true

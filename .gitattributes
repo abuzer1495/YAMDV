@@ -1,0 +1,5 @@
+* text=auto eol=lf
+tests/corpus/** -text
+*.png binary
+*.ico binary
+*.res binary

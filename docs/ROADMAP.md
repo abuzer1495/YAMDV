@@ -1,0 +1,20 @@
+# APPENDIX G — Roadmap (`docs/ROADMAP.md`)
+
+One prompt per phase. A phase starts only when the previous report has been reviewed. Fix requests from a review always come first in the next phase. The plan may be re-cut by the reviewer based on reports.
+
+| Phase | Title | Scope (main IDs) | Exit criteria (summary) |
+|---|---|---|---|
+| **001** | Foundation & rendering spike | repo, docs, tooling, CI, window skeleton, backend spike (ADR-0002) | AC-1…AC-7 of prompt 001 |
+| **002** | Core document & reading MVP | open via CLI/drag/`Ctrl+O` (R-OPEN-01…04, 06–09), encodings, block tree + extensions skeleton, text layout via DirectWrite, paragraphs/headings/emphasis/lists/quotes/inline code/rules/links (styling only), virtualized smooth scrolling + overlay scrollbar, selection + copy, Default light/dark tokens, golden-image tool | `typical-basic.md` renders like the reference; M0/M1 soft budgets; T1/T4 measured |
+| **003** | Full rendering | tables, code blocks + highlighter + toolbar, callouts, footnotes, task lists, images (WIC, lazy, cache, placeholders), front matter, safe HTML subset, highlight/sub/sup, emoji, autolink literals, wikilinks, details, link navigation + full link policy (R-LINK, S-LINK, S-RES) | full corpus renders; security matrices for links/paths pass; fuzzers for parser/HTML |
+| **004** | App shell & theming | custom title bar, sidebar (all tabs, positions, resize, toggle), context/⋯ menus, 11 schemes + cards, modes, fonts, corner style, custom colors + `custom-theme.ini`, settings panel + `settings.ini`/`state.ini`, welcome page, toasts, EN/TR | every B.4–B.8/B.12 element present; golden PNGs for all schemes |
+| **005** | Reading features & system integration | single instance + multi-window, geometry memory, live reload, reading position, find, zoom/column width, heading folding, fullscreen viewers (image, table), word count, external editor, registration/context menu/default-app flow, CLI, portable mode, MotW/elevation banners | R-WIN, R-READ (except mind map), R-EXT, R-SYS-01…04/06 done; T3/T6/T7 met |
+| **006** | Editor core + Split Edit (F3) | buffer (rope), selections, undo/redo, IME, clipboard, Markdown-aware keys, snippets, image/file paste, autosave + atomic save + conflict detection + recovery, find & replace, incremental reparse, scroll/selection sync | R-EDIT, R-F3 done; T5 (F3) met; no data-loss tests pass |
+| **007** | Live Edit (F2) | reveal model, typing transforms, format toolbar, edit context menu, cross-block selection/clipboard, lists/tasks, link popover, code block editing, byte-identical untouched blocks | R-F2-01…10 done; T5 (F2) met |
+| **008** | Table editing & advanced editing | R-TBL complete, HTML-paste → Markdown, TSV paste, insert dialogs | R-TBL done |
+| **009** | Math engine | TeX parser, MATH-table layout with Cambria Math, R-MATH complete, F2 math popover | `math-heavy.md` matches KaTeX output closely; M3 met |
+| **010** | Mermaid engine & mind map | flowchart, sequence, gantt, pie (+ SHOULD types as time allows), fullscreen diagram viewer, mind map view | `mermaid-heavy.md` renders; S-PARSE-06 enforced; M3 met |
+| **011** | Export & print | PDF writer + pagination, single-file HTML export, print, CSV, headless CLI export | R-EXP done; S-EXP tests pass; T10 met |
+| **012** | Hardening | full security review against Appendix C, fuzz campaign, THREAT_MODEL complete, accessibility (UIA basics, High Contrast, keyboard audit), R-REL edge cases, error-path polish | zero open High/Medium findings |
+| **013** | Optimization | final budgets become hard gates (Appendix D), size/startup/memory tuning with measurements | all M/T/B budgets met (final column) |
+| **014** | Packaging & release | `--install`/`--uninstall` polish, icons, version info, release checklist, user guide (EN/TR), a **draft** release inside the private repo only when the owner asks | release checklist complete |

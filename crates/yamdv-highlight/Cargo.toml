@@ -1,0 +1,12 @@
+[package]
+name = "yamdv-highlight"
+description = "Built-in syntax highlighter: hand-written lexers and token classes."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

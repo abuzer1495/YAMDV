@@ -1,0 +1,13 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+- Phase 001: repository, Cargo workspace, documentation set (specification appendices A–H),
+  `cargo xtask` tooling (`ci`, `check-imports`, `size`, `memprobe`, `gen-icons`), CI workflow,
+  native window skeleton (`yamdv.exe`), rendering-backend spike and ADR-0002 (backend A: DirectWrite GDI interop + tiny-skia).
+- THREAT_MODEL skeleton, TRACEABILITY matrix, ADR-0000/0001/0003–0006.

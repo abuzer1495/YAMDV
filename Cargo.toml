@@ -1,0 +1,72 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/yamdv-core",
+    "crates/yamdv-layout",
+    "crates/yamdv-highlight",
+    "crates/yamdv-math",
+    "crates/yamdv-mermaid",
+    "crates/yamdv-editor",
+    "crates/yamdv-ui",
+    "crates/yamdv-export",
+    "crates/yamdv-platform-win",
+    "crates/yamdv-app",
+    "xtask",
+    "spikes",
+]
+# The product build is `cargo build -p yamdv-app --release`; spikes and xtask are never linked into yamdv.exe.
+default-members = ["crates/yamdv-app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "LicenseRef-YAMDV-Proprietary"
+repository = "https://github.com/snipeTR/YAMDV"
+publish = false
+
+[workspace.dependencies]
+# Product (Windows only, features chosen per crate).
+windows = { version = "=0.62.2", default-features = false }
+# Dev / tooling only (never linked into yamdv.exe).
+object = { version = "=0.40.0", default-features = false, features = ["read_core", "pe", "std"] }
+serde_json = { version = "=1.0.154", default-features = false, features = ["std"] }
+windows-core = { version = "=0.62.2", default-features = false }
+windows-numerics = { version = "=0.3.1", default-features = false }
+tiny-skia = { version = "=0.12.0", default-features = false, features = ["std", "simd"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+undocumented_unsafe_blocks = "deny"
+indexing_slicing = "warn"
+cast_possible_truncation = "warn"
+cast_sign_loss = "warn"
+large_stack_arrays = "warn"
+large_types_passed_by_value = "warn"
+
+[profile.release]
+opt-level = "s"          # revisit in Phase 013 with measurements
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = false
+overflow-checks = true   # security over micro-speed
+incremental = false
+
+[profile.release-dbg]    # for profiling/analysis
+inherits = "release"
+strip = "none"
+debug = "line-tables-only"

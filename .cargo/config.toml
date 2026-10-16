@@ -1,0 +1,15 @@
+# Hardening for the product target (S-PROC-05). Each flag was checked against the toolchain; see ADR-0001.
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+    "-C", "target-feature=+crt-static",
+    "-C", "control-flow-guard",
+    "-C", "link-arg=/DYNAMICBASE",
+    "-C", "link-arg=/HIGHENTROPYVA",
+    "-C", "link-arg=/NXCOMPAT",
+    "-C", "link-arg=/CETCOMPAT",
+    "-C", "link-arg=/OPT:REF",
+    "-C", "link-arg=/OPT:ICF",
+]
+
+[alias]
+xtask = "run --quiet --package xtask --"
