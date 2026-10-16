@@ -13,6 +13,12 @@ build = "build.rs"
 name = "yamdv"
 path = "src/main.rs"
 
+[features]
+# Developer tools (`--render-png`, `--autoscroll`, `--perf-log`); never in release builds.
+dev-tools = ["yamdv-platform-win/dev-tools"]
+# Subsystem memory breakdown (`--mem-stats`), measurement builds only.
+mem-stats = ["yamdv-platform-win/mem-stats"]
+
 [dependencies]
 yamdv-platform-win = { path = "../yamdv-platform-win" }
 

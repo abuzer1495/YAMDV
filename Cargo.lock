@@ -511,7 +511,13 @@ version = "0.1.0"
 name = "yamdv-platform-win"
 version = "0.1.0"
 dependencies = [
+ "tiny-skia",
  "windows",
+ "windows-core",
+ "windows-numerics",
+ "yamdv-core",
+ "yamdv-layout",
+ "yamdv-ui",
 ]
 
 [[package]]

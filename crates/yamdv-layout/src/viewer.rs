@@ -389,6 +389,18 @@ impl Viewer {
         out
     }
 
+    /// Drops all layouts (colors or fonts changed); heights are kept, so nothing moves.
+    pub fn invalidate_layouts(&mut self) {
+        self.layouts.clear();
+    }
+
+    /// Cached layouts, paragraphs and display items (`mem-stats`).
+    pub fn layout_stats(&self) -> (usize, usize, usize) {
+        let paras = self.layouts.iter().map(|e| e.2.paras.len()).sum();
+        let items = self.layouts.iter().map(|e| e.2.items.len()).sum();
+        (self.layouts.len(), paras, items)
+    }
+
     /// Layout of block `i`, if cached.
     pub fn layout_of(&self, i: usize) -> Option<&BlockLayout> {
         self.layouts.iter().find(|e| e.0 == i).map(|e| &e.2)

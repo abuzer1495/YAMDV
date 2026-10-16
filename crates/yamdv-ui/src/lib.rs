@@ -1,5 +1,6 @@
-//! Chrome widgets as platform-independent state, paint and input handling.
-//!
-//! Platform-independent (pure) crate; see `docs/ARCHITECTURE.md` §E.2.
-//! PHASE-004: first real content lands in Phase 004. This crate is intentionally empty in Phase 001.
+//! Custom-drawn UI components (pure state + geometry). Phase 002: the in-window confirm dialog
+//! (UI_SPEC §B.10.6, focus ring per §B.16). Rendering is done by the platform layer from the
+//! geometry computed here.
 #![forbid(unsafe_code)]
+
+pub mod dialog;

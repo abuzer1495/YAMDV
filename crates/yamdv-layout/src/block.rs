@@ -443,11 +443,6 @@ fn card(
         color: ctx.pal.code_bg,
         radius: 8.0,
     });
-    out.items.push(Item::Stroke {
-        rect,
-        color: ctx.pal.code_border,
-        radius: 8.0,
-    });
     if let Some(label) = label {
         let ls = Style {
             size: 11.0,
@@ -474,12 +469,23 @@ fn card(
     let overflow = shaped.width() > inner.w;
     out.para(inner.x, inner.y, shaped, Some(pt), Some(inner));
     if overflow {
-        // PHASE-003: horizontal scrolling replaces this fade.
+        // Clip: the renderer has no glyph clipping, so the right padding is repainted over the
+        // overflowing text, then the fade hints at more content (PHASE-003: horizontal scrolling).
+        out.items.push(Item::Fill {
+            rect: Rect::new(inner.right(), inner.y, CODE_PAD_X - 1.0, inner.h),
+            color: ctx.pal.code_bg,
+            radius: 0.0,
+        });
         out.items.push(Item::FadeRight {
             rect: Rect::new(inner.right() - CODE_FADE, inner.y, CODE_FADE, inner.h),
             color: ctx.pal.code_bg,
         });
     }
+    out.items.push(Item::Stroke {
+        rect,
+        color: ctx.pal.code_border,
+        radius: 8.0,
+    });
     h
 }
 
