@@ -117,7 +117,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path kit/corpus | Out-Null
           Copy-Item target/release/yamdv.exe, target/release/xtask.exe, target/release/spike-a.exe kit/
-          Copy-Item tests/corpus/002/* kit/corpus/
+          Copy-Item -Recurse tests/corpus/002/* kit/corpus/
           Copy-Item -Recurse tests/corpus/encodings kit/corpus/encodings
           & target/release/xtask.exe gen-large kit/corpus/large-1mb.md
           Copy-Item docs/OWNER_KIT.md kit/

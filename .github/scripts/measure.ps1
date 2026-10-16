@@ -6,7 +6,7 @@ $m = (Resolve-Path m).Path
 $failed = @()
 $rel = 'target/release/yamdv.exe'
 $dev = 'target/dev/release/yamdv.exe'
-$typ = (Resolve-Path 'tests/corpus/002/typical-basic.md').Path
+$typ = (Resolve-Path 'tests/corpus/002/typical.md').Path
 & cargo xtask gen-large "$m/large-1mb.md"
 $large = "$m/large-1mb.md"
 $size = @('--size', '1000x700')
@@ -21,13 +21,13 @@ Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNum
 Get-CimInstance Win32_VideoController | Select-Object Name, CurrentHorizontalResolution, CurrentVerticalResolution | Format-List | Out-File -Append "$m/host.txt"
 Get-ChildItem target/release/*.exe | Select-Object FullName, Length | Format-Table -AutoSize | Out-File "$m/sizes.txt"
 
-# M0 + T2 + M7, M1b + T1b + M7, M2 + T1L + M7
+# M0 + T2 + M7, M1 (typical.md, Phase 003) + T1 + M7, M2 + T1L + M7
 Probe 'M0' $rel @('--runs', '5', '--budget-pws-mib', '4.8', '--budget-commit-ratio', '3', '--budget-first-paint-ms', '100', '--screenshot', "$m/M0.png")
-Probe 'M1b' $rel @('--doc', $typ, '--runs', '5', '--budget-pws-mib', '8.0', '--budget-commit-ratio', '3', '--budget-first-paint-ms', '150', '--screenshot', "$m/M1b.png")
+Probe 'M1' $rel @('--doc', $typ, '--runs', '5', '--budget-pws-mib', '8.0', '--budget-commit-ratio', '3', '--budget-first-paint-ms', '150', '--screenshot', "$m/M1.png")
 Probe 'M2' $rel @('--doc', $large, '--runs', '5', '--budget-pws-mib', '16', '--budget-commit-ratio', '3', '--budget-first-paint-ms', '300', '--screenshot', "$m/M2.png")
 # M6 (P-10, F-09): Ctrl+O shows the dialog in the out-of-process host; cancel, wait 2 s, no trim.
 # Budget: PWS <= M1 + 1 MiB and commit <= M1 commit + 1.5 MiB; module count unchanged; T-DLG reported.
-$m1j = (Get-Content "$m/M1b.json" -Raw | ConvertFrom-Json).median
+$m1j = (Get-Content "$m/M1.json" -Raw | ConvertFrom-Json).median
 Probe 'M6' $rel @('--doc', $typ, '--runs', '3', '--open-dialog', '--settle-ms', '2000', '--budget-pws-mib', "$($m1j.private_ws_mib + 1)", '--budget-commit-mib', "$($m1j.private_usage_mib + 1.5)")
 $m6 = (Get-Content "$m/M6.json" -Raw | ConvertFrom-Json).median
 Write-Host "T-DLG = $($m6.t_dlg_ms) ms (soft 400); modules before/after = $($m6.modules_before_dialog)/$($m6.module_count)"
@@ -59,7 +59,7 @@ foreach ($d in @(@{n='typical'; f=$typ}, @{n='large'; f=$large})) {
   if ($med -gt 16) { $failed += "T4-$($d.n)"; Write-Host "::error::T4 warm median p99 $med ms > 16 ms" }
 }
 # Subsystem breakdown (mem-stats build), informational
-foreach ($d in @(@{n='M1b'; f=$typ}, @{n='M2'; f=$large})) {
+foreach ($d in @(@{n='M1'; f=$typ}, @{n='M2'; f=$large})) {
   Probe "memstats-$($d.n)" $dev @('--doc', $d.f, '--runs', '1', '--arg', '--mem-stats', '--arg', "$m/memstats-$($d.n).app.json")
 }
 # 150 % scale screenshot is covered by the goldens (scale 1.5).
