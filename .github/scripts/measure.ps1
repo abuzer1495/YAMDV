@@ -22,9 +22,9 @@ Get-CimInstance Win32_VideoController | Select-Object Name, CurrentHorizontalRes
 Get-ChildItem target/release/*.exe | Select-Object FullName, Length | Format-Table -AutoSize | Out-File "$m/sizes.txt"
 
 # M0 + T2 + M7, M1b + T1b + M7, M2 + T1L + M7
-Probe 'M0' $rel @('--runs', '3', '--budget-pws-mib', '4.8', '--budget-commit-ratio', '3', '--budget-first-paint-ms', '100', '--screenshot', "$m/M0.png")
-Probe 'M1b' $rel @('--doc', $typ, '--runs', '3', '--budget-pws-mib', '8.0', '--budget-commit-ratio', '3', '--budget-first-paint-ms', '150', '--screenshot', "$m/M1b.png")
-Probe 'M2' $rel @('--doc', $large, '--runs', '3', '--budget-pws-mib', '16', '--budget-commit-ratio', '3', '--budget-first-paint-ms', '300', '--screenshot', "$m/M2.png")
+Probe 'M0' $rel @('--runs', '5', '--budget-pws-mib', '4.8', '--budget-commit-ratio', '3', '--budget-first-paint-ms', '100', '--screenshot', "$m/M0.png")
+Probe 'M1b' $rel @('--doc', $typ, '--runs', '5', '--budget-pws-mib', '8.0', '--budget-commit-ratio', '3', '--budget-first-paint-ms', '150', '--screenshot', "$m/M1b.png")
+Probe 'M2' $rel @('--doc', $large, '--runs', '5', '--budget-pws-mib', '16', '--budget-commit-ratio', '3', '--budget-first-paint-ms', '300', '--screenshot', "$m/M2.png")
 # M6: M1b, open + cancel Ctrl+O, wait 2 s; budget M1b + 1 MiB
 $m1b = (Get-Content "$m/M1b.json" -Raw | ConvertFrom-Json).median.private_ws_mib
 Probe 'M6' $rel @('--doc', $typ, '--runs', '3', '--open-dialog', '--settle-ms', '2000', '--budget-pws-mib', "$($m1b + 1)")

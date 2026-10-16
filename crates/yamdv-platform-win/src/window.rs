@@ -1084,7 +1084,7 @@ impl Win {
         };
         self.auto_steps += 1;
         let step = 120.0;
-        let done = self.auto_steps > 6000
+        let done = self.auto_steps > 100_000
             || match self.auto_phase {
                 1 if pos >= max - 0.5 => {
                     self.auto_phase = 2;

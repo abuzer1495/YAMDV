@@ -11,6 +11,9 @@ use std::path::{Path, PathBuf};
 pub const TOLERANCE: u8 = 16;
 /// Maximum share of differing pixels.
 pub const MAX_DIFF_SHARE: f64 = 0.005;
+/// Goldens are stored in horizontal tiles of at most this many rows (keeps every file < 1 MB).
+pub const TILE_ROWS: u32 = 5000;
+
 /// Golden documents (corpus file names in `tests/corpus/002/`).
 pub const DOCS: [(&str, &str); 8] = [
     ("typical-basic", "typical-basic.md"),
@@ -79,16 +82,20 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
     let mut exe = None;
     let mut out = root.join("target").join("golden-out");
     let mut update = false;
+    let mut from = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--exe" => exe = it.next().map(PathBuf::from),
             "--out" => out = it.next().map(PathBuf::from).ok_or("--out needs a value")?,
             "--update" => update = true,
+            "--from" => from = it.next().map(PathBuf::from),
             s => return Err(format!("unknown option {s}")),
         }
     }
-    let exe = exe.ok_or("usage: golden --exe <yamdv.exe (dev-tools)> [--out dir] [--update]")?;
+    if exe.is_none() && from.is_none() {
+        return Err("usage: golden (--exe <yamdv.exe (dev-tools)> | --from <dir of rendered PNGs>) [--out dir] [--update]".into());
+    }
     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
     let gold = root.join("tests").join("golden").join("002");
     if update {
@@ -99,34 +106,69 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
         for theme in ["light", "dark"] {
             for scale in ["1.0", "1.5"] {
                 let png = format!("{name}-{theme}-{scale}.png");
-                let target = out.join(&png);
-                let input = root.join("tests").join("corpus").join("002").join(file);
-                let status = std::process::Command::new(&exe)
-                    .arg("--render-png")
-                    .arg(&target)
-                    .args(["--width", "1000", "--scale", scale, "--theme", theme])
-                    .arg(&input)
-                    .status()
-                    .map_err(|e| format!("{}: {e}", exe.display()))?;
-                if !status.success() {
-                    failures.push(format!("{png}: render failed ({status})"));
-                    continue;
+                let target = match &from {
+                    Some(dir) => dir.join(&png),
+                    None => out.join(&png),
+                };
+                if let Some(exe) = &exe {
+                    let input = root.join("tests").join("corpus").join("002").join(file);
+                    let status = std::process::Command::new(exe)
+                        .arg("--render-png")
+                        .arg(&target)
+                        .args(["--width", "1000", "--scale", scale, "--theme", theme])
+                        .arg(&input)
+                        .status()
+                        .map_err(|e| format!("{}: {e}", exe.display()))?;
+                    if !status.success() {
+                        failures.push(format!("{png}: render failed ({status})"));
+                        continue;
+                    }
                 }
-                let g = gold.join(&png);
+                let stem = png.trim_end_matches(".png").to_string();
+                let tiles = tile(&load(&target)?)?;
                 if update {
-                    std::fs::copy(&target, &g).map_err(|e| e.to_string())?;
-                    println!("updated {png}");
+                    for old in std::fs::read_dir(&gold)
+                        .map_err(|e| e.to_string())?
+                        .flatten()
+                    {
+                        let n = old.file_name().to_string_lossy().to_string();
+                        if n.starts_with(&format!("{stem}.t")) {
+                            let _ = std::fs::remove_file(old.path());
+                        }
+                    }
+                    for (i, t) in tiles.iter().enumerate() {
+                        t.save_png(gold.join(format!("{stem}.t{i}.png")))
+                            .map_err(|e| e.to_string())?;
+                    }
+                    println!("updated {png} ({} tiles)", tiles.len());
                     continue;
                 }
-                if !g.exists() {
-                    failures.push(format!("{png}: no golden (run with --update)"));
-                    continue;
+                let mut d = Diff {
+                    differing: 0,
+                    total: 0,
+                    same_size: true,
+                };
+                for (i, t) in tiles.iter().enumerate() {
+                    let px = t.width() as usize * t.height() as usize;
+                    let g = gold.join(format!("{stem}.t{i}.png"));
+                    if !g.exists() {
+                        d.same_size = false;
+                        d.total += px;
+                        d.differing += px;
+                        continue;
+                    }
+                    let b = load(&g)?;
+                    let x = compare(
+                        (t.width(), t.height(), t.data()),
+                        (b.width(), b.height(), b.data()),
+                    );
+                    d.differing += x.differing;
+                    d.total += x.total;
+                    d.same_size &= x.same_size;
                 }
-                let (a, b) = (load(&target)?, load(&g)?);
-                let d = compare(
-                    (a.width(), a.height(), a.data()),
-                    (b.width(), b.height(), b.data()),
-                );
+                if gold.join(format!("{stem}.t{}.png", tiles.len())).exists() {
+                    d.same_size = false;
+                }
                 println!(
                     "{png}: {} / {} px differ{} — {}",
                     d.differing,
@@ -146,6 +188,26 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
     } else {
         Err(format!("golden failures: {}", failures.join(", ")))
     }
+}
+
+/// Splits an image into tiles of at most [`TILE_ROWS`] rows.
+pub fn tile(p: &tiny_skia::Pixmap) -> Result<Vec<tiny_skia::Pixmap>, String> {
+    let row = p.width() as usize * 4;
+    let mut out = Vec::new();
+    let mut y = 0;
+    while y < p.height() {
+        let h = TILE_ROWS.min(p.height() - y);
+        let mut t = tiny_skia::Pixmap::new(p.width(), h).ok_or("empty tile")?;
+        let start = y as usize * row;
+        let src = p
+            .data()
+            .get(start..start + h as usize * row)
+            .ok_or("tile out of range")?;
+        t.data_mut().copy_from_slice(src);
+        out.push(t);
+        y += h;
+    }
+    Ok(out)
 }
 
 /// Generates `large-1mb.md` (≥ 1 MiB, deterministic, original content) from the typical sample.
@@ -205,6 +267,14 @@ mod tests {
         b[800] = 200;
         assert!(!compare((10, 100, &a), (10, 100, &b)).ok());
         assert!(!compare((10, 100, &a), (100, 10, &a)).same_size);
+    }
+
+    #[test]
+    fn tiles_cover_image() {
+        let p = tiny_skia::Pixmap::new(3, TILE_ROWS * 2 + 7).unwrap();
+        let t = tile(&p).unwrap();
+        assert_eq!(t.len(), 3);
+        assert_eq!(t[2].height(), 7);
     }
 
     #[test]
