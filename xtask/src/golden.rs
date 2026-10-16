@@ -116,6 +116,9 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
     for (name, file) in DOCS {
         for theme in ["light", "dark"] {
             for scale in ["1.0", "1.5"] {
+                if scale == "1.5" && !SCALE_15_DOCS.contains(&name) {
+                    continue;
+                }
                 let png = format!("{name}-{theme}-{scale}.png");
                 let target = match &from {
                     Some(dir) => dir.join(&png),
@@ -136,7 +139,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
                     }
                 }
                 let stem = png.trim_end_matches(".png").to_string();
-                let tiles = tile(&load(&target)?)?;
+                let tiles = tile(&crop(&load(&target)?, scale)?)?;
                 if update {
                     for old in std::fs::read_dir(&gold)
                         .map_err(|e| e.to_string())?
@@ -199,6 +202,23 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
     } else {
         Err(format!("golden failures: {}", failures.join(", ")))
     }
+}
+
+/// Documents that also get scale-1.5 goldens (P-28).
+pub const SCALE_15_DOCS: [&str; 2] = ["typical", "unicode"];
+/// Goldens cover at most this many logical px of each document (P-28).
+pub const MAX_LOGICAL_ROWS: u32 = 4000;
+
+/// Crops an image to the first [`MAX_LOGICAL_ROWS`] logical px at `scale`.
+pub fn crop(p: &tiny_skia::Pixmap, scale: &str) -> Result<tiny_skia::Pixmap, String> {
+    let s: f32 = scale.parse().map_err(|_| format!("bad scale {scale}"))?;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+    let max = (MAX_LOGICAL_ROWS as f32 * s).round() as u32;
+    if p.height() <= max {
+        return Ok(p.clone());
+    }
+    p.clone_rect(tiny_skia::IntRect::from_xywh(0, 0, p.width(), max).ok_or("crop rect")?)
+        .ok_or_else(|| "crop failed".to_string())
 }
 
 /// Splits an image into tiles of at most [`TILE_ROWS`] rows.
@@ -278,6 +298,15 @@ mod tests {
         b[800] = 200;
         assert!(!compare((10, 100, &a), (10, 100, &b)).ok());
         assert!(!compare((10, 100, &a), (100, 10, &a)).same_size);
+    }
+
+    #[test]
+    fn crop_limits_rows() {
+        let p = tiny_skia::Pixmap::new(2, 9000).unwrap();
+        assert_eq!(crop(&p, "1.0").unwrap().height(), 4000);
+        assert_eq!(crop(&p, "1.5").unwrap().height(), 6000);
+        let q = tiny_skia::Pixmap::new(2, 10).unwrap();
+        assert_eq!(crop(&q, "1.5").unwrap().height(), 10);
     }
 
     #[test]
