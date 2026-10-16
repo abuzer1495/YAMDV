@@ -88,6 +88,7 @@ yamdv-app ─► yamdv-ui ─► yamdv-layout ─► yamdv-core
 
 ## E.6 Rendering
 Backend per ADR-0002. Requirements regardless of backend: dirty-rect invalidation; scrolling by pixel reuse + exposed-strip painting; overlays (find bar, toasts, badges, viewers) drawn as top layers of the same window; menus, popovers and tooltips as separate layered popup windows; correct per-monitor DPI; no work when nothing changed.
+The renderer supports true rectangular clipping (`PushClip`/`PopClip`) for glyph runs, shapes and images — required for horizontally scrolled blocks, table cells, callouts and viewers. Rounded clips MAY use corner masks painted in the known container color. Painting background over overflow is not a substitute for clipping.
 
 ## E.7 UI layer and commands
 - Small retained model for chrome components (title bar, sidebar, panels, popups) with explicit state, painting into display lists, and input handling (hover, press, capture, focus, keyboard navigation).
@@ -130,6 +131,7 @@ Hard rule H14 (`docs/PROCESS.md`) is amended by A-1: `spikes/` may use `unsafe` 
 - **Watcher thread:** blocks on `ReadDirectoryChangesW`; posts a custom window message on change (debounced 50 ms on the UI side).
 - **Worker thread (on demand):** PDF/HTML export, printing preparation, very large layouts; results posted back; cancellable; created when needed and exits when idle for 5 s.
 - Communication via `PostMessageW` + a lock-free or mutex-protected queue. No async runtime.
+- **Re-entrancy rule:** many Win32 calls dispatch window messages synchronously (`SetWindowPos`, `ShowWindow`, `UpdateWindow`, `RedrawWindow` with `RDW_UPDATENOW`, `DestroyWindow`, `SetFocus`, `EnableWindow`, `SetCursor`-triggering calls, `MessageBoxW`, any modal loop). Never hold a borrow of window or app state across such a call. Mutations requested while handling a message are queued as deferred commands and applied after the handler returns; a re-entrant `WM_PAINT` is skipped and the region re-invalidated. Debug builds detect re-entrant borrows and log the message id.
 
 ## E.11 Errors and logging
 Own error enums per crate (no `anyhow`/`thiserror` in product crates unless an ADR approves). User-facing errors become toasts/banners with localized messages. Internal logger: compile-time levels, off by default, writes to `%LOCALAPPDATA%\YAMDV\logs\` when enabled.

@@ -20,7 +20,9 @@ use yamdv_core::doc::text::ParaText;
 use yamdv_core::theme::Palette;
 
 use crate::block::{self, BlockLayout, Ctx, Item, LaidPara, Metrics, Strings};
+use crate::code::CodeOpts;
 use crate::fenwick::Fenwick;
+use crate::geom::Rect;
 use crate::plain;
 use crate::shaper::{Family, ParaSpec, Style, TextShaper, is_rtl};
 
@@ -29,8 +31,40 @@ pub const TOP_PAD: f64 = 48.0;
 /// Bottom padding (B.6.1).
 pub const BOTTOM_PAD: f64 = 120.0;
 
+/// Detail trees of the referenced footnote definitions in note order (R-REN-10).
+fn notes(d: &Document) -> Vec<block::Note> {
+    let ix = &d.index;
+    let mut out = Vec::with_capacity(ix.footnote_order.len());
+    for (k, u) in ix.footnote_order.iter().enumerate() {
+        let Some(r) = ix.footnotes.get(&u.label) else {
+            continue;
+        };
+        // Only top-level definitions are laid out (nested ones stay hidden in their container).
+        let Ok(bi) = ix.blocks.binary_search_by(|b| b.range.start.cmp(&r.start)) else {
+            continue;
+        };
+        out.push(block::Note {
+            n: u32::try_from(k + 1).unwrap_or(u32::MAX),
+            refs: u32::try_from(u.refs.len()).unwrap_or(u32::MAX),
+            detail: d.detail_uncached(bi),
+        });
+    }
+    out
+}
+
+/// Document y of a footnote navigation target, if its block is laid out (see
+/// [`Viewer::footnote_target`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FootTarget {
+    /// Note `n` in the notes section.
+    Note(u32),
+    /// Reference `k` of note `n`.
+    Ref(u32, u32),
+}
+
 /// What is shown: a Markdown document or plain text.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)] // one per window
 pub enum Content {
     /// Markdown.
     Markdown(Document),
@@ -115,11 +149,34 @@ impl Content {
         }
     }
 
-    fn layout(&mut self, i: usize, ctx: &mut Ctx<'_>, w: f32) -> BlockLayout {
+    pub(crate) fn layout(&mut self, i: usize, ctx: &mut Ctx<'_>, w: f32) -> BlockLayout {
         match self {
             Content::Markdown(d) => {
                 let det = d.detail(i);
-                block::layout_block(ctx, &d.source, &det, w)
+                if i + 1 == d.index.blocks.len() && !d.index.footnote_order.is_empty() {
+                    let notes = notes(d);
+                    return block::layout_with_notes(ctx, &d.source, &det, &notes, w);
+                }
+                if d.index.html_containers.is_empty() {
+                    return block::layout_block(ctx, &d.source, &det, w);
+                }
+                // §4.6 item 3: blocks inside a collapsed cross-block `<details>` are hidden;
+                // blocks inside an alignment container take its alignment.
+                let (align, dets) = d.index.container_ctx(i);
+                let hidden = dets.iter().any(|&(start, open)| {
+                    open == (ctx.code_opts)(start as usize, block::CROSS_DETAILS).fold_toggled
+                });
+                if hidden {
+                    return BlockLayout {
+                        height: 0.0,
+                        items: Vec::new(),
+                        paras: Vec::new(),
+                        regions: Vec::new(),
+                        hot: Vec::new(),
+                    };
+                }
+                let opens = d.index.opens_details(i);
+                block::layout_block_in(ctx, &d.source, &det, w, align, opens)
             }
             Content::Plain { text, chunks } => {
                 let r = chunks.get(i).cloned().unwrap_or(0..0);
@@ -155,8 +212,10 @@ impl Content {
                         y: 0.0,
                         shaped,
                         map: Some(pt),
-                        clip: None,
+                        hscroll: None,
                     }],
+                    regions: Vec::new(),
+                    hot: Vec::new(),
                 }
             }
         }
@@ -183,6 +242,7 @@ fn verbatim(s: &str, start: u32) -> ParaText {
             src: start..end,
             verbatim: true,
             style: 0,
+            link: yamdv_core::doc::detail::NO_LINK,
         }],
     }
 }
@@ -215,9 +275,147 @@ pub struct Viewer {
     /// Top visible block and offset into it.
     anchor: (usize, f64),
     m: Metrics,
+    /// Horizontal offsets per (block, region) — session state (R-CODE-03).
+    hscroll: std::collections::HashMap<(usize, u16), f32>,
+    /// Default code options (`reading.code_line_numbers`, `reading.code_wrap`).
+    pub code_default: CodeOpts,
+    /// Per code block overrides (block, node) — session state (R-CODE-02).
+    code_opts: std::collections::HashMap<(usize, usize), CodeOpts>,
 }
 
 impl Viewer {
+    /// Horizontal offset of region `r` of block `b`.
+    pub fn hscroll(&self, b: usize, r: u16) -> f32 {
+        self.hscroll.get(&(b, r)).copied().unwrap_or(0.0)
+    }
+
+    /// Sets the horizontal offset (clamped to the region); returns true if it changed.
+    pub fn set_hscroll(&mut self, b: usize, r: u16, off: f32) -> bool {
+        let max = self
+            .layout_of(b)
+            .and_then(|l| l.regions.get(usize::from(r)))
+            .map_or(0.0, |g| g.max_scroll());
+        let v = off.clamp(0.0, max).round();
+        let old = self.hscroll(b, r);
+        if (v - old).abs() < 0.5 {
+            return false;
+        }
+        self.hscroll.insert((b, r), v);
+        true
+    }
+
+    /// Horizontal region under column x / document y: (block, region, block top).
+    pub fn region_at(&self, content: &Content, x: f32, y: f64) -> Option<(usize, u16, f64)> {
+        if content.is_empty() {
+            return None;
+        }
+        let bi = self.block_at_y(y);
+        let bl = self.layout_of(bi)?;
+        let by = self.block_top(content, bi);
+        let ly = (y - by) as f32;
+        bl.regions.iter().enumerate().find_map(|(i, g)| {
+            let hit = Rect::new(
+                g.view.x,
+                g.view.y,
+                g.view.w,
+                g.track.bottom() - g.view.y + 4.0,
+            );
+            (x >= hit.x && x < hit.right() && ly >= hit.y && ly < hit.bottom())
+                .then(|| (bi, u16::try_from(i).unwrap_or(0), by))
+        })
+    }
+
+    /// The code toolbar whose card contains (x, y) (column x, document y): (block, block top, item).
+    pub fn toolbar_at(&self, content: &Content, x: f32, y: f64) -> Option<(usize, f64, &Item)> {
+        if content.is_empty() {
+            return None;
+        }
+        let bi = self.block_at_y(y);
+        let bl = self.layout_of(bi)?;
+        let by = self.block_top(content, bi);
+        let ly = (y - by) as f32;
+        bl.items
+            .iter()
+            .find(|it| {
+                matches!(it, Item::CodeToolbar { card, .. }
+                    if x >= card.x && x < card.right() && ly >= card.y && ly < card.bottom())
+            })
+            .map(|it| (bi, by, it))
+    }
+
+    /// The interactive element at (x, y) (column x, document y).
+    pub fn hot_at(&self, content: &Content, x: f32, y: f64) -> Option<(usize, block::HotKind)> {
+        if content.is_empty() {
+            return None;
+        }
+        let bi = self.block_at_y(y);
+        let bl = self.layout_of(bi)?;
+        let ly = (y - self.block_top(content, bi)) as f32;
+        bl.hot
+            .iter()
+            .find(|h| x >= h.rect.x && x < h.rect.right() && ly >= h.rect.y && ly < h.rect.bottom())
+            .map(|h| (bi, h.kind.clone()))
+    }
+
+    /// Block that holds a footnote target (for a first scroll before the exact position is known).
+    pub fn footnote_block(content: &Content, t: FootTarget) -> Option<(usize, u32)> {
+        let Content::Markdown(d) = content else {
+            return None;
+        };
+        let ix = &d.index;
+        match t {
+            FootTarget::Note(_) => ix.blocks.len().checked_sub(1).map(|b| (b, 0)),
+            FootTarget::Ref(n, k) => {
+                let u = ix.footnote_order.get((n as usize).checked_sub(1)?)?;
+                let b = *u.refs.get(k as usize)?;
+                let ord = u.refs[..k as usize].iter().filter(|&&x| x == b).count();
+                Some((b as usize, u32::try_from(ord).unwrap_or(0)))
+            }
+        }
+    }
+
+    /// Exact document y of a footnote target when its block layout is cached.
+    pub fn footnote_target(&self, content: &Content, t: FootTarget) -> Option<f64> {
+        let (b, ord) = Self::footnote_block(content, t)?;
+        let bl = self.layout_of(b)?;
+        let top = self.block_top(content, b);
+        bl.hot
+            .iter()
+            .find(|h| match (t, &h.kind) {
+                (FootTarget::Note(n), block::HotKind::FootNote { n: m }) => n == *m,
+                (FootTarget::Ref(n, _), block::HotKind::FootRef { n: m, ord: o }) => {
+                    n == *m && ord == *o
+                }
+                _ => false,
+            })
+            .map(|h| top + f64::from(h.rect.y))
+    }
+
+    /// Code options of (block, node).
+    pub fn code_opts(&self, b: usize, n: usize) -> CodeOpts {
+        self.code_opts
+            .get(&(b, n))
+            .copied()
+            .unwrap_or(self.code_default)
+    }
+
+    /// Sets code options of (block, node) and drops the block's layout so it is laid out again.
+    pub fn set_code_opts(&mut self, b: usize, n: usize, o: CodeOpts) {
+        self.code_opts.insert((b, n), o);
+        self.hscroll.retain(|k, _| k.0 != b);
+        self.invalidate_block(b);
+    }
+
+    /// Drops the cached layout of block `b` (re-laid out by the next `prepare`).
+    pub fn invalidate_block(&mut self, b: usize) {
+        self.layouts.retain(|e| e.0 != b);
+    }
+
+    /// Typography metrics in use.
+    pub fn metrics(&self) -> Metrics {
+        self.m
+    }
+
     /// New viewer with estimated heights.
     pub fn new(content: &Content, width: f32, m: Metrics) -> Self {
         let mut v = Self {
@@ -229,6 +427,9 @@ impl Viewer {
             scroll: 0.0,
             anchor: (0, 0.0),
             m,
+            hscroll: std::collections::HashMap::new(),
+            code_default: CodeOpts::default(),
+            code_opts: std::collections::HashMap::new(),
         };
         v.reestimate(content);
         v
@@ -337,12 +538,16 @@ impl Viewer {
                 if self.layouts.iter().any(|e| e.0 == i) {
                     continue;
                 }
+                let (def, map) = (self.code_default, &self.code_opts);
+                let lookup = move |b: usize, n: usize| map.get(&(b, n)).copied().unwrap_or(def);
                 let mut ctx = Ctx {
                     shaper: &mut *env.shaper,
                     m: env.m,
                     pal: env.pal,
                     strings: env.strings,
                     single_newline_break: env.single_newline_break,
+                    block: i,
+                    code_opts: &lookup,
                 };
                 let bl = content.layout(i, &mut ctx, self.width);
                 let h = f64::from(content.gap(i, &self.m) + bl.height);
@@ -445,7 +650,8 @@ impl Viewer {
         }
         let (_, pi) = best?;
         let p = &bl.paras[pi];
-        let idx = p.shaped.hit(x - p.x, ly - p.y);
+        let dx = p.hscroll.map_or(0.0, |r| self.hscroll(bi, r));
+        let idx = p.shaped.hit(x - p.x + dx, ly - p.y);
         let src = p.map.as_ref().map_or(0, |m| m.to_source(idx));
         Some(Hit {
             block: bi,
@@ -658,5 +864,41 @@ mod tests {
         let h = v.layout_of(0).expect("layout").height;
         assert!((h - 200.0 * 25.6).abs() < 1.0, "{h}");
         assert_eq!(c.copy_text(0..12), "line 0\r\nline ");
+    }
+
+    #[test]
+    fn r_code_03_overflowing_code_scrolls_in_a_clipped_region() {
+        let long = "x".repeat(400);
+        let mut c = Content::Markdown(Document::new(
+            format!("```\n{long}\nshort\n```\n"),
+            ReadOpts::default(),
+        ));
+        let pal = theme::palette("default", false);
+        let mut sh = MockShaper;
+        let strings = EnStrings;
+        let mut env = Env {
+            shaper: &mut sh,
+            m: Metrics::default(),
+            pal: &pal,
+            strings: &strings,
+            single_newline_break: false,
+        };
+        let mut v = Viewer::new(&c, 600.0, Metrics::default());
+        v.prepare(&mut c, &mut env, 700.0);
+        let l = v.layout_of(0).expect("layout");
+        assert_eq!(l.regions.len(), 1);
+        let g = l.regions[0];
+        assert!(g.max_scroll() > 0.0);
+        assert!(l.items.iter().any(|i| matches!(i, Item::PushClip(_))));
+        assert!(l.items.iter().any(|i| matches!(i, Item::HScrollBar(0))));
+        assert!(l.paras.iter().any(|p| p.hscroll == Some(0)));
+        // Offsets clamp to the region and shift hit testing.
+        let max = g.max_scroll();
+        assert!(v.set_hscroll(0, 0, 1e9));
+        assert!((v.hscroll(0, 0) - max.round()).abs() < 0.01);
+        assert!(!v.set_hscroll(0, 0, 1e9));
+        let y = f64::from(g.view.y + g.view.h - 5.0) + v.block_top(&c, 0);
+        assert!(v.region_at(&c, g.view.x + 10.0, y).is_some());
+        assert!(g.thumb(max).right() <= g.track.right() + 0.01);
     }
 }

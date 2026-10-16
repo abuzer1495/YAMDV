@@ -19,7 +19,6 @@ use windows::Win32::System::DataExchange::{
 };
 use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
 use windows::Win32::System::Ole::CF_UNICODETEXT;
-use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
 use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
 use windows::Win32::UI::Shell::{
     FOS_ALLOWMULTISELECT, FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM, FileOpenDialog, IFileOpenDialog,
@@ -77,6 +76,12 @@ pub fn stat(long: &str) -> std::io::Result<(FileInfo, bool)> {
 
 /// Puts `text` on the clipboard as `CF_UNICODETEXT`.
 pub fn copy_text(hwnd: HWND, text: &str) -> bool {
+    copy_text_html(hwnd, text, None)
+}
+
+/// Copies plain text and, when given, a `CF_HTML` document (§4.9, R-REN-16).
+pub fn copy_text_html(hwnd: HWND, text: &str, cf_html: Option<&str>) -> bool {
+    use windows::Win32::System::DataExchange::RegisterClipboardFormatW;
     let w: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
     let bytes = w.len() * 2;
     // SAFETY: standard clipboard sequence; the global memory is owned by the clipboard after a
@@ -98,6 +103,25 @@ pub fn copy_text(hwnd: HWND, text: &str) -> bool {
             if SetClipboardData(u32::from(CF_UNICODETEXT.0), Some(HANDLE(h.0))).is_err() {
                 let _ = GlobalFree(Some(HGLOBAL(h.0)));
                 return None;
+            }
+            if let Some(html) = cf_html {
+                let fmt = RegisterClipboardFormatW(windows::core::w!("HTML Format"));
+                let bytes = html.as_bytes();
+                if fmt != 0
+                    && let Ok(h) = GlobalAlloc(GMEM_MOVEABLE, bytes.len() + 1)
+                {
+                    let p = GlobalLock(h);
+                    if p.is_null() {
+                        let _ = GlobalFree(Some(h));
+                    } else {
+                        std::ptr::copy_nonoverlapping(bytes.as_ptr(), p.cast::<u8>(), bytes.len());
+                        *p.cast::<u8>().add(bytes.len()) = 0;
+                        let _ = GlobalUnlock(h);
+                        if SetClipboardData(fmt, Some(HANDLE(h.0))).is_err() {
+                            let _ = GlobalFree(Some(HGLOBAL(h.0)));
+                        }
+                    }
+                }
             }
             Some(())
         })()
@@ -121,14 +145,16 @@ pub struct Filters<'a> {
 pub const MD_PATTERN: &str = "*.md;*.markdown;*.mdown;*.mkd;*.mkdn;*.mdwn;*.mdtxt;*.mdtext";
 
 /// `IFileOpenDialog` with multi-select. Returns the chosen paths (empty on cancel).
-pub fn open_dialog(owner: HWND, f: &Filters<'_>) -> Vec<String> {
+/// Runs only in the dialog-host process (S-PROC-07). `None` when the dialog could not be
+/// shown; `Some(vec![])` when the user cancelled.
+pub fn open_dialog(owner: HWND, f: &Filters<'_>) -> Option<Vec<String>> {
     // SAFETY: COM is initialized (apartment-threaded) by `app::run`; all objects are released by
     // their Drop impls; strings outlive the calls.
     unsafe {
         let Ok(dlg) =
             CoCreateInstance::<_, IFileOpenDialog>(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)
         else {
-            return Vec::new();
+            return None;
         };
         let names = [
             HSTRING::from(f.markdown),
@@ -153,11 +179,16 @@ pub fn open_dialog(owner: HWND, f: &Filters<'_>) -> Vec<String> {
             let _ = dlg
                 .SetOptions(opts | FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST | FOS_FORCEFILESYSTEM);
         }
-        if dlg.Show(Some(owner)).is_err() {
-            return Vec::new();
+        if let Err(e) = dlg.Show(Some(owner)) {
+            // HRESULT_FROM_WIN32(ERROR_CANCELLED)
+            return if e.code().0 as u32 == 0x8007_04C7 {
+                Some(Vec::new())
+            } else {
+                None
+            };
         }
         let Ok(items) = dlg.GetResults() else {
-            return Vec::new();
+            return None;
         };
         let n = items.GetCount().unwrap_or(0);
         let mut out = Vec::new();
@@ -171,15 +202,7 @@ pub fn open_dialog(owner: HWND, f: &Filters<'_>) -> Vec<String> {
                 CoTaskMemFree(Some(p.0 as *const core::ffi::c_void));
             }
         }
-        out
-    }
-}
-
-/// Trims the working set once (D.4 rule 10, after transient UI such as the open dialog).
-pub fn trim_working_set() {
-    // SAFETY: (-1, -1) asks the system to trim the current process's working set.
-    unsafe {
-        let _ = SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
+        Some(out)
     }
 }
 
@@ -218,4 +241,92 @@ pub fn ui_language_tag() -> &'static str {
     // SAFETY: no preconditions.
     let id = unsafe { windows::Win32::Globalization::GetUserDefaultUILanguage() };
     if id & 0x3FF == 0x1F { "tr-TR" } else { "en-US" }
+}
+
+/// Hands a validated URL or an allowlisted local file to the default handler (S-EXEC-04,
+/// R-LINK-04): `ShellExecuteExW` with the "open" verb, never `SEE_MASK_NOZONECHECKS`.
+pub fn shell_open(target: &str) {
+    use windows::Win32::UI::Shell::{SEE_MASK_NOASYNC, SHELLEXECUTEINFOW, ShellExecuteExW};
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let file = windows::core::HSTRING::from(target);
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: u32::try_from(std::mem::size_of::<SHELLEXECUTEINFOW>()).unwrap_or(0),
+        fMask: SEE_MASK_NOASYNC,
+        lpVerb: windows::core::w!("open"),
+        lpFile: windows::core::PCWSTR(file.as_ptr()),
+        nShow: SW_SHOWNORMAL.0,
+        ..Default::default()
+    };
+    // SAFETY: `info` is fully initialized and `file` outlives the call.
+    let _ = unsafe { ShellExecuteExW(&mut info) };
+}
+
+/// Opens Explorer with `path` selected (R-LINK-05); never runs the file.
+pub fn reveal_in_explorer(path: &str) {
+    use windows::Win32::UI::Shell::{ILCreateFromPathW, ILFree, SHOpenFolderAndSelectItems};
+    let p = windows::core::HSTRING::from(path);
+    // SAFETY: valid NUL-terminated path; the PIDL is freed below.
+    unsafe {
+        let pidl = ILCreateFromPathW(windows::core::PCWSTR(p.as_ptr()));
+        if !pidl.is_null() {
+            let _ = SHOpenFolderAndSelectItems(pidl, None, 0);
+            ILFree(Some(pidl));
+        }
+    }
+}
+
+/// Punycode form of an IDN host via `IdnToAscii` (offline, S-LINK-02).
+pub fn idn_to_ascii(host: &str) -> Option<String> {
+    use windows::Win32::Globalization::IdnToAscii;
+    let src: Vec<u16> = host.encode_utf16().collect();
+    let mut buf = [0u16; 512];
+    // SAFETY: valid input slice and output buffer.
+    let n = unsafe { IdnToAscii(0, &src, Some(&mut buf)) };
+    let n = usize::try_from(n)
+        .ok()
+        .filter(|&n| n > 0 && n <= buf.len())?;
+    Some(String::from_utf16_lossy(buf.get(..n)?))
+}
+
+/// R-LINK-03: `Page.md` (then `Page.markdown`) in `dir`, then recursively in subfolders (max
+/// depth 4, first match by shortest path). Bounded: at most 10 000 directory entries.
+pub fn find_wiki(dir: &str, name: &str) -> Option<String> {
+    let mut cands = vec![name.replace('/', "\\")];
+    if let Some(stem) = name.strip_suffix(".md") {
+        cands.push(format!("{stem}.markdown"));
+    }
+    let mut level = vec![dir.to_string()];
+    let mut budget = 10_000usize;
+    for _ in 0..=4 {
+        let mut hits: Vec<String> = Vec::new();
+        for d in &level {
+            for c in &cands {
+                let p = format!("{d}\\{c}");
+                if std::path::Path::new(&yamdv_core::path::long_form(&p)).is_file() {
+                    hits.push(p);
+                }
+            }
+        }
+        if let Some(h) = hits.into_iter().min_by_key(String::len) {
+            return Some(h);
+        }
+        let mut next = Vec::new();
+        for d in &level {
+            let Ok(rd) = std::fs::read_dir(yamdv_core::path::long_form(d)) else {
+                continue;
+            };
+            for e in rd.flatten() {
+                if budget == 0 {
+                    return None;
+                }
+                budget -= 1;
+                if e.file_type().is_ok_and(|t| t.is_dir() && !t.is_symlink()) {
+                    next.push(format!("{d}\\{}", e.file_name().to_string_lossy()));
+                }
+            }
+        }
+        next.sort();
+        level = next;
+    }
+    None
 }

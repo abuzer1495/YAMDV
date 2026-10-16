@@ -29,6 +29,10 @@ pub struct Metrics {
     pub line_height: f32,
     /// `typography.paragraph_spacing`.
     pub para_spacing: f32,
+    /// `appearance.table_zebra` (R-THEME-09).
+    pub table_zebra: bool,
+    /// `appearance.corner_style == rounded`.
+    pub rounded: bool,
 }
 
 impl Default for Metrics {
@@ -37,6 +41,8 @@ impl Default for Metrics {
             font_size: 16.0,
             line_height: 1.6,
             para_spacing: 16.0,
+            table_zebra: false,
+            rounded: true,
         }
     }
 }
@@ -72,8 +78,6 @@ pub const CODE_PAD_TOP: f32 = 16.0;
 pub const CODE_PAD_X: f32 = 32.0;
 /// Bottom code padding.
 pub const CODE_PAD_BOTTOM: f32 = 16.0;
-/// Right-edge fade width for overflowing code (PHASE-003: horizontal scrolling).
-pub const CODE_FADE: f32 = 24.0;
 
 /// Bullet shape by depth (B.6.4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,6 +111,28 @@ pub enum Item {
         /// Corner radius.
         radius: f32,
     },
+    /// Stroked rounded rectangle with a given line width (task boxes).
+    StrokeW {
+        /// Rectangle.
+        rect: Rect,
+        /// Color.
+        color: u32,
+        /// Corner radius.
+        radius: f32,
+        /// Line width.
+        width: f32,
+    },
+    /// Stroked polyline (vector icons, check marks, chevrons).
+    Line {
+        /// Points.
+        pts: Vec<(f32, f32)>,
+        /// Color.
+        color: u32,
+        /// Line width.
+        width: f32,
+        /// Close the path.
+        closed: bool,
+    },
     /// List bullet.
     Bullet {
         /// Center x.
@@ -129,6 +155,88 @@ pub enum Item {
     },
     /// Paragraph `paras[i]`.
     Para(usize),
+    /// Push a clip rectangle (P-19).
+    PushClip(Rect),
+    /// Pop the innermost clip.
+    PopClip,
+    /// Scrollbar of region `regions[i]` (drawn with the current offset).
+    HScrollBar(usize),
+    /// Code block header toolbar (drawn by the platform on hover / focus, B.6.7).
+    CodeToolbar {
+        /// Detail node of the code block.
+        node: usize,
+        /// The whole card.
+        card: Rect,
+        /// Language label.
+        label: String,
+        /// Label rectangle.
+        label_rect: Rect,
+        /// [copy, line numbers, wrap] buttons.
+        buttons: [Rect; 3],
+        /// Current options.
+        opts: crate::code::CodeOpts,
+        /// Source range of the code text (copy).
+        raw: std::ops::Range<u32>,
+    },
+}
+
+/// Interactive element kinds (hit testing, focus, activation).
+#[derive(Debug, Clone, PartialEq)]
+pub enum HotKind {
+    /// Code block: copy.
+    CodeCopy {
+        /// Detail node.
+        node: usize,
+    },
+    /// Code block: toggle line numbers.
+    CodeLines {
+        /// Detail node.
+        node: usize,
+    },
+    /// Code block: toggle wrap.
+    CodeWrap {
+        /// Detail node.
+        node: usize,
+    },
+    /// Foldable callout / collapsible container title row (R-REN-06); front matter card.
+    Fold {
+        /// Detail node.
+        node: usize,
+    },
+    /// Footnote reference `[n]` (R-REN-10): activation scrolls to note `n`. `ord` counts the
+    /// references to the same note earlier in this block.
+    FootRef {
+        /// Note number (1-based).
+        n: u32,
+        /// Occurrence within the block.
+        ord: u32,
+    },
+    /// Footnote back-link `↩` / `↩²` …: activation scrolls to reference `k` (0-based) of note `n`.
+    FootBack {
+        /// Note number.
+        n: u32,
+        /// Reference index in [`yamdv_core::doc::index::FootnoteUse::refs`].
+        k: u32,
+    },
+    /// Link text (R-LINK-*): index into the block's `Detail::links`.
+    Link {
+        /// Link index.
+        link: u32,
+    },
+    /// Target rectangle of note `n` in the notes section (not clickable; navigation anchor).
+    FootNote {
+        /// Note number.
+        n: u32,
+    },
+}
+
+/// An interactive rectangle in block coordinates.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Hot {
+    /// Rectangle.
+    pub rect: Rect,
+    /// What it is.
+    pub kind: HotKind,
 }
 
 /// A shaped paragraph placed in the block.
@@ -142,8 +250,41 @@ pub struct LaidPara {
     pub shaped: Box<dyn Shaped>,
     /// Source mapping (`None` for decorations such as list numbers and labels).
     pub map: Option<ParaText>,
-    /// Clip rectangle (code blocks).
-    pub clip: Option<Rect>,
+    /// Horizontal scroll region of the block this paragraph scrolls with (code blocks).
+    pub hscroll: Option<u16>,
+}
+
+/// A horizontally scrollable region of a block (R-CODE-03, B.6.7).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HRegion {
+    /// Visible area (block coordinates); content is clipped to it.
+    pub view: Rect,
+    /// Content width.
+    pub content_w: f32,
+    /// Scrollbar track (block coordinates), 6 px tall.
+    pub track: Rect,
+}
+
+impl HRegion {
+    /// Maximum scroll offset.
+    pub fn max_scroll(&self) -> f32 {
+        (self.content_w - self.view.w).max(0.0)
+    }
+    /// Scrollbar thumb for an offset (block coordinates).
+    pub fn thumb(&self, off: f32) -> Rect {
+        let t = self.track;
+        if self.content_w <= 0.0 {
+            return t;
+        }
+        let w = (t.w * self.view.w / self.content_w).clamp(24.0_f32.min(t.w), t.w);
+        let max = self.max_scroll();
+        let x = if max > 0.0 {
+            t.x + (t.w - w) * (off / max).clamp(0.0, 1.0)
+        } else {
+            t.x
+        };
+        Rect::new(x, t.y, w, t.h)
+    }
 }
 
 /// Layout of one top-level block.
@@ -155,6 +296,10 @@ pub struct BlockLayout {
     pub items: Vec<Item>,
     /// Paragraphs.
     pub paras: Vec<LaidPara>,
+    /// Horizontal scroll regions.
+    pub regions: Vec<HRegion>,
+    /// Interactive elements in document order.
+    pub hot: Vec<Hot>,
 }
 
 /// Localized strings layout needs.
@@ -163,6 +308,14 @@ pub trait Strings {
     fn alert(&self, a: Alert) -> &str;
     /// Placeholder card label (`table`, `html`, …).
     fn placeholder(&self, p: Placeholder) -> &str;
+    /// Collapsed front matter summary (R-REN-13): "Front matter · N fields".
+    fn front_matter_summary(&self, n: usize) -> String {
+        if n == 1 {
+            "Front matter · 1 field".to_string()
+        } else {
+            format!("Front matter · {n} fields")
+        }
+    }
 }
 
 /// English fallback strings (tests).
@@ -192,6 +345,7 @@ pub fn placeholder_label(p: Placeholder) -> &'static str {
         Placeholder::Math => "math",
         Placeholder::Footnotes => "footnotes",
         Placeholder::FrontMatter => "front matter",
+        Placeholder::Details => "details",
     }
 }
 
@@ -207,6 +361,10 @@ pub struct Ctx<'a> {
     pub strings: &'a dyn Strings,
     /// `reading.single_newline_break`.
     pub single_newline_break: bool,
+    /// Top-level block being laid out.
+    pub block: usize,
+    /// Code options for (block, node).
+    pub code_opts: &'a dyn Fn(usize, usize) -> crate::code::CodeOpts,
 }
 
 /// Vertical margins (top, bottom) of a top-level block kind (B.6.2–B.6.9).
@@ -218,11 +376,11 @@ pub fn margins(kind: BlockKind, m: &Metrics) -> (f32, f32) {
         BlockKind::Heading(_) => (20.0, 8.0),
         BlockKind::BlockQuote { .. } | BlockKind::Code => (16.0, 16.0),
         BlockKind::Rule => (24.0, 24.0),
-        BlockKind::Table
-        | BlockKind::Html
-        | BlockKind::Math
-        | BlockKind::FootnoteDef
-        | BlockKind::FrontMatter => (16.0, 16.0),
+        // R-REN-10: definitions vanish from their source position.
+        BlockKind::FootnoteDef => (0.0, 0.0),
+        // B.6.9: front matter card margin 0 0 16.
+        BlockKind::FrontMatter => (0.0, 16.0),
+        BlockKind::Table | BlockKind::Html | BlockKind::Math => (16.0, 16.0),
         BlockKind::Paragraph | BlockKind::List | BlockKind::DefList => (0.0, m.para_spacing),
     }
 }
@@ -237,13 +395,13 @@ pub fn gap_before(blocks: &[Block], i: usize, m: &Metrics) -> f32 {
     }
 }
 
-/// Width of the page-background mask right of an overflowing code card (covers any window width).
-pub const OVERFLOW_MASK_W: f32 = 16_384.0;
-
 /// Height estimate of a not-yet-laid-out block (§4.4.4, documented in ADR-0007):
 /// text blocks `max(lines, ceil(half_ems × 0.5 em / width)) × pitch`; code and placeholders
 /// `lines × code_pitch + paddings`; rules 2 px.
 pub fn estimate(b: &Block, width: f32, m: &Metrics) -> f32 {
+    if let Some(h) = estimate_special(b, m) {
+        return h;
+    }
     let width = width.max(1.0);
     let wrapped = |size: f32, pitch: f32| {
         let w = b.est.half_ems as f32 * 0.5 * size;
@@ -269,7 +427,19 @@ pub fn estimate(b: &Block, width: f32, m: &Metrics) -> f32 {
     }
 }
 
-fn base(m: &Metrics, color: u32) -> Style {
+/// Height estimate including the special cases that need no source scan.
+fn estimate_special(b: &Block, m: &Metrics) -> Option<f32> {
+    match b.kind {
+        BlockKind::FootnoteDef => Some(0.0),
+        BlockKind::FrontMatter => Some(13.0 * 1.5 + 16.0),
+        _ => {
+            let _ = m;
+            None
+        }
+    }
+}
+
+pub(crate) fn base(m: &Metrics, color: u32) -> Style {
     Style {
         family: Family::Body,
         size: m.font_size,
@@ -281,7 +451,7 @@ fn base(m: &Metrics, color: u32) -> Style {
     }
 }
 
-fn spans(segs: &[Seg], b: &Style, m: &Metrics, pal: &Palette) -> Vec<Span> {
+pub(crate) fn spans(segs: &[Seg], b: &Style, m: &Metrics, pal: &Palette) -> Vec<Span> {
     let mut out = Vec::new();
     for s in segs {
         if s.style == 0 {
@@ -307,11 +477,28 @@ fn spans(segs: &[Seg], b: &Style, m: &Metrics, pal: &Palette) -> Vec<Span> {
             t.color = pal.link;
         }
         if f & (st::MUTED | st::IMAGE) != 0 {
-            // PHASE-003: inline HTML source / image placeholder.
             t.color = pal.text_muted;
         }
         if f & st::IMAGE != 0 {
-            t.italic = true;
+            // P-25 compact image chip: 12 px glyph + alt text in `text_muted`.
+            t.size = 12.0 * b.size / 14.0;
+            t.weight = 400;
+            t.italic = false;
+        }
+        if f & (st::SUP | st::SUB) != 0 {
+            // R-MD-06: 0.75 em. PARTIAL: no baseline shift until inline objects (§4.1.3).
+            t.size = b.size * 0.75;
+        }
+        if f & (st::UNDERLINE | st::ABBR) != 0 {
+            t.underline = true;
+        }
+        if f & st::KBD != 0 {
+            // B.6.3 key cap: code font on the inline-code background.
+            t.family = Family::Code;
+            t.size = b.size * 0.875;
+        }
+        if f & st::HIGHLIGHT != 0 && pal.highlight_text != 0 {
+            t.color = pal.highlight_text;
         }
         if f & st::FOOTREF != 0 {
             // PHASE-003: superscript-styled footnote reference without navigation.
@@ -327,19 +514,29 @@ fn spans(segs: &[Seg], b: &Style, m: &Metrics, pal: &Palette) -> Vec<Span> {
     out
 }
 
-struct Out {
-    items: Vec<Item>,
-    paras: Vec<LaidPara>,
+pub(crate) struct Out {
+    pub(crate) items: Vec<Item>,
+    pub(crate) paras: Vec<LaidPara>,
+    pub(crate) regions: Vec<HRegion>,
+    pub(crate) hot: Vec<Hot>,
+    /// Horizontal alignment of inline leaves inside an HTML alignment container (0 = start).
+    pub(crate) align: u8,
+    /// This block opens a `<details>` closed in a later block: its last details node toggles
+    /// with the fold key `usize::MAX` (§4.6 item 3).
+    pub(crate) cross_details: bool,
 }
 
+/// Fold key (node) of a cross-block `<details>` toggle.
+pub const CROSS_DETAILS: usize = usize::MAX;
+
 impl Out {
-    fn para(
+    pub(crate) fn para(
         &mut self,
         x: f32,
         y: f32,
         shaped: Box<dyn Shaped>,
         map: Option<ParaText>,
-        clip: Option<Rect>,
+        hscroll: Option<u16>,
     ) -> f32 {
         let h = shaped.height();
         self.paras.push(LaidPara {
@@ -347,14 +544,14 @@ impl Out {
             y,
             shaped,
             map,
-            clip,
+            hscroll,
         });
         self.items.push(Item::Para(self.paras.len() - 1));
         h
     }
 }
 
-fn shape_text(
+pub(crate) fn shape_text(
     ctx: &mut Ctx<'_>,
     text: &str,
     style: Style,
@@ -373,7 +570,7 @@ fn shape_text(
 }
 
 /// Inline leaf → shaped paragraph with inline-code backgrounds.
-fn leaf(
+pub(crate) fn leaf(
     ctx: &mut Ctx<'_>,
     pt: ParaText,
     style: Style,
@@ -381,6 +578,23 @@ fn leaf(
     x: f32,
     y: f32,
     w: f32,
+    out: &mut Out,
+) -> f32 {
+    let a = out.align;
+    leaf_aligned(ctx, pt, style, pitch, x, y, w, a, out)
+}
+
+/// [`leaf`] with a horizontal alignment of the shaped box inside `w` (0/1 start, 2 center,
+/// 3 end; used by table cells).
+pub(crate) fn leaf_aligned(
+    ctx: &mut Ctx<'_>,
+    pt: ParaText,
+    style: Style,
+    pitch: f32,
+    x: f32,
+    y: f32,
+    w: f32,
+    align: u8,
     out: &mut Out,
 ) -> f32 {
     let sp = spans(&pt.segs, &style, &ctx.m, ctx.pal);
@@ -394,7 +608,38 @@ fn leaf(
         rtl,
         tab_spaces: None,
     });
+    let x = match align {
+        2 => x + ((w - shaped.width()) / 2.0).max(0.0),
+        3 => x + (w - shaped.width()).max(0.0),
+        _ => x,
+    };
     // B.6.3: inline code background, padding 0.15 em × 0.4 em, radius 4 — drawn before the text.
+    // The horizontal padding is part of the shaped advance (character spacing, F-13/P-21), so the
+    // background is exactly the range rectangle and never overlaps neighbouring glyphs.
+    // R-MD-05: highlight background (radius 2), behind the text like inline code.
+    for (s, seg) in sp.iter().zip(pt.segs.iter().filter(|g| g.style != 0)) {
+        if seg.style & st::HIGHLIGHT != 0 {
+            for r in shaped.range_rects(s.range.clone()) {
+                out.items.push(Item::Fill {
+                    rect: Rect::new(x + r.x, y + r.y, r.w, r.h),
+                    color: ctx.pal.highlight_bg,
+                    radius: 2.0,
+                });
+            }
+        }
+    }
+    // P-25: image chip — line-height tall, radius 4, `code_bg` fill behind glyph + alt text.
+    for (s, seg) in sp.iter().zip(pt.segs.iter().filter(|g| g.style != 0)) {
+        if seg.style & st::IMAGE != 0 {
+            for r in shaped.range_rects(s.range.clone()) {
+                out.items.push(Item::Fill {
+                    rect: Rect::new(x + r.x - 3.0, y + r.y, r.w + 6.0, r.h),
+                    color: ctx.pal.code_bg,
+                    radius: 4.0,
+                });
+            }
+        }
+    }
     for s in &sp {
         if s.style.family == Family::Code {
             let em = s.style.size / 0.875;
@@ -402,11 +647,46 @@ fn leaf(
                 let ih = s.style.size * 1.3 + 0.3 * em;
                 let iy = r.y + (r.h - ih) / 2.0;
                 out.items.push(Item::Fill {
-                    rect: Rect::new(x + r.x - 0.4 * em, y + iy, r.w + 0.8 * em, ih),
+                    rect: Rect::new(x + r.x, y + iy, r.w, ih),
                     color: ctx.pal.inline_code_bg,
                     radius: 4.0,
                 });
             }
+        }
+    }
+    // R-LINK-*: link text is activatable (one hot rect per line fragment).
+    for (s, seg) in sp.iter().zip(pt.segs.iter().filter(|g| g.style != 0)) {
+        if seg.link == yamdv_core::doc::detail::NO_LINK {
+            continue;
+        }
+        for r in shaped.range_rects(s.range.clone()) {
+            out.hot.push(Hot {
+                rect: Rect::new(x + r.x, y + r.y, r.w, r.h),
+                kind: HotKind::Link { link: seg.link },
+            });
+        }
+    }
+    // R-REN-10: footnote references are activatable.
+    for (s, seg) in sp.iter().zip(pt.segs.iter().filter(|g| g.style != 0)) {
+        if seg.style & yamdv_core::doc::detail::style::FOOTREF == 0 {
+            continue;
+        }
+        let label = pt.slice16(s.range.start, s.range.end);
+        let Ok(n) = label.trim_matches(['[', ']']).parse::<u32>() else {
+            continue;
+        };
+        let ord = u32::try_from(
+            out.hot
+                .iter()
+                .filter(|h| matches!(h.kind, HotKind::FootRef { n: m, .. } if m == n))
+                .count(),
+        )
+        .unwrap_or(0);
+        if let Some(r) = shaped.range_rects(s.range.clone()).first() {
+            out.hot.push(Hot {
+                rect: Rect::new(x + r.x, y + r.y, r.w.max(6.0), r.h),
+                kind: HotKind::FootRef { n, ord },
+            });
         }
     }
     out.para(x, y, shaped, Some(pt), None)
@@ -414,7 +694,7 @@ fn leaf(
 
 /// Code-like card: code blocks and interim placeholders (PHASE-003).
 #[allow(clippy::too_many_arguments)]
-fn card(
+pub(crate) fn card(
     ctx: &mut Ctx<'_>,
     pt: ParaText,
     label: Option<&str>,
@@ -470,25 +750,32 @@ fn card(
         text_h,
     );
     let overflow = shaped.width() > inner.w;
-    out.para(inner.x, inner.y, shaped, Some(pt), Some(inner));
     if overflow {
-        // Clip: the renderer has no glyph clipping, so the right padding is repainted over the
-        // overflowing text, then the fade hints at more content (PHASE-003: horizontal scrolling).
-        out.items.push(Item::Fill {
-            rect: Rect::new(inner.right(), inner.y, CODE_PAD_X - 1.0, inner.h),
-            color: ctx.pal.code_bg,
-            radius: 0.0,
+        // R-CODE-03 / P-19: the code scrolls horizontally inside the card, clipped to the card
+        // interior; a 6 px scrollbar sits in the bottom padding while overflowing (B.6.7).
+        let view = Rect::new(
+            x + 1.0,
+            inner.y - CODE_PAD_TOP,
+            w - 2.0,
+            text_h + CODE_PAD_TOP,
+        );
+        let region = out.regions.len();
+        out.regions.push(HRegion {
+            view,
+            content_w: shaped.width() + 2.0 * CODE_PAD_X,
+            track: Rect::new(
+                inner.x,
+                inner.bottom() + (CODE_PAD_BOTTOM - 6.0) / 2.0,
+                inner.w,
+                6.0,
+            ),
         });
-        // Text past the card's right edge is repainted with the page background.
-        out.items.push(Item::Fill {
-            rect: Rect::new(rect.right(), inner.y, OVERFLOW_MASK_W, inner.h),
-            color: ctx.pal.bg,
-            radius: 0.0,
-        });
-        out.items.push(Item::FadeRight {
-            rect: Rect::new(inner.right() - CODE_FADE, inner.y, CODE_FADE, inner.h),
-            color: ctx.pal.code_bg,
-        });
+        out.items.push(Item::PushClip(view));
+        out.para(inner.x, inner.y, shaped, Some(pt), Some(region as u16));
+        out.items.push(Item::PopClip);
+        out.items.push(Item::HScrollBar(region));
+    } else {
+        out.para(inner.x, inner.y, shaped, Some(pt), None);
     }
     out.items.push(Item::Stroke {
         rect,
@@ -498,7 +785,7 @@ fn card(
     h
 }
 
-fn source_text(src: &str, r: &std::ops::Range<u32>) -> ParaText {
+pub(crate) fn source_text(src: &str, r: &std::ops::Range<u32>) -> ParaText {
     let mut t = src.get(r.start as usize..r.end as usize).unwrap_or("");
     while t.ends_with('\n') || t.ends_with('\r') {
         t = &t[..t.len() - 1];
@@ -514,6 +801,7 @@ fn source_text(src: &str, r: &std::ops::Range<u32>) -> ParaText {
             src: r.start..end,
             verbatim: true,
             style: 0,
+            link: yamdv_core::doc::detail::NO_LINK,
         }],
     }
 }
@@ -524,25 +812,33 @@ fn node_margins(kind: &NodeKind, m: &Metrics, tight: bool) -> (f32, f32) {
         NodeKind::Paragraph { .. } | NodeKind::DefBody => (0.0, m.para_spacing),
         NodeKind::DefTitle => (0.0, 0.0),
         NodeKind::Heading(l) => margins(BlockKind::Heading(*l), m),
-        NodeKind::BlockQuote(_) | NodeKind::Code { .. } | NodeKind::Placeholder(_) => (16.0, 16.0),
+        NodeKind::BlockQuote(_)
+        | NodeKind::Code { .. }
+        | NodeKind::Placeholder(_)
+        | NodeKind::Table { .. } => (16.0, 16.0),
+        NodeKind::TableRow { .. } | NodeKind::TableCell | NodeKind::FootnoteDef { .. } => {
+            (0.0, 0.0)
+        }
         NodeKind::Rule => (24.0, 24.0),
         NodeKind::List { .. } | NodeKind::DefList => {
             (0.0, if tight { 0.0 } else { m.para_spacing })
         }
-        NodeKind::Item { .. } => (0.0, 0.0),
+        NodeKind::Item { .. } | NodeKind::HtmlBlock | NodeKind::Align(_) => (0.0, 0.0),
+        NodeKind::Details { .. } => (8.0, 8.0),
+        NodeKind::DetailsSummary | NodeKind::Unsupported => (0.0, m.para_spacing),
     }
 }
 
 #[derive(Clone, Copy)]
-struct Env {
-    color: u32,
-    list_depth: usize,
-    tight: bool,
+pub(crate) struct Env {
+    pub(crate) color: u32,
+    pub(crate) list_depth: usize,
+    pub(crate) tight: bool,
 }
 
 /// Lays out `children` vertically; returns the bottom y (without the last margin).
 #[allow(clippy::too_many_arguments)]
-fn stack(
+pub(crate) fn stack(
     ctx: &mut Ctx<'_>,
     src: &str,
     d: &Detail,
@@ -605,9 +901,41 @@ fn node(
             };
             leaf(ctx, pt, s, size * 1.25, x, y, w, out)
         }
-        NodeKind::Code { .. } => {
+        NodeKind::Code { lang } => {
             let pt = node_text(src, d, i, true);
-            card(ctx, pt, None, x, y, w, out)
+            crate::code::code_block(ctx, i, lang, pt, x, y, w, out)
+        }
+        NodeKind::Table { aligns } => crate::table::table(ctx, src, d, i, aligns, x, y, w, out),
+        NodeKind::TableRow { .. } | NodeKind::TableCell => 0.0,
+        // R-REN-10: laid out in the notes section (see `layout_with_notes`).
+        NodeKind::FootnoteDef { .. } => 0.0,
+        // R-MD-14: sanitized HTML maps onto the ordinary node kinds.
+        NodeKind::HtmlBlock => stack(ctx, src, d, &kids, x, y, w, env, out) - y,
+        NodeKind::Align(a) => {
+            let saved = out.align;
+            out.align = *a;
+            let h = stack(ctx, src, d, &kids, x, y, w, env, out) - y;
+            out.align = saved;
+            h
+        }
+        NodeKind::Details { open } => {
+            crate::front::details(ctx, src, d, i, *open, x, y, w, env, out)
+        }
+        NodeKind::DetailsSummary => {
+            let pt = node_text(src, d, i, ctx.single_newline_break);
+            let s = Style {
+                weight: 600,
+                ..base(&m, env.color)
+            };
+            leaf(ctx, pt, s, m.pitch(), x, y, w, out)
+        }
+        NodeKind::Unsupported => {
+            let label = ctx.strings.placeholder(Placeholder::Html).to_string();
+            let pt = source_text(src, &d.nodes[i].range);
+            card(ctx, pt, Some(&label), x, y, w, out)
+        }
+        NodeKind::Placeholder(Placeholder::FrontMatter) => {
+            crate::front::front_matter(ctx, src, d, i, x, y, w, out)
         }
         NodeKind::Placeholder(p) => {
             // PHASE-003: tables, HTML, math, footnotes, front matter are shown as source cards.
@@ -624,6 +952,9 @@ fn node(
             2.0
         }
         NodeKind::BlockQuote(alert) => {
+            if let Some(c) = crate::callout::detect(src, d, i, *alert, ctx.single_newline_break) {
+                return crate::callout::callout(ctx, src, d, i, c, x, y, w, env, out);
+            }
             let bar_at = out.items.len();
             let cx = x + 3.0 + 16.0;
             let cw = (w - 19.0).max(1.0);
@@ -632,18 +963,7 @@ fn node(
                 list_depth: env.list_depth,
                 tight: false,
             };
-            let mut cy = y;
-            if let Some(a) = alert {
-                // PHASE-003: callouts; interim = quote with a localized title line.
-                let title = ctx.strings.alert(*a).to_string();
-                let s = Style {
-                    weight: 600,
-                    ..base(&m, ctx.pal.quote_text)
-                };
-                let sh = shape_text(ctx, &title, s, Some(cw), m.pitch());
-                cy += out.para(cx, cy, sh, None, None);
-            }
-            let bottom = stack(ctx, src, d, &kids, cx, cy, cw, &inner, out);
+            let bottom = stack(ctx, src, d, &kids, cx, y, cw, &inner, out);
             let h = (bottom - y).max(m.pitch());
             out.items.insert(
                 bar_at,
@@ -675,17 +995,43 @@ fn node(
                 let marker_right = content_x - 8.0;
                 match (task, start) {
                     (Some(done), _) => {
-                        // PHASE-003: real checkboxes; interim U+2610 / U+2611.
-                        let s = base(&m, env.color);
-                        let sh = shape_text(
-                            ctx,
-                            if done { "\u{2611}" } else { "\u{2610}" },
-                            s,
-                            None,
-                            m.pitch(),
+                        // B.6.4: vector 16 × 16 box, radius 4, 1.5 px border; checked → accent
+                        // fill with a white check. Not clickable (P-16/P-17).
+                        let r = Rect::new(
+                            marker_right - 16.0,
+                            yy + (m.pitch() - 16.0) / 2.0,
+                            16.0,
+                            16.0,
                         );
-                        let mw = sh.width();
-                        out.para(marker_right - mw, yy, sh, None, None);
+                        if done {
+                            out.items.push(Item::Fill {
+                                rect: r,
+                                color: ctx.pal.accent,
+                                radius: 4.0,
+                            });
+                            out.items.push(Item::Line {
+                                pts: vec![
+                                    (r.x + 4.0, r.y + 8.5),
+                                    (r.x + 7.0, r.y + 11.5),
+                                    (r.x + 12.0, r.y + 5.0),
+                                ],
+                                color: 0xffffff,
+                                width: 2.0,
+                                closed: false,
+                            });
+                        } else {
+                            let border = if crate::code::is_dark(ctx.pal.bg) {
+                                0x6a6a6a
+                            } else {
+                                0xb0b0b0
+                            };
+                            out.items.push(Item::StrokeW {
+                                rect: r,
+                                color: border,
+                                radius: 4.0,
+                                width: 1.5,
+                            });
+                        }
                     }
                     (None, Some(_)) => {
                         let s = base(&m, env.color);
@@ -760,9 +1106,26 @@ fn node(
 
 /// Lays out a top-level block from its detail tree at column width `w`.
 pub fn layout_block(ctx: &mut Ctx<'_>, src: &str, d: &Detail, w: f32) -> BlockLayout {
+    layout_block_in(ctx, src, d, w, 0, false)
+}
+
+/// [`layout_block`] inside cross-block HTML containers: initial alignment and whether the
+/// block opens a cross-block `<details>`.
+pub fn layout_block_in(
+    ctx: &mut Ctx<'_>,
+    src: &str,
+    d: &Detail,
+    w: f32,
+    align: u8,
+    cross_details: bool,
+) -> BlockLayout {
     let mut out = Out {
         items: Vec::new(),
         paras: Vec::new(),
+        regions: Vec::new(),
+        hot: Vec::new(),
+        align,
+        cross_details,
     };
     let roots: Vec<usize> = d.roots().collect();
     let env = Env {
@@ -775,5 +1138,48 @@ pub fn layout_block(ctx: &mut Ctx<'_>, src: &str, d: &Detail, w: f32) -> BlockLa
         height: bottom.max(0.0),
         items: out.items,
         paras: out.paras,
+        regions: out.regions,
+        hot: out.hot,
+    }
+}
+
+/// One note of the footnotes section: number, reference count, detail tree of its definition.
+pub struct Note {
+    /// Note number (1-based).
+    pub n: u32,
+    /// Number of references (back-links `↩`, `↩²`, …).
+    pub refs: u32,
+    /// Detail tree of the top-level block holding the definition.
+    pub detail: Detail,
+}
+
+/// [`layout_block`] plus the footnotes section appended (the last block of a document with
+/// referenced footnotes, R-REN-10 / B.6.9).
+pub fn layout_with_notes(
+    ctx: &mut Ctx<'_>,
+    src: &str,
+    d: &Detail,
+    notes: &[Note],
+    w: f32,
+) -> BlockLayout {
+    let mut bl = layout_block(ctx, src, d, w);
+    if notes.is_empty() {
+        return bl;
+    }
+    let mut out = Out {
+        items: std::mem::take(&mut bl.items),
+        paras: std::mem::take(&mut bl.paras),
+        regions: std::mem::take(&mut bl.regions),
+        hot: std::mem::take(&mut bl.hot),
+        align: 0,
+        cross_details: false,
+    };
+    let bottom = crate::front::notes_section(ctx, src, notes, bl.height, w, &mut out);
+    BlockLayout {
+        height: bottom,
+        items: out.items,
+        paras: out.paras,
+        regions: out.regions,
+        hot: out.hot,
     }
 }

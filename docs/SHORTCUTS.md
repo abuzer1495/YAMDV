@@ -68,6 +68,7 @@ yamdv --export-pdf  <in.md> [-o <out.pdf>]  [--theme <scheme>] [--mode light|dar
 ```
 Dev builds only (feature `dev-tools`, never in release): `--render-png <in.md> -o <out.png> [--width 1200] [--scale 1.0|1.5] [--theme …] [--mode …]`, `--mem-hud`.
 Exit codes: `0` success · `1` runtime error · `2` usage error. Console output only when started from a console (`AttachConsole`).
+Internal flag, not shown in `--help`: `--dialog-host <kind> <owner-hwnd> <nonce> …` — used only by YAMDV itself (S-PROC-07, S-IPC-05); it exits with code 2 when started any other way.
 
 ## F.5 Mouse
 Wheel scroll (smooth) · `Shift+Wheel` horizontal in code blocks/tables · `Ctrl+Wheel` font size · `Alt+Wheel` column width · double-click selects a word, triple-click a paragraph · `Ctrl+click` / middle-click on a link → new window (Markdown targets) · X1/X2 back/forward · right-click → context menu · hover the left gutter of H1–H3 → fold toggle · hover image/diagram/table → ⛶ badge · double-click image/diagram → fullscreen viewer · drag files onto the window → open (or insert in edit modes) · drag the sidebar edge / splitter → resize.

@@ -16,6 +16,13 @@ pub enum Command {
         /// Developer flags (empty unless built with `dev-tools`).
         dev: Dev,
     },
+    /// Internal: `--dialog-host open <owner-hwnd> <nonce>` (S-PROC-07; not shown in `--help`).
+    DialogHost {
+        /// Owner window handle (decimal).
+        owner: isize,
+        /// Per-launch nonce (decimal).
+        nonce: u64,
+    },
     /// Print help and exit 0.
     Help,
     /// Print version and exit 0.
@@ -63,6 +70,17 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Command {
 
 /// Parse with developer flags enabled or not (testable on every build).
 pub fn parse_with<I: IntoIterator<Item = String>>(args: I, dev_tools: bool) -> Command {
+    let args: Vec<String> = args.into_iter().collect();
+    if args.first().map(String::as_str) == Some("--dialog-host") {
+        // Exactly `--dialog-host open <owner> <nonce>`; anything else is a usage error (exit 2).
+        return match args.as_slice() {
+            [_, k, o, n] if k == "open" => match (o.parse::<isize>(), n.parse::<u64>()) {
+                (Ok(owner), Ok(nonce)) if owner != 0 => Command::DialogHost { owner, nonce },
+                _ => usage("--dialog-host"),
+            },
+            _ => usage("--dialog-host"),
+        };
+    }
     let mut paths = Vec::new();
     let mut only_paths = false;
     let mut dev = Dev::default();
@@ -139,6 +157,27 @@ mod tests {
         assert_eq!(p(&["--version"]), Command::Version);
         assert!(version_text().starts_with("yamdv 0."));
         assert!(help_text().contains("--version"));
+    }
+
+    #[test]
+    fn dialog_host_flag() {
+        assert_eq!(
+            p(&["--dialog-host", "open", "1234", "99"]),
+            Command::DialogHost {
+                owner: 1234,
+                nonce: 99
+            }
+        );
+        for bad in [
+            &["--dialog-host"][..],
+            &["--dialog-host", "save", "1", "2"],
+            &["--dialog-host", "open", "0", "2"],
+            &["--dialog-host", "open", "x", "2"],
+            &["--dialog-host", "open", "1", "2", "extra"],
+            &["a.md", "--dialog-host", "open", "1", "2"],
+        ] {
+            assert!(matches!(p(bad), Command::Usage(_)), "{bad:?}");
+        }
     }
 
     #[test]

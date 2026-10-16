@@ -41,6 +41,8 @@ messages! {
     BinaryBody => "This looks like a binary file.", "Bu bir ikili dosya gibi görünüyor.";
     OpenAnyway => "Open anyway", "Yine de aç";
     DropFolders => "Drop Markdown files, not folders", "Klasör değil, Markdown dosyaları bırakın";
+    Copied => "Copied", "Kopyalandı";
+    DialogHostFailed => "The file dialog could not be opened", "Dosya penceresi açılamadı";
     FilterMarkdown => "Markdown", "Markdown";
     FilterText => "Text", "Metin";
     FilterAll => "All files", "Tüm dosyalar";
@@ -54,6 +56,21 @@ messages! {
     LabelMath => "math", "matematik";
     LabelFootnotes => "footnotes", "dipnotlar";
     LabelFrontMatter => "front matter", "ön bilgi";
+    LinkNotFound => "Link target not found: ", "Bağlantı hedefi bulunamadı: ";
+    BlockedLinkType => "Blocked link type", "Engellenen bağlantı türü";
+    LinkAskTitle => "Open external link?", "Dış bağlantı açılsın mı?";
+    LinkCredentials => "Warning: this link contains a user name or password.", "Uyarı: bu bağlantı bir kullanıcı adı veya parola içeriyor.";
+    LinkPunycode => "Punycode: ", "Punycode: ";
+    CopyLink => "Copy link", "Bağlantıyı kopyala";
+    OpenInBrowser => "Open in browser", "Tarayıcıda aç";
+    OpenLocalTitle => "Open with default app?", "Varsayılan uygulamayla açılsın mı?";
+    ShowFolderTitle => "Show in Explorer?", "Gezgin'de gösterilsin mi?";
+    BlockedSafety => "Blocked for safety", "Güvenlik nedeniyle engellendi";
+    ShowInExplorer => "Show in Explorer", "Gezgin'de göster";
+    OpenButton => "Open", "Aç";
+    FromInternet => "This file came from the internet", "Bu dosya internetten geldi";
+    FrontMatterOne => "Front matter · 1 field", "Ön bilgi · 1 alan";
+    FrontMatterN => "Front matter · {} fields", "Ön bilgi · {} alan";
     LabelDetails => "details", "ayrıntılar";
     Image => "image", "görsel";
 }

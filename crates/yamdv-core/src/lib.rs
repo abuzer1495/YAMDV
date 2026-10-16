@@ -6,8 +6,13 @@
 
 pub mod decode;
 pub mod doc;
+pub mod emoji_table;
+pub mod html;
 pub mod i18n;
+pub mod image;
 pub mod ini;
+pub mod ipc;
+pub mod link;
 pub mod log;
 pub mod path;
 pub mod settings;

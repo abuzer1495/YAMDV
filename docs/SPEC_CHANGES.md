@@ -15,3 +15,19 @@ Every change to the specification appendices is applied by script (`cargo xtask 
 | P-08a | 2026-10-16 | SPEC.md | R-MD-06 | single-tilde subscript off by default (`reading.subscript_tilde`) | conflicts with GFM strikethrough |
 | P-08b | 2026-10-16 | UI_SPEC.md | §B.8.2 | adds setting `reading.subscript_tilde` | same |
 | P-09 | 2026-10-16 | PERFORMANCE.md | §D.2 | interim scenarios M1b, T1b, T1L | Phase 002 before the full corpus |
+| P-10 | 2026-10-16 | PERFORMANCE.md | §D.2 M6 | M6 after host dialog, no trim, PWS+commit | 002 report §8.4 |
+| P-11 | 2026-10-16 | PERFORMANCE.md | §D.4 r10 | dialogs out-of-process; trims only after print/export | same |
+| P-12 | 2026-10-16 | PERFORMANCE.md | §D.4 r3 | band buffer cap 512 KiB | reviewer finding |
+| P-13 | 2026-10-16 | PERFORMANCE.md | §D.4 r4 | image decode/keep/LRU rules, storage ADR | precision |
+| P-14 | 2026-10-16 | SECURITY.md | S-PROC-07 | dialog host child process allowed | F-09 |
+| P-15 | 2026-10-16 | SECURITY.md | S-IPC-05 | WM_COPYDATA host protocol rules | F-09 |
+| P-16 | 2026-10-16 | SECURITY.md | S-FILE-01 | opt-in read-mode task toggle exception | spec conflict |
+| P-17 | 2026-10-16 | SPEC.md | R-REN-04 | task toggle wording | same |
+| P-18 | 2026-10-16 | ARCHITECTURE.md | §E.10 | re-entrancy rule | 002 bug |
+| P-19 | 2026-10-16 | ARCHITECTURE.md | §E.6 | true clipping required | reviewer finding |
+| P-20 | 2026-10-16 | SHORTCUTS.md | §F.4 | internal --dialog-host flag | F-09 |
+| P-21 | 2026-10-16 | UI_SPEC.md | §B.6.3 | inline code padding via character spacing | 002 deviation 7 |
+| P-22 | 2026-10-16 | ROADMAP.md | row 010 | SVG images in Phase 010 | timing |
+| P-23 | 2026-10-16 | TESTING.md | §H.4 | golden tile policy | 002 report §8.5 |
+| P-24 | 2026-10-16 | SPEC.md | R-MD-14 | id/name anchor attributes | README anchors |
+| P-25 | 2026-10-16 | SPEC.md | R-IMG-06 | compact inline image chip | README badges |

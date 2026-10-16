@@ -50,11 +50,31 @@ fn reference(src: &str) -> (Vec<B>, String) {
     let evs: Vec<_> = Parser::new_ext(src, parser_options(ReadOpts::default()))
         .into_offset_iter()
         .collect();
+    // GitHub footnote numbering: defined labels in order of first reference.
+    let fold = |l: &str| yamdv_core::doc::index::fold_label(l);
+    let defined: Vec<String> = evs
+        .iter()
+        .filter_map(|(e, _)| match e {
+            Event::Start(Tag::FootnoteDefinition(l)) => Some(fold(l)),
+            _ => None,
+        })
+        .collect();
+    let mut order: Vec<String> = Vec::new();
+    for (e, _) in &evs {
+        if let Event::FootnoteReference(l) = e {
+            let f = fold(l);
+            if defined.contains(&f) && !order.contains(&f) {
+                order.push(f);
+            }
+        }
+    }
     let mut blocks = Vec::new();
     let mut text = String::new();
     let mut depth = 0usize;
     let mut skip = 0usize;
     let mut image = 0usize;
+    let mut img_src = String::new();
+    let mut img_at = 0usize;
     let mut i = 0;
     while i < evs.len() {
         let (ev, r) = &evs[i];
@@ -106,12 +126,13 @@ fn reference(src: &str) -> (Vec<B>, String) {
                         });
                     }
                     depth += 1;
-                    if ["html", "footnotes", "table", "front", "math"].contains(&k.as_str()) {
+                    if ["html", "front", "math"].contains(&k.as_str()) {
                         skip = 1;
                     }
-                } else if matches!(t, Tag::Image { .. }) {
+                } else if let Tag::Image { dest_url, .. } = t {
                     if image == 0 {
-                        text.push_str("[image: ");
+                        img_src = dest_url.to_string();
+                        img_at = text.len();
                     }
                     image += 1;
                 }
@@ -120,7 +141,8 @@ fn reference(src: &str) -> (Vec<B>, String) {
                 if matches!(t, TagEnd::Image) {
                     image -= 1;
                     if image == 0 {
-                        text.push(']');
+                        let alt = text.split_off(img_at);
+                        text.push_str(&yamdv_core::doc::detail::image_label(&img_src, &alt));
                     }
                 } else if !matches!(
                     t,
@@ -130,6 +152,9 @@ fn reference(src: &str) -> (Vec<B>, String) {
                         | TagEnd::Superscript
                         | TagEnd::Subscript
                         | TagEnd::Link
+                        | TagEnd::TableHead
+                        | TagEnd::TableRow
+                        | TagEnd::TableCell
                 ) {
                     depth -= 1;
                 }
@@ -138,13 +163,27 @@ fn reference(src: &str) -> (Vec<B>, String) {
             | Event::Code(t)
             | Event::InlineMath(t)
             | Event::DisplayMath(t)
-            | Event::InlineHtml(t)
             | Event::Html(t) => text.push_str(t),
-            Event::FootnoteReference(l) => {
-                text.push('[');
-                text.push_str(l);
-                text.push(']');
+            Event::InlineHtml(t) => {
+                // Our renderer shows sanitized inline HTML (R-MD-14): text, breaks, images.
+                let mut budget = yamdv_core::html::MAX_TAGS;
+                for tok in yamdv_core::html::sanitize(t, &mut budget) {
+                    match tok {
+                        yamdv_core::html::Tok::Text { text: tt, .. } => text.push_str(&tt),
+                        yamdv_core::html::Tok::Open { tag, attrs, .. } if tag == "img" => {
+                            let alt = yamdv_core::html::attr(&attrs, "alt").unwrap_or("");
+                            let src = yamdv_core::html::attr(&attrs, "src").unwrap_or("");
+                            text.push_str(&yamdv_core::doc::detail::image_label(src, alt));
+                        }
+                        yamdv_core::html::Tok::Unsupported(_) => text.push_str("[svg]"),
+                        _ => {}
+                    }
+                }
             }
+            Event::FootnoteReference(l) => match order.iter().position(|o| *o == fold(l)) {
+                Some(p) => text.push_str(&format!("[{}]", p + 1)),
+                None => text.push_str(&format!("[^{l}]")),
+            },
             Event::Rule if depth < MAX_DEPTH => {
                 blocks.push(B {
                     depth,
@@ -171,10 +210,16 @@ fn node_kind(k: &NodeKind) -> Option<&'static str> {
         NodeKind::DefList => "dl",
         NodeKind::DefTitle => "dt",
         NodeKind::DefBody => "dd",
-        NodeKind::Placeholder(Placeholder::Table) => "table",
-        NodeKind::Placeholder(Placeholder::Html) => "html",
+        NodeKind::Placeholder(Placeholder::Table) | NodeKind::Table { .. } => "table",
+        NodeKind::TableRow { .. } | NodeKind::TableCell => return None,
+        NodeKind::Placeholder(Placeholder::Html) | NodeKind::HtmlBlock => "html",
+        NodeKind::Align(_)
+        | NodeKind::Details { .. }
+        | NodeKind::DetailsSummary
+        | NodeKind::Unsupported
+        | NodeKind::Placeholder(Placeholder::Details) => return None,
         NodeKind::Placeholder(Placeholder::Math) => "math",
-        NodeKind::Placeholder(Placeholder::Footnotes) => "footnotes",
+        NodeKind::Placeholder(Placeholder::Footnotes) | NodeKind::FootnoteDef { .. } => "footnotes",
         NodeKind::Placeholder(Placeholder::FrontMatter) => "front",
     })
 }
@@ -196,6 +241,19 @@ fn pipeline(src: &str, check: bool) -> (usize, usize) {
     for i in 0..n {
         let d = doc.detail(i);
         for (k, node) in d.nodes.iter().enumerate() {
+            // Content of sanitized HTML blocks is ours only (the reference treats them opaquely).
+            let mut p = node.parent;
+            let mut in_html = false;
+            while p != u32::MAX {
+                if matches!(d.nodes[p as usize].kind, NodeKind::HtmlBlock) {
+                    in_html = true;
+                    break;
+                }
+                p = d.nodes[p as usize].parent;
+            }
+            if in_html {
+                continue;
+            }
             if let Some(kind) = node_kind(&node.kind) {
                 let depth = (0..)
                     .scan(node.parent, |p, _| {
@@ -231,6 +289,8 @@ fn pipeline(src: &str, check: bool) -> (usize, usize) {
             pal: &pal,
             strings: &strings,
             single_newline_break: false,
+            block: 0,
+            code_opts: &|_, _| yamdv_layout::code::CodeOpts::default(),
         };
         let bl = layout_block(&mut ctx, src, &d, 600.0);
         assert!(bl.height.is_finite() && bl.height >= 0.0);

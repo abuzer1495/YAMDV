@@ -47,6 +47,8 @@ pub enum Placeholder {
     Footnotes,
     /// Front matter (PHASE-003).
     FrontMatter,
+    /// `<details>` without a `<summary>` (label "Details").
+    Details,
 }
 
 /// Node kind.
@@ -86,6 +88,38 @@ pub enum NodeKind {
     DefTitle,
     /// Definition body.
     DefBody,
+    /// GFM table (R-REN-07); `aligns` per column: 0 none, 1 left, 2 center, 3 right.
+    Table {
+        /// Column alignments.
+        aligns: Vec<u8>,
+    },
+    /// Table row (`head` = the header row).
+    TableRow {
+        /// Header row.
+        head: bool,
+    },
+    /// Table cell (inline leaf).
+    TableCell,
+    /// Footnote definition (R-REN-10): hidden at its source position, laid out in the notes
+    /// section at the end of the document. `number` is 0 when the note is never referenced.
+    FootnoteDef {
+        /// 1-based note number (order of first reference).
+        number: u32,
+    },
+    /// Sanitized HTML block (R-MD-14): children are the mapped allowlisted elements.
+    HtmlBlock,
+    /// HTML alignment container (`<div align>`, `<center>`, `<p align>`, `text-align`):
+    /// 1 left, 2 center, 3 right.
+    Align(u8),
+    /// `<details>` (R-REN-14); the first child `DetailsSummary` is the toggle row.
+    Details {
+        /// `open` attribute.
+        open: bool,
+    },
+    /// `<summary>` row (inline leaf).
+    DetailsSummary,
+    /// Inline SVG / MathML placeholder (S-HTML-01).
+    Unsupported,
     /// Interim placeholder card showing source text.
     Placeholder(Placeholder),
 }
@@ -98,6 +132,8 @@ impl NodeKind {
             NodeKind::Paragraph { .. }
                 | NodeKind::Heading(_)
                 | NodeKind::DefTitle
+                | NodeKind::TableCell
+                | NodeKind::DetailsSummary
                 | NodeKind::Code { .. }
         )
     }
@@ -121,12 +157,22 @@ pub mod style {
     pub const SUB: u16 = 1 << 6;
     /// Muted text (inline HTML source, PHASE-003).
     pub const MUTED: u16 = 1 << 7;
-    /// Image placeholder `[image: alt]` (muted italic, PHASE-003).
+    /// Image chip `▣ alt` (P-25 compact chip; pixels are PHASE-003b, see CHECKPOINT).
     pub const IMAGE: u16 = 1 << 8;
     /// Footnote reference `[label]` (superscript-styled, link color, PHASE-003).
     pub const FOOTREF: u16 = 1 << 9;
     /// Inline math source (PHASE-003).
     pub const MATH: u16 = 1 << 10;
+    /// `==highlight==` (R-MD-05).
+    pub const HIGHLIGHT: u16 = 1 << 11;
+    /// GFM autolink literal (R-MD-03); always together with [`LINK`].
+    pub const AUTOLINK: u16 = 1 << 12;
+    /// Underline (`<u>`, `<ins>`).
+    pub const UNDERLINE: u16 = 1 << 13;
+    /// Keyboard key (`<kbd>`, B.6.3).
+    pub const KBD: u16 = 1 << 14;
+    /// Abbreviation with a title tooltip (`<abbr>`).
+    pub const ABBR: u16 = 1 << 15;
 }
 
 /// Inline run kind.
@@ -151,6 +197,22 @@ pub struct Run {
     pub owned: Option<Box<str>>,
     /// Style flags ([`style`]).
     pub style: u16,
+    /// Index into [`Detail::links`] for link text (`NO_LINK` otherwise).
+    pub link: u32,
+}
+
+/// [`Run::link`] value for non-link text.
+pub const NO_LINK: u32 = u32::MAX;
+
+/// A link destination of this tree (R-LINK-*).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkDest {
+    /// Destination as written (resolved for reference links).
+    pub dest: Box<str>,
+    /// Link title (tooltip).
+    pub title: Box<str>,
+    /// `[[wikilink]]` target (R-LINK-03).
+    pub wiki: bool,
 }
 
 impl Run {
@@ -189,6 +251,40 @@ pub struct Detail {
     pub nodes: Vec<Node>,
     /// Inline runs.
     pub runs: Vec<Run>,
+    /// Link destinations referenced by [`Run::link`].
+    pub links: Vec<LinkDest>,
+    /// Images in source order (R-IMG-02/03); each produced one [`style::IMAGE`] run.
+    pub images: Vec<ImageRef>,
+}
+
+/// P-25 chip label: glyph + thin space + alt text, or the file name when the alt text is
+/// empty (`image` for `data:` URIs and over-long names).
+pub fn image_label(src: &str, alt: &str) -> String {
+    let name = if alt.trim().is_empty() {
+        let s = src.split(['?', '#']).next().unwrap_or("");
+        let n = s.rsplit(['/', '\\']).next().unwrap_or("");
+        if n.len() > 40 || n.is_empty() || s.starts_with("data:") {
+            "image"
+        } else {
+            n
+        }
+    } else {
+        alt
+    };
+    format!("\u{25A3}\u{2009}{name}")
+}
+
+/// An image reference from Markdown `![alt](src)`, `![[src|300]]` or HTML `<img>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageRef {
+    /// Source as written (Obsidian size suffix removed).
+    pub src: Box<str>,
+    /// Alt text.
+    pub alt: Box<str>,
+    /// Requested width in logical px (HTML `width`, Obsidian `|300`).
+    pub w: Option<u32>,
+    /// Requested height in logical px.
+    pub h: Option<u32>,
 }
 
 const NONE: u32 = u32::MAX;
@@ -205,6 +301,47 @@ fn alert(k: BlockQuoteKind) -> Alert {
         BlockQuoteKind::Warning => Alert::Warning,
         BlockQuoteKind::Caution => Alert::Caution,
     }
+}
+
+/// Style flag of an inline HTML element.
+fn html_style(tag: &str) -> Option<u16> {
+    Some(match tag {
+        "b" | "strong" => style::STRONG,
+        "i" | "em" | "var" => style::EM,
+        "s" | "del" | "strike" => style::STRIKE,
+        "u" | "ins" => style::UNDERLINE,
+        "mark" => style::HIGHLIGHT,
+        "sub" => style::SUB,
+        "sup" | "small" => style::SUP,
+        "kbd" => style::KBD,
+        "code" | "samp" => style::CODE,
+        "a" => style::LINK,
+        "abbr" => style::ABBR,
+        "span" => 0,
+        _ => return None,
+    })
+}
+
+/// Alignment of an HTML element: `align` attribute, `<center>`, or `text-align` style.
+fn html_align(tag: &str, attrs: &[(String, String)]) -> Option<u8> {
+    let parse = |v: &str| match v.trim().to_ascii_lowercase().as_str() {
+        "left" => Some(1),
+        "center" => Some(2),
+        "right" => Some(3),
+        _ => None,
+    };
+    if tag == "center" {
+        return Some(2);
+    }
+    if let Some(v) = crate::html::attr(attrs, "align") {
+        return parse(v);
+    }
+    crate::html::attr(attrs, "style").and_then(|s| {
+        s.split(';')
+            .filter_map(|d| d.split_once(':'))
+            .find(|(k, _)| k.trim() == "text-align")
+            .and_then(|(_, v)| parse(v))
+    })
 }
 
 /// Footnote labels referenced in `s` that are defined in the document (`[^label]`).
@@ -235,9 +372,17 @@ struct Builder<'s> {
     overflow: usize,
     implicit: Option<u32>,
     style: Vec<u16>,
-    image: Option<(usize, String)>,
+    image: Option<(usize, String, String, bool)>,
+    /// Open inline drop-with-content elements (S-HTML-01) split across inline events.
+    inline_drop: Vec<String>,
     image_depth: usize,
     skip: usize,
+    /// Open inline HTML elements (tag, style flag) of the current leaf.
+    html: Vec<(String, u16)>,
+    /// Remaining HTML tag allowance of this tree (S-HTML-03).
+    html_budget: usize,
+    /// Open links (indices into `d.links`).
+    link: Vec<u32>,
 }
 
 impl Builder<'_> {
@@ -277,6 +422,8 @@ impl Builder<'_> {
             n.end = end;
             if n.kind.is_inline_leaf() {
                 n.runs.end = nruns;
+                // Unclosed inline HTML never leaks into the next leaf.
+                self.html.clear();
             }
         }
     }
@@ -323,8 +470,12 @@ impl Builder<'_> {
     }
 
     fn run(&mut self, kind: RunKind, r: &Range<usize>, text: &str, extra: u16) {
+        if !self.inline_drop.is_empty() {
+            // S-HTML-01: content of an inline `<style>`/`<script>`/… is dropped.
+            return;
+        }
         let range = self.abs(r);
-        if let Some((_, alt)) = self.image.as_mut() {
+        if let Some((_, alt, _, _)) = self.image.as_mut() {
             alt.push_str(text);
             return;
         }
@@ -335,16 +486,411 @@ impl Builder<'_> {
         } else {
             Some(text.into())
         };
-        let style = self.style.last().copied().unwrap_or(0) | extra;
+        let style = self.style.last().copied().unwrap_or(0)
+            | extra
+            | self.html.iter().fold(0, |a, (_, f)| a | f);
+        let link = if style & style::LINK != 0 {
+            self.link.last().copied().unwrap_or(NO_LINK)
+        } else {
+            NO_LINK
+        };
         self.d.runs.push(Run {
             kind,
             range,
             owned,
             style,
+            link,
         });
         if let Some(&i) = self.stack.last() {
             self.d.nodes[i as usize].runs.end = u(self.d.runs.len());
         }
+    }
+
+    /// Text event through the inline extension pass (§4.7). Only verbatim text (no escapes or
+    /// entities) is split, so every piece maps to an exact source range.
+    fn text(&mut self, r: &Range<usize>, t: &str) {
+        let a = self.abs(r);
+        let verbatim = self.source.get(a.start as usize..a.end as usize) == Some(t);
+        let cur = self.style.last().copied().unwrap_or(0);
+        if !verbatim || cur & style::CODE != 0 || self.image.is_some() {
+            self.run(RunKind::Text, r, t, 0);
+            return;
+        }
+        let ps = super::inline::pieces(t, cur & style::LINK != 0);
+        if ps.len() == 1
+            && ps
+                .first()
+                .is_some_and(|p| p.extra == 0 && p.display.is_none())
+        {
+            self.run(RunKind::Text, r, t, 0);
+            return;
+        }
+        for p in ps {
+            let pr = r.start + p.range.start..r.start + p.range.end;
+            let shown = p
+                .display
+                .unwrap_or_else(|| t.get(p.range.clone()).unwrap_or(""));
+            if p.extra & style::AUTOLINK != 0 {
+                // R-MD-03: www. → http://, bare e-mail → mailto: (GFM).
+                let dest = if shown.contains("://") {
+                    shown.to_string()
+                } else if shown.to_ascii_lowercase().starts_with("www.") {
+                    format!("http://{shown}")
+                } else {
+                    format!("mailto:{shown}")
+                };
+                self.open_link(&dest, "", false);
+                self.run(RunKind::Text, &pr, shown, p.extra);
+                self.link.pop();
+            } else {
+                self.run(RunKind::Text, &pr, shown, p.extra);
+            }
+        }
+    }
+
+    /// Records an image reference (R-IMG-02/03) and returns its chip label (P-25):
+    /// glyph + alt text, or the file name when the alt text is empty.
+    fn image_ref(&mut self, src: &str, alt: &str, w: &str, h: &str) -> String {
+        let (src, mut req) = crate::image::obsidian_size(src);
+        if let Some(v) = crate::image::html_len(w) {
+            req.w = Some(v);
+        }
+        if let Some(v) = crate::image::html_len(h) {
+            req.h = Some(v);
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let px = |v: Option<f32>| v.map(|v| v.round() as u32);
+        self.d.images.push(ImageRef {
+            src: src.into(),
+            alt: alt.into(),
+            w: px(req.w),
+            h: px(req.h),
+        });
+        image_label(src, alt)
+    }
+
+    fn open_link(&mut self, dest: &str, title: &str, wiki: bool) {
+        let i = u(self.d.links.len());
+        self.d.links.push(LinkDest {
+            dest: dest.into(),
+            title: title.into(),
+            wiki,
+        });
+        self.link.push(i);
+    }
+
+    /// Inline HTML inside a leaf (R-MD-14): allowlisted tags toggle styles, `<br>` breaks,
+    /// `<img>` becomes the image placeholder; everything else is dropped.
+    fn inline_html(&mut self, r: &Range<usize>, t: &str) {
+        let tt = t.trim();
+        if let Some(rest) = tt.strip_prefix("</") {
+            let name: String = rest
+                .chars()
+                .take_while(char::is_ascii_alphanumeric)
+                .collect::<String>()
+                .to_ascii_lowercase();
+            if let Some(p) = self.inline_drop.iter().rposition(|n| *n == name) {
+                self.inline_drop.truncate(p);
+                return;
+            }
+        } else if let Some(rest) = tt.strip_prefix('<') {
+            let name: String = rest
+                .chars()
+                .take_while(char::is_ascii_alphanumeric)
+                .collect::<String>()
+                .to_ascii_lowercase();
+            let void = matches!(name.as_str(), "input" | "link" | "meta" | "base" | "embed");
+            if crate::html::DROP.contains(&name.as_str())
+                && !void
+                && !tt.ends_with("/>")
+                && !tt.to_ascii_lowercase().contains(&format!("</{name}"))
+            {
+                if !self.inline_drop.is_empty() || matches!(name.as_str(), "svg" | "math") {
+                    for tok in crate::html::sanitize(t, &mut self.html_budget) {
+                        self.html_tok(r.start, tok);
+                    }
+                }
+                self.inline_drop.push(name);
+                return;
+            }
+        }
+        if !self.inline_drop.is_empty() {
+            return;
+        }
+        for tok in crate::html::sanitize(t, &mut self.html_budget) {
+            self.html_tok(r.start, tok);
+        }
+    }
+
+    fn html_tok(&mut self, base: usize, tok: crate::html::Tok) {
+        use crate::html::{Tok, attr};
+        match tok {
+            Tok::Text { text, range } => {
+                let rr = base + range.start..base + range.end;
+                self.html_text(&rr, &text);
+            }
+            Tok::Unsupported(_) => {
+                self.run(RunKind::Text, &(base..base), "[svg]", style::MUTED);
+            }
+            Tok::Open { tag, attrs, .. } if tag == "br" => {
+                let _ = attrs;
+                self.run(RunKind::HardBreak, &(base..base), "", 0);
+            }
+            Tok::Open { tag, attrs, .. } if tag == "img" => {
+                let alt = attr(&attrs, "alt").unwrap_or("").to_string();
+                let src = attr(&attrs, "src").unwrap_or("").to_string();
+                let w = attr(&attrs, "width").unwrap_or("").to_string();
+                let h = attr(&attrs, "height").unwrap_or("").to_string();
+                let label = self.image_ref(&src, &alt, &w, &h);
+                self.run(RunKind::Text, &(base..base), &label, style::IMAGE);
+            }
+            Tok::Open { tag, attrs, .. } => {
+                if tag == "a" {
+                    let href = attr(&attrs, "href").unwrap_or("").to_string();
+                    let title = attr(&attrs, "title").unwrap_or("").to_string();
+                    if href.is_empty() {
+                        return;
+                    }
+                    self.open_link(&href, &title, false);
+                }
+                if let Some(f) = html_style(&tag) {
+                    self.html.push((tag, f));
+                }
+            }
+            Tok::Close(tag) => {
+                if let Some(p) = self.html.iter().rposition(|(t, _)| *t == tag) {
+                    let links = self.html[p..].iter().filter(|(t, _)| t == "a").count();
+                    for _ in 0..links {
+                        self.link.pop();
+                    }
+                    self.html.truncate(p);
+                }
+            }
+        }
+    }
+
+    /// HTML text: whitespace collapsed; whitespace-only text outside a leaf is dropped.
+    fn html_text(&mut self, r: &Range<usize>, text: &str) {
+        let in_leaf = self
+            .stack
+            .last()
+            .is_some_and(|&i| self.d.nodes[i as usize].kind.is_inline_leaf());
+        let in_code = self
+            .stack
+            .last()
+            .is_some_and(|&i| matches!(self.d.nodes[i as usize].kind, NodeKind::Code { .. }));
+        if in_code {
+            self.run(RunKind::Text, r, text, 0);
+            return;
+        }
+        if text.trim().is_empty() && !in_leaf {
+            return;
+        }
+        let mut c = String::with_capacity(text.len());
+        let mut ws = false;
+        for ch in text.chars() {
+            if ch.is_whitespace() && ch != '\u{a0}' {
+                ws = true;
+            } else {
+                if ws && (!c.is_empty() || in_leaf) {
+                    c.push(' ');
+                }
+                ws = false;
+                c.push(ch);
+            }
+        }
+        if ws {
+            c.push(' ');
+        }
+        self.run(RunKind::Text, r, &c, 0);
+    }
+
+    /// Maps a sanitized HTML block to detail nodes (R-MD-14). `r` is the block's slice range.
+    fn html_block(&mut self, r: &Range<usize>) {
+        use crate::html::{Tok, attr};
+        let a = self.abs(r);
+        let src = self
+            .source
+            .get(a.start as usize..a.end as usize)
+            .unwrap_or("");
+        let toks = crate::html::sanitize(src, &mut self.html_budget);
+        let floor = self.stack.len();
+        // Element stack: (tag, pushed node?) so end tags pop exactly what their start pushed.
+        let mut open: Vec<(String, bool)> = Vec::new();
+        let mut table_cols: Vec<(u32, usize)> = Vec::new();
+        for tok in toks {
+            match tok {
+                Tok::Open {
+                    tag,
+                    attrs,
+                    self_closing,
+                } => {
+                    let align = html_align(&tag, &attrs);
+                    let kind = match tag.as_str() {
+                        "p" | "figcaption" => Some(NodeKind::Paragraph { implicit: false }),
+                        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+                            Some(NodeKind::Heading(tag.as_bytes()[1] - b'0'))
+                        }
+                        "blockquote" => Some(NodeKind::BlockQuote(None)),
+                        "ul" => Some(NodeKind::List {
+                            start: None,
+                            tight: true,
+                        }),
+                        "ol" => Some(NodeKind::List {
+                            start: Some(1),
+                            tight: true,
+                        }),
+                        "li" => Some(NodeKind::Item { task: None }),
+                        "dl" => Some(NodeKind::DefList),
+                        "dt" => Some(NodeKind::DefTitle),
+                        "dd" => Some(NodeKind::DefBody),
+                        "pre" => Some(NodeKind::Code {
+                            lang: String::new(),
+                        }),
+                        "hr" => Some(NodeKind::Rule),
+                        "table" => Some(NodeKind::Table { aligns: Vec::new() }),
+                        "tr" => Some(NodeKind::TableRow { head: false }),
+                        "td" | "th" => Some(NodeKind::TableCell),
+                        "details" => Some(NodeKind::Details {
+                            open: attr(&attrs, "open").is_some(),
+                        }),
+                        "summary" => Some(NodeKind::DetailsSummary),
+                        "div" | "center" | "figure" if align.is_some() => {
+                            Some(NodeKind::Align(align.unwrap_or(0)))
+                        }
+                        _ => None,
+                    };
+                    let Some(kind) = kind else {
+                        // Inline element (or a structural tag without a node).
+                        self.html_tok(
+                            r.start,
+                            Tok::Open {
+                                tag: tag.clone(),
+                                attrs,
+                                self_closing,
+                            },
+                        );
+                        if !self_closing {
+                            open.push((tag, false));
+                        }
+                        continue;
+                    };
+                    self.close_implicit();
+                    // Inline leaves cannot hold blocks: close the open leaf first.
+                    while self.stack.len() > floor
+                        && self
+                            .stack
+                            .last()
+                            .is_some_and(|&i| self.d.nodes[i as usize].kind.is_inline_leaf())
+                        && !matches!(kind, NodeKind::TableCell)
+                    {
+                        self.pop();
+                        if let Some(p) = open.iter().rposition(|(_, n)| *n) {
+                            open.truncate(p);
+                        }
+                    }
+                    let is_th = tag == "th";
+                    if is_th
+                        && let Some(&row) = self.stack.last()
+                        && let Some(NodeKind::TableRow { head }) =
+                            self.d.nodes.get_mut(row as usize).map(|n| &mut n.kind)
+                    {
+                        *head = true;
+                    }
+                    if (tag == "td" || tag == "th")
+                        && let Some(t) = table_cols.last_mut()
+                    {
+                        t.1 += 1;
+                    }
+                    let void = matches!(kind, NodeKind::Rule) || self_closing;
+                    let pushed = self.push(kind, a.clone()).is_some();
+                    if tag == "table" && pushed {
+                        table_cols.push((self.stack.last().copied().unwrap_or(0), 0));
+                    }
+                    let cell_align =
+                        matches!(tag.as_str(), "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6")
+                            && align.is_some();
+                    if cell_align && pushed {
+                        // `<p align>` / `<hN align>`: wrap in an alignment container.
+                        if let Some(top) = self.stack.pop() {
+                            let n = self.d.nodes.len() - 1;
+                            let _ = top;
+                            let node = self.d.nodes.remove(n);
+                            if self
+                                .push(NodeKind::Align(align.unwrap_or(0)), a.clone())
+                                .is_some()
+                            {
+                                open.push(("#align".into(), true));
+                            }
+                            let _ = self.push(node.kind, a.clone());
+                        }
+                    }
+                    if void {
+                        if pushed {
+                            self.pop();
+                        }
+                    } else {
+                        open.push((tag, pushed));
+                    }
+                }
+                Tok::Close(tag) => {
+                    let Some(p) = open.iter().rposition(|(t, _)| *t == tag) else {
+                        continue;
+                    };
+                    let mut rest = open.split_off(p);
+                    while let Some((t, pushed)) = rest.pop() {
+                        if pushed {
+                            self.close_implicit();
+                            if t == "table"
+                                && let Some((ti, _)) = table_cols.pop()
+                            {
+                                let rows: Vec<u32> = (ti as usize + 1..self.d.nodes.len())
+                                    .filter(|&k| {
+                                        self.d.nodes[k].parent == ti
+                                            && matches!(
+                                                self.d.nodes[k].kind,
+                                                NodeKind::TableRow { .. }
+                                            )
+                                    })
+                                    .map(u)
+                                    .collect();
+                                let cols = rows
+                                    .iter()
+                                    .map(|&row| {
+                                        self.d.nodes.iter().filter(|n| n.parent == row).count()
+                                    })
+                                    .max()
+                                    .unwrap_or(1)
+                                    .max(1);
+                                if let Some(NodeKind::Table { aligns }) =
+                                    self.d.nodes.get_mut(ti as usize).map(|n| &mut n.kind)
+                                {
+                                    *aligns = vec![0; cols];
+                                }
+                            }
+                            if self.stack.len() > floor {
+                                self.pop();
+                            }
+                            if rest.is_empty() && open.last().is_some_and(|(t, _)| t == "#align") {
+                                open.pop();
+                                if self.stack.len() > floor {
+                                    self.pop();
+                                }
+                            }
+                        } else {
+                            self.html_tok(r.start, Tok::Close(t));
+                        }
+                    }
+                }
+                other => self.html_tok(r.start, other),
+            }
+        }
+        self.close_implicit();
+        while self.stack.len() > floor {
+            self.pop();
+        }
+        self.html.clear();
+        self.inline_drop.clear();
     }
 
     fn with_style(&mut self, f: u16) {
@@ -395,8 +941,12 @@ impl Detail {
             implicit: None,
             style: Vec::new(),
             image: None,
+            inline_drop: Vec::new(),
             image_depth: 0,
             skip: 0,
+            html: Vec::new(),
+            html_budget: crate::html::MAX_TAGS,
+            link: Vec::new(),
         };
         let limit = slice.len();
         for (ev, r) in parser.into_offset_iter() {
@@ -440,11 +990,27 @@ impl Detail {
                         Tag::DefinitionList => Some(NodeKind::DefList),
                         Tag::DefinitionListTitle => Some(NodeKind::DefTitle),
                         Tag::DefinitionListDefinition => Some(NodeKind::DefBody),
-                        Tag::Table(_) => Some(NodeKind::Placeholder(Placeholder::Table)),
-                        Tag::HtmlBlock => Some(NodeKind::Placeholder(Placeholder::Html)),
-                        Tag::FootnoteDefinition(_) => {
-                            Some(NodeKind::Placeholder(Placeholder::Footnotes))
-                        }
+                        Tag::Table(al) => Some(NodeKind::Table {
+                            aligns: al
+                                .iter()
+                                .map(|a| match a {
+                                    pulldown_cmark::Alignment::None => 0,
+                                    pulldown_cmark::Alignment::Left => 1,
+                                    pulldown_cmark::Alignment::Center => 2,
+                                    pulldown_cmark::Alignment::Right => 3,
+                                })
+                                .collect(),
+                        }),
+                        Tag::TableHead => Some(NodeKind::TableRow { head: true }),
+                        Tag::TableRow => Some(NodeKind::TableRow { head: false }),
+                        Tag::TableCell => Some(NodeKind::TableCell),
+                        Tag::HtmlBlock => Some(NodeKind::HtmlBlock),
+                        Tag::FootnoteDefinition(l) => Some(NodeKind::FootnoteDef {
+                            number: index
+                                .footnote_number(l)
+                                .and_then(|n| u32::try_from(n).ok())
+                                .unwrap_or(0),
+                        }),
                         Tag::MetadataBlock(_) => {
                             Some(NodeKind::Placeholder(Placeholder::FrontMatter))
                         }
@@ -465,8 +1031,12 @@ impl Detail {
                             }
                         }
                         let placeholder = matches!(kind, NodeKind::Placeholder(_));
+                        let html = matches!(kind, NodeKind::HtmlBlock);
                         let pushed = b.push(kind, ar);
-                        if placeholder && pushed.is_some() {
+                        if html && pushed.is_some() {
+                            b.html_block(&r);
+                        }
+                        if (placeholder || html) && pushed.is_some() {
                             b.skip = 1;
                         }
                         continue;
@@ -477,13 +1047,25 @@ impl Detail {
                         Tag::Strikethrough => b.with_style(style::STRIKE),
                         Tag::Superscript => b.with_style(style::SUP),
                         Tag::Subscript => b.with_style(style::SUB),
-                        Tag::Link { link_type, .. } => {
-                            let _ = matches!(link_type, LinkType::WikiLink { .. });
-                            b.with_style(style::LINK)
+                        Tag::Link {
+                            link_type,
+                            dest_url,
+                            title,
+                            ..
+                        } => {
+                            let wiki = matches!(link_type, LinkType::WikiLink { .. });
+                            b.open_link(&dest_url, &title, wiki);
+                            b.with_style(style::LINK);
                         }
-                        Tag::Image { .. } => {
+                        Tag::Image {
+                            dest_url,
+                            link_type,
+                            ..
+                        } => {
                             if b.image.is_none() {
-                                b.image = Some((r.start, String::new()));
+                                let wiki = matches!(link_type, LinkType::WikiLink { .. });
+                                b.image =
+                                    Some((r.start, String::new(), dest_url.to_string(), wiki));
                             } else {
                                 b.image_depth += 1;
                                 b.style.push(b.style.last().copied().unwrap_or(0));
@@ -501,13 +1083,25 @@ impl Detail {
                     | TagEnd::Item
                     | TagEnd::DefinitionList
                     | TagEnd::DefinitionListTitle
-                    | TagEnd::DefinitionListDefinition => {
+                    | TagEnd::DefinitionListDefinition
+                    | TagEnd::Table
+                    | TagEnd::TableHead
+                    | TagEnd::TableRow
+                    | TagEnd::TableCell
+                    | TagEnd::FootnoteDefinition => {
                         b.close_implicit();
                         b.pop();
                     }
                     TagEnd::Image if b.image.is_some() && b.image_depth == 0 => {
-                        if let Some((start, alt)) = b.image.take() {
-                            let label = format!("[image: {alt}]");
+                        if let Some((start, alt, src, wiki)) = b.image.take() {
+                            // Obsidian `![[img.png|300]]`: the size arrives as the link text.
+                            let sized =
+                                wiki && crate::image::obsidian_size(&format!("x|{alt}")).0 == "x";
+                            let label = if sized {
+                                b.image_ref(&src, "", &alt, "")
+                            } else {
+                                b.image_ref(&src, &alt, "", "")
+                            };
                             b.run(RunKind::Text, &(start..r.end), &label, style::IMAGE);
                         }
                     }
@@ -515,19 +1109,26 @@ impl Detail {
                         b.image_depth -= 1;
                         b.style.pop();
                     }
+                    TagEnd::Link => {
+                        b.style.pop();
+                        b.link.pop();
+                    }
                     _ => {
                         b.style.pop();
                     }
                 },
-                Event::Text(t) => b.run(RunKind::Text, &r, &t, 0),
+                Event::Text(t) => b.text(&r, &t),
                 Event::Code(t) => b.run(RunKind::Text, &r, &t, style::CODE),
                 Event::InlineMath(t) | Event::DisplayMath(t) => {
                     b.run(RunKind::Text, &r, &t, style::CODE | style::MATH)
                 }
-                Event::InlineHtml(t) | Event::Html(t) => b.run(RunKind::Text, &r, &t, style::MUTED),
-                Event::FootnoteReference(l) => {
-                    b.run(RunKind::Text, &r, &format!("[{l}]"), style::FOOTREF)
-                }
+                Event::InlineHtml(t) => b.inline_html(&r, &t),
+                Event::Html(t) => b.run(RunKind::Text, &r, &t, style::MUTED),
+                Event::FootnoteReference(l) => match index.footnote_number(&l) {
+                    // R-REN-10: GitHub numbering by first reference.
+                    Some(n) => b.run(RunKind::Text, &r, &format!("[{n}]"), style::FOOTREF),
+                    None => b.run(RunKind::Text, &r, &format!("[^{l}]"), 0),
+                },
                 Event::SoftBreak => b.run(RunKind::SoftBreak, &r, "", 0),
                 Event::HardBreak => b.run(RunKind::HardBreak, &r, "", 0),
                 Event::Rule => {
@@ -585,7 +1186,13 @@ impl Detail {
 
     /// Approximate heap bytes.
     pub fn heap_bytes(&self) -> usize {
-        self.nodes.capacity() * std::mem::size_of::<Node>()
+        self.links.capacity() * std::mem::size_of::<LinkDest>()
+            + self
+                .links
+                .iter()
+                .map(|l| l.dest.len() + l.title.len())
+                .sum::<usize>()
+            + self.nodes.capacity() * std::mem::size_of::<Node>()
             + self
                 .nodes
                 .iter()
@@ -764,28 +1371,76 @@ mod tests {
         );
         assert!(
             runs.iter()
-                .any(|r| r.style & style::FOOTREF != 0 && r.text(src) == "[n]"),
+                .any(|r| r.style & style::FOOTREF != 0 && r.text(src) == "[1]"),
             "{runs:?}"
         );
+    }
+
+    #[test]
+    fn r_md_14_html_blocks_map_to_nodes() {
+        let src = "<div align=\"center\">\n<img src=\"a.png\" alt=\"logo\">\n<h1>Title</h1>\n<p>One <b>two</b> <script>x</script></p>\n<details open><summary>More</summary>body</details>\n<table><tr><th>a</th><th>b</th></tr><tr><td>1</td><td>2</td></tr></table>\n</div>\n";
+        let (_, ds) = tree(src);
+        let kinds: Vec<&NodeKind> = ds[0].nodes.iter().map(|n| &n.kind).collect();
+        assert_eq!(kinds[0], &NodeKind::HtmlBlock);
+        assert_eq!(kinds[1], &NodeKind::Align(2));
+        assert!(kinds.contains(&&NodeKind::Heading(1)));
+        assert!(kinds.contains(&&NodeKind::Details { open: true }));
+        assert!(kinds.contains(&&NodeKind::DetailsSummary));
+        assert!(kinds.contains(&&NodeKind::Table { aligns: vec![0, 0] }));
+        assert!(kinds.contains(&&NodeKind::TableRow { head: true }));
+        let all: String = ds[0].runs.iter().map(|r| r.text(src)).collect();
+        assert!(
+            all.contains("\u{25A3}\u{2009}logo") && all.contains("Title") && all.contains("two")
+        );
+        assert!(!all.contains('x') || !all.contains("<script>"), "{all}");
+        assert!(!all.contains("<"), "{all}");
+        let strong = ds[0].runs.iter().find(|r| r.style & style::STRONG != 0);
+        assert_eq!(strong.map(|r| r.text(src)), Some("two"));
+    }
+
+    #[test]
+    fn r_img_03_image_refs_and_chip_labels() {
+        let src = "![](a/b/logo.png) ![[pic.png|300]] <img src=\"x.png\" width=\"120px\" height=\"40\" alt=\"X\"> ![](data:image/png;base64,AA)\n";
+        let (_, ds) = tree(src);
+        let im = &ds[0].images;
+        assert_eq!(im.len(), 4, "{im:?}");
+        assert_eq!(&*im[0].src, "a/b/logo.png");
+        assert_eq!(im[2].w, Some(120));
+        assert_eq!(im[2].h, Some(40));
+        let labels: Vec<String> = ds[0]
+            .runs_of(0)
+            .iter()
+            .filter(|r| r.style & style::IMAGE != 0)
+            .map(|r| r.text(src).to_string())
+            .collect();
+        assert_eq!(labels[0], "\u{25A3}\u{2009}logo.png");
+        assert_eq!(
+            labels.last().map(String::as_str),
+            Some("\u{25A3}\u{2009}image")
+        );
+        if let Some(r) = im.iter().find(|r| r.src.starts_with("pic")) {
+            assert_eq!(r.w, Some(300));
+        }
     }
 
     #[test]
     fn placeholders_and_inline_kinds() {
         let src = "|a|\n|-|\n|1|\n\nx ![alt *t*](p) <b>h</b> $m$ ~~s~~ `c`\n\n$$\ne\n$$\n\n> [!WARNING]\n> w\n";
         let (_, ds) = tree(src);
-        assert_eq!(
-            ds[0].nodes[0].kind,
-            NodeKind::Placeholder(Placeholder::Table)
-        );
-        assert_eq!(ds[0].nodes.len(), 1);
+        assert_eq!(ds[0].nodes[0].kind, NodeKind::Table { aligns: vec![0] });
+        assert_eq!(ds[0].nodes[1].kind, NodeKind::TableRow { head: true });
+        assert_eq!(ds[0].nodes[2].kind, NodeKind::TableCell);
+        assert_eq!(ds[0].nodes.len(), 5);
         let runs = ds[1].runs_of(0);
         let find = |f: u16| {
             runs.iter()
                 .find(|r| r.style & f != 0)
                 .map(|r| r.text(src).to_string())
         };
-        assert_eq!(find(style::IMAGE).as_deref(), Some("[image: alt t]"));
-        assert_eq!(find(style::MUTED).as_deref(), Some("<b>"));
+        assert_eq!(find(style::IMAGE).as_deref(), Some("\u{25A3}\u{2009}alt t"));
+        // R-MD-14: inline `<b>` is applied as strong, never shown as source.
+        assert_eq!(find(style::STRONG).as_deref(), Some("h"));
+        assert_eq!(find(style::MUTED), None);
         assert_eq!(find(style::MATH).as_deref(), Some("m"));
         assert_eq!(find(style::STRIKE).as_deref(), Some("s"));
         assert_eq!(find(style::CODE).as_deref(), Some("m"));

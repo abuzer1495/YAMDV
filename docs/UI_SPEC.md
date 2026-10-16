@@ -146,7 +146,7 @@ Available area = client area minus docked sidebar. Column width = `clamp(column_
 ### B.6.2 Blocks and spacing
 Paragraph margin-bottom `paragraph_spacing` (16). Headings: H1 margin 0 0 16 (top margin 0 if first block, else 32); H2 24 0 16; H3 24 0 12; H4–H6 20 0 8; H6 color `text_muted`. Strong = weight 600 (DirectWrite chooses the nearest available weight). Strikethrough line in `text`. `==highlight==` → `highlight_bg` with 2 px horizontal padding.
 ### B.6.3 Inline code and kbd
-Inline code: code font 0.875 em, bg `inline_code_bg`, padding 0.15 em × 0.4 em, radius 4 (sharp 0). `<kbd>`: code font 0.8125 em, bg `code_bg`, 1 px `code_border` with a 2 px bottom border, radius 4, padding 1 × 5.
+Inline code: code font 0.875 em, bg `inline_code_bg`, padding 0.15 em × 0.4 em (the horizontal padding is realized as extra character spacing on the span's first and last character, so neighbouring glyphs never overlap), radius 4 (sharp 0). `<kbd>`: code font 0.8125 em, bg `code_bg`, 1 px `code_border` with a 2 px bottom border, radius 4, padding 1 × 5.
 ### B.6.4 Lists
 Content starts 40 px right of the list's left edge; the marker sits right-aligned in that box with an 8 px gap. Bullet: filled disc (depth 1), ring (depth 2), square (depth 3+), size 0.35 em, color `text`. Ordered: "1." in `text`, tabular figures. Tight lists: no extra spacing; loose lists: 8 px between items. Task items: 16 × 16 checkbox at the marker position, radius 4, 1.5 px border `#b0b0b0` (dark `#6a6a6a`); checked → `accent` fill with a white check.
 ### B.6.5 Blockquote

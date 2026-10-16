@@ -53,6 +53,14 @@ pub struct Palette {
     pub selection_alpha_pct: u8,
     /// Error text.
     pub error: u32,
+    /// Code line numbers (`line_number`).
+    pub line_number: u32,
+    /// `==highlight==` background.
+    pub highlight_bg: u32,
+    /// `==highlight==` text (0 = `text`).
+    pub highlight_text: u32,
+    /// Table zebra rows (`mix(bg, table_header_bg, 50 %)`; 0 = compute).
+    pub zebra_bg: u32,
 }
 
 /// Shared light tokens (B.3.1); the per-scheme fields are overwritten.
@@ -73,6 +81,10 @@ pub const LIGHT_SHARED: Palette = Palette {
     text_muted: 0x7a7a7a,
     selection_alpha_pct: 20,
     error: 0xcc0000,
+    line_number: 0xb8b8b8,
+    highlight_bg: 0xfff3a3,
+    highlight_text: 0,
+    zebra_bg: 0,
 };
 
 /// Dark base for every scheme except GitHub (B.3.2).
@@ -93,6 +105,10 @@ pub const DARK_BASE: Palette = Palette {
     text_muted: 0x9a9a9a,
     selection_alpha_pct: 30,
     error: 0xff6b6b,
+    line_number: 0x5a5a5a,
+    highlight_bg: 0x665c1e,
+    highlight_text: 0xf5f0d0,
+    zebra_bg: 0,
 };
 
 /// GitHub dark (B.3.2).
@@ -136,6 +152,23 @@ pub struct Syntax {
     pub light: u32,
     /// Dark color.
     pub dark: u32,
+}
+
+/// 50 % mix of two colors.
+pub fn mix(a: u32, b: u32) -> u32 {
+    let ch = |s: u32| (((a >> s) & 0xFF) + ((b >> s) & 0xFF)) / 2;
+    (ch(16) << 16) | (ch(8) << 8) | ch(0)
+}
+
+impl Palette {
+    /// Zebra row color (B.3.1: `mix(bg, table_header_bg, 50 %)`).
+    pub fn zebra(&self) -> u32 {
+        if self.zebra_bg != 0 {
+            self.zebra_bg
+        } else {
+            mix(self.bg, self.table_header_bg)
+        }
+    }
 }
 
 /// Palette for `scheme` (unknown → default) in light or dark mode.

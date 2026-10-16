@@ -20,10 +20,11 @@ use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_ITALIC,
     DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_HIT_TEST_METRICS,
     DWRITE_LINE_SPACING_METHOD_UNIFORM, DWRITE_READING_DIRECTION_RIGHT_TO_LEFT,
-    DWRITE_TEXT_METRICS, DWRITE_TEXT_RANGE, DWRITE_WORD_WRAPPING_NO_WRAP, DWriteCreateFactory,
-    IDWriteFactory, IDWriteFontCollection, IDWriteTextFormat, IDWriteTextLayout,
+    DWRITE_TEXT_METRICS, DWRITE_TEXT_RANGE, DWRITE_WORD_WRAPPING_EMERGENCY_BREAK,
+    DWRITE_WORD_WRAPPING_NO_WRAP, DWriteCreateFactory, IDWriteFactory, IDWriteFontCollection,
+    IDWriteTextFormat, IDWriteTextLayout, IDWriteTextLayout1,
 };
-use windows::core::{BOOL, HSTRING, IUnknown, implement, w};
+use windows::core::{BOOL, HSTRING, IUnknown, Interface, implement, w};
 use yamdv_layout::Rect;
 use yamdv_layout::shaper::{Family, ParaSpec, Shaped, Style, TextShaper};
 
@@ -134,6 +135,22 @@ impl DWrite {
         v
     }
 
+    /// Font warm-up task (F-10): creates the text format for `s` and lays out `sample`, which
+    /// loads the font faces (and fallback fonts for non-Latin samples) into the DWrite caches.
+    pub fn warm(&self, s: &Style, sample: &str) {
+        let _ = self.space_advance(s);
+        if let Ok(f) = self.format(s) {
+            let t: Vec<u16> = sample.encode_utf16().collect();
+            // SAFETY: valid factory/format; the text buffer outlives the calls.
+            unsafe {
+                if let Ok(l) = self.factory.CreateTextLayout(&t, &f, 1000.0, 100.0) {
+                    let mut m = DWRITE_TEXT_METRICS::default();
+                    let _ = l.GetMetrics(&mut m);
+                }
+            }
+        }
+    }
+
     /// Text width/height of a simple string (UI measurement).
     pub fn measure(&self, text: &str, size: f32, weight: u16, max_w: f32) -> (f32, f32) {
         let s = Style {
@@ -176,6 +193,9 @@ impl DWrite {
                 )?;
                 if spec.width.is_none() {
                     l.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)?;
+                } else {
+                    // R-REN-07 / §4.3: a too-long token breaks anywhere instead of overflowing.
+                    l.SetWordWrapping(DWRITE_WORD_WRAPPING_EMERGENCY_BREAK)?;
                 }
                 if spec.rtl {
                     // R-REN-19: RTL paragraph; with RTL reading direction the leading edge is the
@@ -220,6 +240,15 @@ impl DWrite {
                     }
                     if s.underline {
                         l.SetUnderline(true, range)?;
+                    }
+                    if s.family == Family::Code
+                        && spec.base.family == Family::Body
+                        && range.length > 0
+                    {
+                        // F-13 / P-21: inline-code padding as character spacing (leading on the
+                        // first character, trailing on the last), so the padded background never
+                        // overlaps neighbouring text; hit-testing stays exact.
+                        inline_code_spacing(&l, &text, range, s.size / 0.875 * 0.4);
                     }
                     l.SetDrawingEffect(&self.brk, range)?;
                     colors.push((sp.range.clone(), *s));
@@ -351,6 +380,40 @@ impl Shaped for DwShaped {
     }
     fn as_any(&self) -> &dyn Any {
         self
+    }
+}
+
+/// Applies `pad` DIPs of leading spacing to the first character of `range` and trailing spacing
+/// to its last character (surrogate pairs count as one character).
+fn inline_code_spacing(l: &IDWriteTextLayout, text: &[u16], range: DWRITE_TEXT_RANGE, pad: f32) {
+    let Ok(l1) = l.cast::<IDWriteTextLayout1>() else {
+        return;
+    };
+    let start = range.startPosition as usize;
+    let end = start + range.length as usize;
+    let is_hi = |i: usize| text.get(i).is_some_and(|c| (0xD800..0xDC00).contains(c));
+    let first_len = if is_hi(start) && end - start >= 2 {
+        2
+    } else {
+        1
+    };
+    let last_len = if end - start >= 2 && is_hi(end - 2) {
+        2
+    } else {
+        1
+    };
+    let r = |p: usize, n: usize| DWRITE_TEXT_RANGE {
+        startPosition: p as u32,
+        length: n as u32,
+    };
+    // SAFETY: valid layout; ranges lie inside the text.
+    unsafe {
+        if end - start <= first_len {
+            let _ = l1.SetCharacterSpacing(pad, pad, 0.0, r(start, end - start));
+        } else {
+            let _ = l1.SetCharacterSpacing(pad, 0.0, 0.0, r(start, first_len));
+            let _ = l1.SetCharacterSpacing(0.0, pad, 0.0, r(end - last_len, last_len));
+        }
     }
 }
 

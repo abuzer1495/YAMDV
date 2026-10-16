@@ -13,6 +13,8 @@ pub mod crash;
 #[cfg(all(windows, feature = "dev-tools"))]
 pub mod devtools;
 #[cfg(windows)]
+pub mod dialog_host;
+#[cfg(windows)]
 pub mod dwrite;
 #[cfg(windows)]
 pub mod hardening;
@@ -20,6 +22,8 @@ pub mod hardening;
 pub mod log;
 #[cfg(windows)]
 pub mod perf;
+#[cfg(windows)]
+pub mod reentry;
 #[cfg(windows)]
 pub mod render;
 #[cfg(windows)]

@@ -6,6 +6,7 @@
 
 pub mod detail;
 pub mod index;
+pub mod inline;
 pub mod slug;
 pub mod text;
 
@@ -20,6 +21,12 @@ pub struct ReadOpts {
     pub smart_punctuation: bool,
     /// `reading.single_newline_break` (R-MD-15): soft breaks render as line breaks.
     pub single_newline_break: bool,
+    /// `reading.code_line_numbers` (R-CODE-02 default; layout only).
+    pub code_line_numbers: bool,
+    /// `reading.code_wrap` (R-CODE-05 default; layout only).
+    pub code_wrap: bool,
+    /// `reading.front_matter` (R-REN-13; layout only): 0 collapsed, 1 expanded, 2 hidden.
+    pub front_matter: u8,
 }
 
 /// pulldown-cmark options per Phase 002 §4.3 item 1.

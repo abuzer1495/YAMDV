@@ -13,7 +13,7 @@ One prompt per phase. A phase starts only when the previous report has been revi
 | **007** | Live Edit (F2) | reveal model, typing transforms, format toolbar, edit context menu, cross-block selection/clipboard, lists/tasks, link popover, code block editing, byte-identical untouched blocks | R-F2-01…10 done; T5 (F2) met |
 | **008** | Table editing & advanced editing | R-TBL complete, HTML-paste → Markdown, TSV paste, insert dialogs | R-TBL done |
 | **009** | Math engine | TeX parser, MATH-table layout with Cambria Math, R-MATH complete, F2 math popover | `math-heavy.md` matches KaTeX output closely; M3 met |
-| **010** | Mermaid engine & mind map | flowchart, sequence, gantt, pie (+ SHOULD types as time allows), fullscreen diagram viewer, mind map view | `mermaid-heavy.md` renders; S-PARSE-06 enforced; M3 met |
+| **010** | Mermaid engine & mind map | flowchart, sequence, gantt, pie (+ SHOULD types as time allows), fullscreen diagram viewer, mind map view, local SVG images (R-IMG-01, renderer chosen by ADR) | `mermaid-heavy.md` renders; S-PARSE-06 enforced; M3 met |
 | **011** | Export & print | PDF writer + pagination, single-file HTML export, print, CSV, headless CLI export | R-EXP done; S-EXP tests pass; T10 met |
 | **012** | Hardening | full security review against Appendix C, fuzz campaign, THREAT_MODEL complete, accessibility (UIA basics, High Contrast, keyboard audit), R-REL edge cases, error-path polish | zero open High/Medium findings |
 | **013** | Optimization | final budgets become hard gates (Appendix D), size/startup/memory tuning with measurements | all M/T/B budgets met (final column) |

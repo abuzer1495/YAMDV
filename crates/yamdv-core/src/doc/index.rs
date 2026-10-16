@@ -109,6 +109,39 @@ pub struct Index {
     pub footnotes: HashMap<String, Range<u32>>,
     /// Front matter range.
     pub front_matter: Option<Range<u32>>,
+    /// Defined footnotes in order of first reference (GitHub numbering, R-REN-10): note `n` is
+    /// `footnote_order[n - 1]`.
+    pub footnote_order: Vec<FootnoteUse>,
+    /// HTML `id` / `name` anchors (P-24) → top-level block.
+    pub html_anchors: HashMap<String, u32>,
+    /// HTML containers spanning sibling top-level blocks (§4.6 item 3).
+    pub html_containers: Vec<HtmlContainer>,
+}
+
+/// An HTML container opened in one top-level HTML block and closed in a later one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HtmlContainer {
+    /// Block holding the start tag.
+    pub start: u32,
+    /// Block holding the end tag (or the last block when unclosed at EOF: never; unpaired opens
+    /// are dropped).
+    pub end: u32,
+    /// 1 left, 2 center, 3 right (`div align`/`center`), 4 `details`, 5 plain `div`.
+    pub kind: u8,
+    /// `details open`.
+    pub open: bool,
+}
+
+/// Container kind of `HtmlContainer::kind` for `<details>`.
+pub const CONTAINER_DETAILS: u8 = 4;
+
+/// A referenced, defined footnote and where it is referenced.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FootnoteUse {
+    /// Case-folded label.
+    pub label: String,
+    /// Top-level block of each reference, in source order.
+    pub refs: Vec<u32>,
 }
 
 /// Case-folds a reference label: whitespace collapsed, lower-cased, plus the full case folds
@@ -175,6 +208,8 @@ struct Scan {
     headings: Vec<HeadingEntry>,
     footnotes: HashMap<String, Range<u32>>,
     front_matter: Option<Range<u32>>,
+    footrefs: Vec<(String, u32)>,
+    anchors: HashMap<String, u32>,
 }
 
 /// Scans `text[base..]` and collects top-level blocks (absolute ranges) until `stop` returns true
@@ -283,6 +318,23 @@ fn scan(text: &str, base: usize, opts: ReadOpts, mut stop: impl FnMut(&Block) ->
                 }
             }
             other => {
+                if let Event::FootnoteReference(l) = &other {
+                    out.footrefs.push((fold_label(l), u(out.blocks.len())));
+                }
+                if let Event::InlineHtml(h) = &other
+                    && (h.contains("id") || h.contains("name"))
+                {
+                    let mut budget = 64;
+                    for t in crate::html::sanitize(h, &mut budget) {
+                        if let crate::html::Tok::Open { attrs, .. } = t {
+                            for (k, v) in attrs {
+                                if k == "id" || k == "name" {
+                                    out.anchors.entry(v).or_insert(u(out.blocks.len()));
+                                }
+                            }
+                        }
+                    }
+                }
                 if let Some(h) = heading.as_mut() {
                     match &other {
                         Event::Text(t) | Event::Code(t) | Event::InlineMath(t) => h.2.push_str(t),
@@ -343,6 +395,96 @@ fn collect_refdefs(text: &str, opts: ReadOpts) -> HashMap<String, RefDef> {
     map
 }
 
+/// Bounded stack pass over the top-level HTML blocks (§4.6 item 3): pairs `<div>`, `<center>`
+/// and `<details>` start tags left open in one block with end tags in a later block; collects
+/// HTML anchors (P-24). Unpaired tags are ignored (graceful degradation).
+fn html_structure(
+    text: &str,
+    blocks: &[Block],
+    anchors: &mut HashMap<String, u32>,
+) -> Vec<HtmlContainer> {
+    let mut out = Vec::new();
+    let mut stack: Vec<(String, u32, u8, bool)> = Vec::new();
+    let mut budget = crate::html::MAX_TAGS;
+    for (bi, b) in blocks.iter().enumerate() {
+        if b.kind != BlockKind::Html {
+            continue;
+        }
+        let src = text
+            .get(b.range.start as usize..b.range.end as usize)
+            .unwrap_or("");
+        let mut local: Vec<(String, u8, bool)> = Vec::new();
+        for t in crate::html::sanitize(src, &mut budget) {
+            match t {
+                crate::html::Tok::Open {
+                    tag,
+                    attrs,
+                    self_closing,
+                } => {
+                    for (k, v) in &attrs {
+                        if k == "id" || k == "name" {
+                            anchors.entry(v.clone()).or_insert(u(bi));
+                        }
+                    }
+                    if self_closing || !matches!(tag.as_str(), "div" | "center" | "details") {
+                        continue;
+                    }
+                    let al = crate::html::attr(&attrs, "align").map(str::to_ascii_lowercase);
+                    let kind = match (tag.as_str(), al.as_deref()) {
+                        ("details", _) => CONTAINER_DETAILS,
+                        ("center", _) | (_, Some("center")) => 2,
+                        (_, Some("right")) => 3,
+                        (_, Some("left")) => 1,
+                        _ => 5,
+                    };
+                    let open = crate::html::attr(&attrs, "open").is_some();
+                    if local.len() < crate::html::MAX_DEPTH {
+                        local.push((tag, kind, open));
+                    }
+                }
+                crate::html::Tok::Close(tag) => {
+                    if let Some(p) = local.iter().rposition(|(t, _, _)| *t == tag) {
+                        local.truncate(p);
+                    } else if let Some(p) = stack.iter().rposition(|(t, _, _, _)| *t == tag) {
+                        let (_, start, kind, open) = stack.remove(p);
+                        stack.truncate(p);
+                        out.push(HtmlContainer {
+                            start,
+                            end: u(bi),
+                            kind,
+                            open,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        for (t, k, o) in local {
+            if stack.len() < crate::html::MAX_DEPTH {
+                stack.push((t, u(bi), k, o));
+            }
+        }
+    }
+    out
+}
+
+fn footnote_order(refs: &[(String, u32)], defs: &HashMap<String, Range<u32>>) -> Vec<FootnoteUse> {
+    let mut out: Vec<FootnoteUse> = Vec::new();
+    for (l, b) in refs {
+        if !defs.contains_key(l) {
+            continue;
+        }
+        match out.iter_mut().find(|u| &u.label == l) {
+            Some(u) => u.refs.push(*b),
+            None => out.push(FootnoteUse {
+                label: l.clone(),
+                refs: vec![*b],
+            }),
+        }
+    }
+    out
+}
+
 /// Result of [`Index::splice`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Splice {
@@ -360,13 +502,53 @@ impl Index {
         let mut s = scan(text, 0, opts, |_| false);
         clamp(&mut s.blocks);
         assign_slugs(&mut s.headings);
-        Self {
+        let containers = html_structure(text, &s.blocks, &mut s.anchors);
+        let mut ix = Self {
             blocks: s.blocks,
             headings: s.headings,
             refdefs: collect_refdefs(text, opts),
+            footnote_order: footnote_order(&s.footrefs, &s.footnotes),
+            html_anchors: s.anchors,
+            html_containers: Vec::new(),
             footnotes: s.footnotes,
             front_matter: s.front_matter,
+        };
+        ix.html_containers = containers;
+        ix
+    }
+
+    /// Context of top-level block `i` inside cross-block HTML containers: (alignment, inside
+    /// details containers as (start block, open)).
+    pub fn container_ctx(&self, i: usize) -> (u8, Vec<(u32, bool)>) {
+        let i = u(i);
+        let mut align = 0;
+        let mut det = Vec::new();
+        for c in &self.html_containers {
+            if c.start < i && i < c.end {
+                match c.kind {
+                    1..=3 => align = c.kind,
+                    CONTAINER_DETAILS => det.push((c.start, c.open)),
+                    _ => {}
+                }
+            }
         }
+        (align, det)
+    }
+
+    /// Block `i` opens a cross-block `<details>` (its last details node is the toggle).
+    pub fn opens_details(&self, i: usize) -> bool {
+        self.html_containers
+            .iter()
+            .any(|c| c.start == u(i) && c.kind == CONTAINER_DETAILS)
+    }
+
+    /// Note number (1-based) of a footnote label, if it is defined and referenced.
+    pub fn footnote_number(&self, label: &str) -> Option<usize> {
+        let f = fold_label(label);
+        self.footnote_order
+            .iter()
+            .position(|u| u.label == f)
+            .map(|p| p + 1)
     }
 
     /// Index of the top-level block containing byte `pos` or the first block after it.
@@ -388,6 +570,11 @@ impl Index {
                 .map(|(k, v)| k.len() + v.dest.len() + v.title.len() + 80)
                 .sum::<usize>()
             + self.footnotes.keys().map(|k| k.len() + 40).sum::<usize>()
+            + self
+                .footnote_order
+                .iter()
+                .map(|u| u.label.len() + u.refs.len() * 4 + 48)
+                .sum::<usize>()
     }
 
     /// Incremental update (designed for Phase 006, ADR-0007). `new_text` is the full text after
@@ -494,6 +681,19 @@ impl Index {
             || self.footnotes.values().any(hits);
         self.blocks = all;
         self.headings = headings;
+        if refs_changed || !self.footnotes.is_empty() || new_region.contains("[^") {
+            // Note numbering and reference blocks depend on the whole document.
+            let full = Index::build(new_text, opts);
+            self.footnote_order = full.footnote_order;
+        }
+        {
+            // HTML containers and anchors are cheap to recompute (HTML blocks only).
+            let mut anchors = HashMap::new();
+            self.html_containers = html_structure(new_text, &self.blocks, &mut anchors);
+            if !self.html_anchors.is_empty() || new_region.contains('<') {
+                self.html_anchors = Index::build(new_text, opts).html_anchors;
+            }
+        }
         if refs_changed {
             // Re-resolution pass: rebuild the global maps.
             let full = Index::build(new_text, opts);
@@ -635,6 +835,8 @@ mod tests {
         assert_eq!(ix.headings, full.headings, "headings");
         assert_eq!(ix.refdefs, full.refdefs, "refdefs");
         assert_eq!(ix.footnotes, full.footnotes, "footnotes");
+        assert_eq!(ix.footnote_order, full.footnote_order, "footnote order");
+        assert_eq!(ix.html_containers, full.html_containers, "html containers");
         assert_eq!(ix.front_matter, full.front_matter, "front matter");
     }
 
@@ -678,5 +880,25 @@ mod tests {
         let r = ix.splice(new, 4..4, 1, ReadOpts::default());
         assert!(r.replaced.end - r.replaced.start <= 2, "{r:?}");
         assert!(!r.refs_changed);
+    }
+
+    #[test]
+    fn s4_6_html_structure_pass() {
+        let src = "<details>\n<summary>More</summary>\n\nHidden *md*.\n\n</details>\n\n<div align=\"center\">\n\nCentered\n\n</div>\n\n<p id=\"top\">x</p>\n\nText <a name=\"inl\"></a>\n";
+        let ix = Index::build(src, ReadOpts::default());
+        assert_eq!(ix.html_containers.len(), 2, "{:?}", ix.html_containers);
+        let d = ix.html_containers[0];
+        assert_eq!(
+            (d.start, d.end, d.kind, d.open),
+            (0, 2, CONTAINER_DETAILS, false)
+        );
+        assert!(ix.opens_details(0));
+        assert_eq!(ix.container_ctx(1), (0, vec![(0, false)]));
+        assert_eq!(ix.container_ctx(4).0, 2);
+        assert!(ix.html_anchors.contains_key("top"));
+        assert!(ix.html_anchors.contains_key("inl"));
+        // Unpaired tags degrade gracefully.
+        let ix = Index::build("</div>\n\n<div>\n\nx\n", ReadOpts::default());
+        assert!(ix.html_containers.is_empty());
     }
 }

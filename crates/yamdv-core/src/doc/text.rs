@@ -29,6 +29,8 @@ pub struct Seg {
     pub verbatim: bool,
     /// Style flags.
     pub style: u16,
+    /// Link index of the run ([`super::detail::NO_LINK`] for none).
+    pub link: u32,
 }
 
 /// Layout string of one inline leaf.
@@ -45,6 +47,63 @@ fn u(n: usize) -> u32 {
 }
 
 impl ParaText {
+    /// Sub-string `r` (layout bytes, on char boundaries) with its segments clipped; verbatim
+    /// segments keep an exact source mapping.
+    pub fn slice_bytes(&self, r: Range<usize>) -> ParaText {
+        let mut p = ParaText {
+            text: self.text.get(r.clone()).unwrap_or("").to_string(),
+            segs: Vec::new(),
+        };
+        let mut u16_pos = 0u32;
+        for s in &self.segs {
+            let sb = s.byte_start as usize;
+            let st = self.text.get(sb..).unwrap_or("");
+            let seg_text_len = st
+                .char_indices()
+                .scan(0u32, |n, (i, c)| {
+                    if *n >= s.u16_len {
+                        return None;
+                    }
+                    *n += c.len_utf16() as u32;
+                    Some(i + c.len_utf8())
+                })
+                .last()
+                .unwrap_or(0);
+            let se = sb + seg_text_len;
+            let a = sb.max(r.start);
+            let b = se.min(r.end);
+            if a >= b {
+                continue;
+            }
+            let t = self.text.get(a..b).unwrap_or("");
+            let len16 = t.encode_utf16().count() as u32;
+            let src = if s.verbatim {
+                (s.src.start + (a - sb) as u32)..(s.src.start + (b - sb) as u32)
+            } else {
+                s.src.clone()
+            };
+            p.segs.push(Seg {
+                u16_start: u16_pos,
+                u16_len: len16,
+                byte_start: (a - r.start) as u32,
+                src,
+                verbatim: s.verbatim,
+                style: s.style,
+                link: s.link,
+            });
+            u16_pos += len16;
+        }
+        p
+    }
+
+    /// Source range covered by the segments.
+    pub fn source_range(&self) -> Range<u32> {
+        match (self.segs.first(), self.segs.last()) {
+            (Some(a), Some(b)) => a.src.start..b.src.end,
+            _ => 0..0,
+        }
+    }
+
     /// Builds the layout string from runs. Soft breaks become a space, or `\n` with
     /// `single_newline_break` (R-MD-15); hard breaks become `\n`.
     pub fn from_runs(source: &str, runs: &[Run], single_newline_break: bool) -> Self {
@@ -67,6 +126,7 @@ impl ParaText {
                 src: r.range.clone(),
                 verbatim,
                 style: r.style,
+                link: r.link,
             });
             p.text.push_str(t);
             u16_pos += len16;
@@ -220,6 +280,23 @@ fn walk(
             *prefix = None;
             for p in out.iter_mut().skip(before) {
                 p.list_line = true;
+            }
+        }
+        NodeKind::TableRow { .. } => {
+            // §4.6: a table row copies as tab-separated cells, one row per line.
+            let mut cells = Vec::new();
+            for c in d.children(i) {
+                let pt = node_text(&doc.source, d, c, doc.opts.single_newline_break);
+                let a = pt.from_source(sel.start);
+                let b = pt.from_source(sel.end);
+                cells.push(pt.slice16(a, b).to_string());
+            }
+            if cells.iter().any(|c| !c.is_empty()) {
+                out.push(Piece {
+                    text: cells.join("\t"),
+                    list_line: true,
+                    group: 0,
+                });
             }
         }
         NodeKind::Placeholder(_) | NodeKind::Rule => {
@@ -381,12 +458,12 @@ mod tests {
 
     #[test]
     fn copy_rules() {
-        let src = "# Title\n\nPara *one*\nline\n\n- a\n- b\n  1. x\n  2. y\n- c\n\n5. five\n6. six\n\n```\nfn x() {\n    1\n}\n```\n\n|t|\n|-|\n\n> quote\n";
+        let src = "# Title\n\nPara *one*\nline\n\n- a\n- b\n  1. x\n  2. y\n- c\n\n5. five\n6. six\n\n```\nfn x() {\n    1\n}\n```\n\n|t|u|\n|-|-|\n|1|2|\n\n> quote\n";
         let d = doc(src);
         let t = all_text(&d);
         assert_eq!(
             t,
-            "Title\r\n\r\nPara one line\r\n\r\n• a\r\n• b\r\n  1. x\r\n  2. y\r\n• c\r\n\r\n5. five\r\n6. six\r\n\r\nfn x() {\r\n    1\r\n}\r\n\r\n|t|\r\n|-|\r\n\r\nquote"
+            "Title\r\n\r\nPara one line\r\n\r\n• a\r\n• b\r\n  1. x\r\n  2. y\r\n• c\r\n\r\n5. five\r\n6. six\r\n\r\nfn x() {\r\n    1\r\n}\r\n\r\nt\tu\r\n1\t2\r\n\r\nquote"
         );
     }
 
