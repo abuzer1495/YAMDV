@@ -59,6 +59,7 @@ fn run(paths: &[String], dev: cli::Dev) -> i32 {
             autoscroll: dev.autoscroll,
             perf_log: dev.perf_log,
             mem_stats: dev.mem_stats,
+            script: dev.script,
         },
     )
 }

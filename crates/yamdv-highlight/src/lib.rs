@@ -310,6 +310,95 @@ mod tests {
     }
 
     #[test]
+    fn r_code_01_every_name_maps_to_lexer() {
+        // (R-CODE-01 name, canonical lexer). Table F-19 of the Phase 003b report.
+        const MAP: &[(&str, &str)] = &[
+            ("bash", "bash"),
+            ("sh", "bash"),
+            ("shell", "bash"),
+            ("zsh", "bash"),
+            ("console", "bash"),
+            ("powershell", "powershell"),
+            ("ps1", "powershell"),
+            ("bat", "bat"),
+            ("cmd", "bat"),
+            ("c", "c"),
+            ("cpp", "cpp"),
+            ("c++", "cpp"),
+            ("h", "cpp"),
+            ("hpp", "cpp"),
+            ("csharp", "csharp"),
+            ("cs", "csharp"),
+            ("java", "java"),
+            ("kotlin", "kotlin"),
+            ("kt", "kotlin"),
+            ("go", "go"),
+            ("rust", "rust"),
+            ("rs", "rust"),
+            ("python", "python"),
+            ("py", "python"),
+            ("javascript", "javascript"),
+            ("js", "javascript"),
+            ("mjs", "javascript"),
+            ("cjs", "javascript"),
+            ("typescript", "typescript"),
+            ("ts", "typescript"),
+            ("jsx", "javascript"),
+            ("tsx", "typescript"),
+            ("json", "json"),
+            ("jsonc", "json"),
+            ("json5", "json"),
+            ("yaml", "yaml"),
+            ("yml", "yaml"),
+            ("toml", "toml"),
+            ("ini", "ini"),
+            ("conf", "ini"),
+            ("properties", "ini"),
+            ("xml", "xml"),
+            ("html", "xml"),
+            ("svg", "xml"),
+            ("xaml", "xml"),
+            ("vue", "xml"),
+            ("css", "css"),
+            ("scss", "css"),
+            ("less", "css"),
+            ("sql", "sql"),
+            ("markdown", "markdown"),
+            ("md", "markdown"),
+            ("diff", "diff"),
+            ("patch", "diff"),
+            ("dockerfile", "dockerfile"),
+            ("makefile", "makefile"),
+            ("php", "php"),
+            ("ruby", "ruby"),
+            ("rb", "ruby"),
+            ("swift", "swift"),
+            ("lua", "lua"),
+            ("dart", "dart"),
+            ("r", "r"),
+            ("scala", "scala"),
+            ("perl", "perl"),
+            ("haskell", "haskell"),
+            ("hs", "haskell"),
+            ("elixir", "elixir"),
+            ("ex", "elixir"),
+            ("nginx", "nginx"),
+            ("graphql", "graphql"),
+            ("gql", "graphql"),
+            ("protobuf", "protobuf"),
+            ("proto", "protobuf"),
+            ("regex", "regex"),
+        ];
+        assert_eq!(MAP.len(), 75);
+        for (name, lexer) in MAP {
+            let l = lang_for(name).unwrap_or_else(|| panic!("{name} unmapped"));
+            assert_eq!(l.name(), *lexer, "{name}");
+            let toks = highlight_block(l, "x = \"s\" 1 # c\n");
+            assert!(!toks.is_empty(), "{name}");
+        }
+    }
+
+    #[test]
     fn unknown_language_is_none() {
         assert!(lang_for("klingon").is_none());
         assert!(lang_for("").is_none());

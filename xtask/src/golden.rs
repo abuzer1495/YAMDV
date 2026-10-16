@@ -116,6 +116,9 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
     for (name, file) in DOCS {
         for theme in ["light", "dark"] {
             for scale in ["1.0", "1.5"] {
+                if scale == "1.5" && !SCALE_15_DOCS.contains(&name) {
+                    continue;
+                }
                 let png = format!("{name}-{theme}-{scale}.png");
                 let target = match &from {
                     Some(dir) => dir.join(&png),
@@ -136,7 +139,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
                     }
                 }
                 let stem = png.trim_end_matches(".png").to_string();
-                let tiles = tile(&load(&target)?)?;
+                let tiles = tile(&crop(&load(&target)?, scale)?)?;
                 if update {
                     for old in std::fs::read_dir(&gold)
                         .map_err(|e| e.to_string())?
@@ -199,6 +202,97 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
     } else {
         Err(format!("golden failures: {}", failures.join(", ")))
     }
+}
+
+/// ACG matrix formats (prompt 004 §4.1 item 4): `tests/corpus/acg/<ext>.md` each shows one
+/// 64×48 (ICO 48×48) solid `#C03020` image.
+pub const ACG_FORMATS: [&str; 7] = ["png", "jpg", "gif", "bmp", "ico", "tiff", "webp"];
+
+/// Formats reported but not gated (ADR-0015).
+pub const ACG_REPORT_ONLY: [&str; 2] = ["ico", "webp"];
+
+/// `acg-matrix --exe <yamdv.exe with dev-tools> [--out <dir>]`: renders every ACG document
+/// (the process runs with ProhibitDynamicCode, S-PROC-04) and checks that the image pixels
+/// arrived (centre pixel of the image ≈ `#C03020`). Prints a Markdown table; fails on a miss.
+pub fn acg_matrix(root: &Path, args: &[String]) -> Result<(), String> {
+    let mut exe = None;
+    let mut out = root.join("target").join("acg");
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--exe" => exe = it.next().map(PathBuf::from),
+            "--out" => out = it.next().map(PathBuf::from).unwrap_or(out),
+            x => return Err(format!("acg-matrix: unknown argument {x}")),
+        }
+    }
+    let exe = exe.ok_or("acg-matrix: --exe required")?;
+    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    let mut bad = Vec::new();
+    println!("| format | decoded under ACG | centre pixel |");
+    println!("|---|---|---|");
+    for f in ACG_FORMATS {
+        let png = out.join(format!("acg-{f}.png"));
+        let input = root
+            .join("tests")
+            .join("corpus")
+            .join("acg")
+            .join(format!("{f}.md"));
+        let st = std::process::Command::new(&exe)
+            .arg("--render-png")
+            .arg(&png)
+            .args(["--width", "1000", "--scale", "1.0", "--theme", "light"])
+            .arg(&input)
+            .status()
+            .map_err(|e| e.to_string())?;
+        let px = if st.success() { load(&png).ok() } else { None };
+        // Column 650 px centred in 1000; the image is centred in the column, top at the first
+        // block (y ≈ 24…40): scan the middle column for the colour.
+        let hit = px.as_ref().and_then(|p| {
+            let x = p.width() / 2;
+            (0..p.height().min(200)).find_map(|y| {
+                let i = ((y * p.width() + x) * 4) as usize;
+                let [r, g, b]: [u8; 3] = p.data().get(i..i + 3)?.try_into().ok()?;
+                let near = |a: u8, b: u8| a.abs_diff(b) <= 24;
+                (near(r, 0xC0) && near(g, 0x30) && near(b, 0x20))
+                    .then(|| format!("#{r:02X}{g:02X}{b:02X} @y={y}"))
+            })
+        });
+        println!(
+            "| {f} | {} | {} |",
+            if hit.is_some() { "yes" } else { "NO" },
+            hit.as_deref().unwrap_or("-")
+        );
+        // ICO and WebP are recorded, not gated (ADR-0015: under investigation).
+        if hit.is_none() && !ACG_REPORT_ONLY.contains(&f) {
+            bad.push(f);
+        }
+    }
+    if bad.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("acg-matrix: not decoded: {}", bad.join(", ")))
+    }
+}
+
+/// Documents that also get scale-1.5 goldens (P-28).
+pub const SCALE_15_DOCS: [&str; 2] = ["typical", "unicode"];
+/// Goldens cover at most this many logical px of each document (P-28).
+pub const MAX_LOGICAL_ROWS: u32 = 4000;
+
+/// Crops an image to the first [`MAX_LOGICAL_ROWS`] logical px at `scale`.
+pub fn crop(p: &tiny_skia::Pixmap, scale: &str) -> Result<tiny_skia::Pixmap, String> {
+    let s: f32 = scale.parse().map_err(|_| format!("bad scale {scale}"))?;
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    let max = (MAX_LOGICAL_ROWS as f32 * s).round() as u32;
+    if p.height() <= max {
+        return Ok(p.clone());
+    }
+    p.clone_rect(tiny_skia::IntRect::from_xywh(0, 0, p.width(), max).ok_or("crop rect")?)
+        .ok_or_else(|| "crop failed".to_string())
 }
 
 /// Splits an image into tiles of at most [`TILE_ROWS`] rows.
@@ -278,6 +372,15 @@ mod tests {
         b[800] = 200;
         assert!(!compare((10, 100, &a), (10, 100, &b)).ok());
         assert!(!compare((10, 100, &a), (100, 10, &a)).same_size);
+    }
+
+    #[test]
+    fn crop_limits_rows() {
+        let p = tiny_skia::Pixmap::new(2, 9000).unwrap();
+        assert_eq!(crop(&p, "1.0").unwrap().height(), 4000);
+        assert_eq!(crop(&p, "1.5").unwrap().height(), 6000);
+        let q = tiny_skia::Pixmap::new(2, 10).unwrap();
+        assert_eq!(crop(&q, "1.5").unwrap().height(), 10);
     }
 
     #[test]

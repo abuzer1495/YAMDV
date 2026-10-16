@@ -1,0 +1,25 @@
+# Spec patches of prompt 004 (Phase 003b) §3, extracted verbatim from docs/prompts/004_PHASE_003B_COMPLETION.md.
+
+=== P-26 docs/PERFORMANCE.md REPLACE
+--- old
+The band buffer is capped at 512 KiB regardless of window width (band height = clamp(524288 / (4 × width_px), 32, 128) rows).
+--- new
+The band buffer is ≤ 512 KiB for windows up to 4 096 px wide (band height = clamp(524288 / (4 × width_px), 32, 128) rows); wider windows use the 32-row minimum.
+
+=== P-27 docs/SPEC.md REPLACE
+--- old
+*blocked network path*, *too large*, *unsupported format*.
+--- new
+*blocked network path*, *invalid path* (device names, alternate data streams, NUL — the file system is never touched; shown like *missing* with the text "Invalid image path"), *too large*, *unsupported format*.
+
+=== P-28 docs/TESTING.md REPLACE
+--- old
+Each report lists the number and total bytes of goldens added or changed.
+--- new
+Each report lists the number and total bytes of goldens added or changed. The committed golden set stays ≤ 12 MB in total: scale 1.5 only for `typical` and `unicode`; every golden covers at most the first 4 000 logical px of its document; regenerated goldens replace the old files (no per-phase copies).
+
+=== P-29 docs/ROADMAP.md INSERT_AFTER
+--- anchor
+| **003** | Full rendering | tables, code blocks + highlighter + toolbar, callouts, footnotes, task lists, images (WIC, lazy, cache, placeholders), front matter, safe HTML subset, highlight/sub/sup, emoji, autolink literals, wikilinks, details, link navigation + full link policy (R-LINK, S-LINK, S-RES) | full corpus renders; security matrices for links/paths pass; fuzzers for parser/HTML |
+--- new
+| **003b** | Rendering completion | images end-to-end (WIC decoder on the worker, Windows `Fs` layer, cache, placeholders), tooltip/popover/banner components, link remainders, inline objects, table row laziness, in-window test driver | Phase 003 AC-4, AC-5 and AC-9 pass |

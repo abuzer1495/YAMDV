@@ -31,3 +31,7 @@ Every change to the specification appendices is applied by script (`cargo xtask 
 | P-23 | 2026-10-16 | TESTING.md | §H.4 | golden tile policy | 002 report §8.5 |
 | P-24 | 2026-10-16 | SPEC.md | R-MD-14 | id/name anchor attributes | README anchors |
 | P-25 | 2026-10-16 | SPEC.md | R-IMG-06 | compact inline image chip | README badges |
+| P-26 | 2026-10-17 | PERFORMANCE.md | §D.4 rule 3 | band cap wording (>4096 px uses 32-row floor) | 003 report §8 Q1 |
+| P-27 | 2026-10-17 | SPEC.md | R-IMG-06 | *invalid path* reason (device names, ADS, NUL) | 003 report §8 Q3 |
+| P-28 | 2026-10-17 | TESTING.md | §H.4 | golden set ≤ 12 MB policy | 24 MB goldens in 003 |
+| P-29 | 2026-10-17 | ROADMAP.md | phase table | insert Phase 003b row | phase split |

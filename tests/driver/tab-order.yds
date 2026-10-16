@@ -1,0 +1,19 @@
+# Tab / Shift+Tab move through the links in document order; Enter activates
+key Tab
+assert focus == Go to target
+key Tab
+assert focus == Open B
+key Tab
+key Tab
+assert focus == Website
+key Tab
+assert focus == the top
+assert scroll_y > 500
+key Tab
+assert focus == Open B again
+key shift+Tab
+key shift+Tab
+assert focus == Website
+key Enter
+assert popover == ask-url
+key Esc

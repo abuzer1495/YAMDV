@@ -259,6 +259,8 @@ pub struct Env<'a> {
     pub strings: &'a dyn Strings,
     /// `reading.single_newline_break`.
     pub single_newline_break: bool,
+    /// Image knowledge of the platform.
+    pub images: &'a dyn crate::img::ImageHost,
 }
 
 /// Virtualized view state.
@@ -548,6 +550,7 @@ impl Viewer {
                     single_newline_break: env.single_newline_break,
                     block: i,
                     code_opts: &lookup,
+                    images: env.images,
                 };
                 let bl = content.layout(i, &mut ctx, self.width);
                 let h = f64::from(content.gap(i, &self.m) + bl.height);
@@ -752,6 +755,7 @@ mod tests {
         let mut sh = MockShaper;
         let strings = EnStrings;
         let mut env = Env {
+            images: &crate::img::NO_IMAGES,
             shaper: &mut sh,
             m: Metrics::default(),
             pal: &pal,
@@ -803,6 +807,7 @@ mod tests {
         let mut sh = MockShaper;
         let strings = EnStrings;
         let mut env = Env {
+            images: &crate::img::NO_IMAGES,
             shaper: &mut sh,
             m: Metrics::default(),
             pal: &pal,
@@ -828,6 +833,7 @@ mod tests {
         let mut sh = MockShaper;
         let strings = EnStrings;
         let mut env = Env {
+            images: &crate::img::NO_IMAGES,
             shaper: &mut sh,
             m: Metrics::default(),
             pal: &pal,
@@ -853,6 +859,7 @@ mod tests {
         let mut sh = MockShaper;
         let strings = EnStrings;
         let mut env = Env {
+            images: &crate::img::NO_IMAGES,
             shaper: &mut sh,
             m: Metrics::default(),
             pal: &pal,
@@ -877,6 +884,7 @@ mod tests {
         let mut sh = MockShaper;
         let strings = EnStrings;
         let mut env = Env {
+            images: &crate::img::NO_IMAGES,
             shaper: &mut sh,
             m: Metrics::default(),
             pal: &pal,

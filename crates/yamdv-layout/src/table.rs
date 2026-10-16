@@ -245,6 +245,7 @@ mod tests {
         let pal = yamdv_core::theme::palette("default", false);
         let mut sh = MockShaper;
         let mut ctx = Ctx {
+            images: &crate::img::NO_IMAGES,
             shaper: &mut sh,
             m,
             pal: &pal,

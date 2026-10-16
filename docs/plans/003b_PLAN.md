@@ -1,0 +1,11 @@
+# Phase 003b plan — Rendering completion (prompt 004)
+
+Order: §2 fixes → §3 patches → §4.1 images → §4.5 driver → §4.3 links/inline → §4.2 UI → §4.4 tables → §4.6 measurements → goldens (once) → report → PR/merge/tag.
+
+## CHECKPOINT
+- [x] prompt stored (SHA-256 3478375d70dfeddcb24b6ede3f656f196546f5284fd885ce88a00cb9d9606953)
+- [x] F-16 P-26…P-29 applied (`docs/spec-patches/003b.txt`), spec-check green
+- [x] F-18 A-3 in PROCESS_AMENDMENTS.md → PROCESS.md
+- [x] F-17 goldens pruned 24,072,179 B → 3,394,856 B (112 → 44 files); xtask golden enforces P-28
+- [x] F-19 decision (owner, 2026-10-17): no new lexers; every R-CODE-01 name already maps (test `r_code_01_every_name_maps_to_lexer`); anything else → "deferred (FUT-01)". Table goes in the report.
+- [~] 4.1 images (Fs, worker, WIC, store+LRU, block placeholders done; ACG matrix + DIB/DDB ADR pending)  - [x] 4.5 driver (`--script`, tests/driver/*.yds on CI; popover state = in-window dialog until 4.2)  - [~] 4.3 (Ctrl/middle-click, Tab focus, kbd done; inline objects, toolbar fade open)  - [ ] 4.2  - [ ] 4.4  - [ ] 4.6  - [x] report (partial phase, A-3 rule 9)

@@ -1,0 +1,7 @@
+# External http link in Ask mode
+click-link "Website"
+wait-idle
+assert popover == ask-url
+key Esc
+assert popover == none
+assert launched == 0

@@ -246,6 +246,9 @@ pub fn ui_language_tag() -> &'static str {
 /// Hands a validated URL or an allowlisted local file to the default handler (S-EXEC-04,
 /// R-LINK-04): `ShellExecuteExW` with the "open" verb, never `SEE_MASK_NOZONECHECKS`.
 pub fn shell_open(target: &str) {
+    if dry_launch() {
+        return;
+    }
     use windows::Win32::UI::Shell::{SEE_MASK_NOASYNC, SHELLEXECUTEINFOW, ShellExecuteExW};
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
     let file = windows::core::HSTRING::from(target);
@@ -263,6 +266,9 @@ pub fn shell_open(target: &str) {
 
 /// Opens Explorer with `path` selected (R-LINK-05); never runs the file.
 pub fn reveal_in_explorer(path: &str) {
+    if dry_launch() {
+        return;
+    }
     use windows::Win32::UI::Shell::{ILCreateFromPathW, ILFree, SHOpenFolderAndSelectItems};
     let p = windows::core::HSTRING::from(path);
     // SAFETY: valid NUL-terminated path; the PIDL is freed below.
@@ -329,4 +335,22 @@ pub fn find_wiki(dir: &str, name: &str) -> Option<String> {
         level = next;
     }
     None
+}
+
+static DRY_RUN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static LAUNCHES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Test driver (§4.5): count `shell_open` / `reveal_in_explorer` instead of launching.
+pub fn set_launch_dry_run() {
+    DRY_RUN.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Launches requested since start (counted only under the test driver).
+pub fn launches() -> u32 {
+    LAUNCHES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn dry_launch() -> bool {
+    LAUNCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    DRY_RUN.load(std::sync::atomic::Ordering::Relaxed)
 }

@@ -54,7 +54,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_GETMINMAXINFO, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL,
     WM_PAINT, WM_SETCURSOR, WM_SETTINGCHANGE, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
 };
-use windows::Win32::UI::WindowsAndMessaging::{IDC_HAND, WM_SYSKEYDOWN, WM_XBUTTONUP};
+use windows::Win32::UI::WindowsAndMessaging::{
+    IDC_HAND, WM_MBUTTONUP, WM_SYSKEYDOWN, WM_XBUTTONUP,
+};
+
+#[cfg(feature = "dev-tools")]
+mod driver;
 use windows::Win32::UI::WindowsAndMessaging::{
     MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, QS_ALLINPUT,
     SetForegroundWindow, WM_COPYDATA, WM_MOUSEHWHEEL, WM_QUIT, WaitMessage,
@@ -102,7 +107,11 @@ const TIMER_DRAG: usize = 4;
 const TIMER_MEMSTATS: usize = 6;
 const TIMER_TOAST: usize = 7;
 const TIMER_COPIED: usize = 8;
+#[cfg(feature = "dev-tools")]
+const TIMER_SCRIPT: usize = 9;
 const LINE_STEP: f64 = 40.0;
+/// `MK_CONTROL` in mouse-message `wParam`.
+const MK_CONTROL_BIT: usize = 0x0008;
 
 /// Developer options (feature `dev-tools`; never in release builds).
 #[derive(Debug, Clone, Default)]
@@ -113,6 +122,8 @@ pub struct DevOptions {
     pub perf_log: Option<String>,
     /// Write the subsystem memory breakdown (JSON) here 2 s after the first paint (`mem-stats`).
     pub mem_stats: Option<String>,
+    /// In-window test driver script (§4.5); a log is written next to it, exit code 0 = pass.
+    pub script: Option<String>,
 }
 
 /// Process-wide state shared by all windows (single UI thread).
@@ -233,6 +244,8 @@ struct DocView {
     info: FileInfo,
     #[allow(dead_code)]
     encoding: &'static str,
+    /// Images of this document (R-IMG-*).
+    images: crate::images::Store,
 }
 
 #[derive(Debug, Clone)]
@@ -311,6 +324,10 @@ struct Win {
     /// `wndproc` once the borrow is released (P-18).
     deferred: Vec<Deferred>,
     auto_steps: u32,
+    /// Keyboard focus on link `(block, link)` (B.16, Tab order).
+    focus: Option<(usize, u32)>,
+    /// Actions requested by methods (new windows), drained by `handle`.
+    actions: Vec<Action>,
 }
 
 enum Action {
@@ -465,6 +482,7 @@ impl Win {
             internet,
             info,
             encoding: d.encoding,
+            images: crate::images::Store::new(&full, self.hwnd.0 as isize),
         }));
         self.sel = None;
         self.anim = None;
@@ -538,7 +556,7 @@ impl Win {
     }
 
     /// R-LINK-01…06: activates link `link` of block `bi`.
-    fn link_click(&mut self, sh: &Shared, bi: usize, link: u32) {
+    fn link_click(&mut self, sh: &Shared, bi: usize, link: u32, new_window: bool) {
         let Some(d) = self.doc() else { return };
         let internet = d.internet;
         let doc_path = d.path.clone();
@@ -610,7 +628,11 @@ impl Win {
                     return;
                 }
                 match ylink::local_kind(&full) {
+                    ylink::LocalKind::Markdown if new_window => {
+                        self.actions.push(Action::NewWindow(full));
+                    }
                     ylink::LocalKind::Markdown => {
+                        self.focus = None;
                         let scroll = self.scroll_pos();
                         self.history.truncate(self.hist_pos + 1);
                         if let Some(cur) = self.history.get_mut(self.hist_pos) {
@@ -698,6 +720,7 @@ impl Win {
         if let Some(cur) = self.history.get_mut(self.hist_pos) {
             cur.1 = scroll;
         }
+        self.focus = None;
         let (path, y) = self.history[next].clone();
         self.open(sh, &path, None, false);
         self.hist_pos = next;
@@ -963,15 +986,30 @@ impl Win {
                 pal: &self.pal,
                 strings: &strings,
                 single_newline_break: sh.read.single_newline_break,
+                images: &d.images,
             };
             d.viewer.prepare(&mut d.content, &mut env, vh);
         }
         let geo = self.geometry(sh);
         if let Some(r) = &self.renderer {
             let me = &*self;
+            if let View::Doc(d) = &me.view {
+                d.images.begin_frame();
+            }
             r.paint(hdc, ps.rcPaint, me.pal.text, &mut |band| {
                 me.draw(sh, band, cx, geo.as_ref())
             });
+            if let View::Doc(d) = &me.view {
+                // P-13: everything within the viewport + one screen keeps its pixels.
+                for (_, _, bl) in d.viewer.visible(&d.content, me.view_h() * 2.0) {
+                    for it in &bl.items {
+                        if let Item::Image { src, .. } = it {
+                            d.images.pin(src);
+                        }
+                    }
+                }
+                d.images.end_frame();
+            }
         }
         // SAFETY: matches BeginPaint.
         let _ = unsafe { EndPaint(self.hwnd, &ps) };
@@ -1010,6 +1048,10 @@ impl Win {
                 let _ = unsafe {
                     PostMessageW(Some(self.hwnd), WM_APP_AUTOSCROLL, WPARAM(0), LPARAM(0))
                 };
+            }
+            #[cfg(feature = "dev-tools")]
+            if let Some(p) = &sh.dev.script {
+                driver::start(self.hwnd, p);
             }
             if sh.dev.mem_stats.is_some() {
                 // SAFETY: valid hwnd; one-shot (killed when it fires).
@@ -1111,8 +1153,29 @@ impl Win {
             }
             View::Doc(d) => {
                 let sel = self.sel.map(|(a, c)| a.min(c)..a.max(c));
-                draw_doc(b, &d.content, &d.viewer, pal, cx, sel, self.view_h());
+                draw_doc(
+                    b,
+                    &d.content,
+                    &d.viewer,
+                    pal,
+                    cx,
+                    sel,
+                    self.view_h(),
+                    Some(&d.images),
+                );
                 self.draw_code_toolbar(sh, b, d, pal, cx);
+                if let Some((fb, fl)) = self.focus {
+                    let top = (d.viewer.block_top(&d.content, fb) - d.viewer.scroll) as f32;
+                    for r in focus_rects(&d.viewer, fb, fl) {
+                        // B.16: 2 px focus ring with 1 px offset.
+                        b.stroke(
+                            Rect::new(cx + r.x - 3.0, top + r.y - 3.0, r.w + 6.0, r.h + 6.0),
+                            pal.accent,
+                            4.0,
+                            2.0,
+                        );
+                    }
+                }
                 if let Some(t) = self.thumb()
                     && self.sb.alpha > 0.0
                 {
@@ -1210,11 +1273,7 @@ impl Win {
 
     // ---- input ---------------------------------------------------------------------------
 
-    fn key(&mut self, sh: &Shared, vk: u16) -> Option<Action> {
-        // SAFETY: GetKeyState has no preconditions.
-        let ctrl = unsafe { GetKeyState(i32::from(VK_CONTROL.0)) } < 0;
-        // SAFETY: as above.
-        let shift = unsafe { GetKeyState(i32::from(VK_SHIFT.0)) } < 0;
+    fn key(&mut self, sh: &Shared, vk: u16, ctrl: bool, shift: bool) -> Option<Action> {
         if let Some((d, _)) = &mut self.dialog {
             let k = match vk {
                 v if v == VK_RETURN.0 => Some(dlg::Key::Enter),
@@ -1237,7 +1296,17 @@ impl Win {
         }
         let page = (self.view_h() - LINE_STEP).max(LINE_STEP);
         match vk {
+            v if v == VK_ESCAPE.0 && self.focus.is_some() => {
+                self.focus = None;
+                self.invalidate();
+            }
             v if v == VK_ESCAPE.0 => return Some(Action::Close),
+            v if v == VK_TAB.0 => self.focus_step(sh, if shift { -1 } else { 1 }),
+            v if v == VK_RETURN.0 => {
+                if let Some((bi, l)) = self.focus {
+                    self.link_click(sh, bi, l, ctrl);
+                }
+            }
             v if ctrl && v == u16::from(b'W') => return Some(Action::Close),
             v if ctrl && v == u16::from(b'O') => return Some(Action::OpenDialog),
             v if ctrl && v == u16::from(b'A') => {
@@ -1263,7 +1332,7 @@ impl Win {
         None
     }
 
-    fn mouse_down(&mut self, sh: &Shared, x: f32, y: f32) {
+    fn mouse_down(&mut self, sh: &Shared, x: f32, y: f32, ctrl: bool) {
         if self.dialog.is_some() {
             if let Some(g) = self.geometry(sh)
                 && let Some((d, _)) = &mut self.dialog
@@ -1308,7 +1377,10 @@ impl Win {
                 }
             }
         }
-        if self.code_click(sh, x, y) {
+        if self.focus.take().is_some() {
+            self.invalidate();
+        }
+        if self.code_click(sh, x, y, ctrl) {
             return;
         }
         let Some(h) = self.hit(sh, x, y) else {
@@ -1600,7 +1672,7 @@ impl Win {
     }
 
     /// Code toolbar buttons (R-CODE-02/05): copy, line numbers, wrap. True when handled.
-    fn code_click(&mut self, sh: &Shared, x: f32, y: f32) -> bool {
+    fn code_click(&mut self, sh: &Shared, x: f32, y: f32, new_window: bool) -> bool {
         let (cx, _) = self.col(sh);
         let View::Doc(d) = &mut self.view else {
             return false;
@@ -1659,9 +1731,14 @@ impl Win {
                 self.footnote_jump(sh, FootTarget::Ref(n, k));
                 return true;
             }
-            HotKind::FootNote { .. } => return false,
+            HotKind::FootNote { .. } | HotKind::Image { .. } | HotKind::ImagePlaceholder { .. } => {
+                return false;
+            }
+            HotKind::CopyUrl { url } => {
+                let _ = sys::copy_text(self.hwnd, &url);
+            }
             HotKind::Link { link } => {
-                self.link_click(sh, bi, link);
+                self.link_click(sh, bi, link, new_window);
                 return true;
             }
         }
@@ -1685,6 +1762,7 @@ impl Win {
                 pal: &self.pal,
                 strings: &strings,
                 single_newline_break: sh.read.single_newline_break,
+                images: &d.images,
             };
             d.viewer.prepare(&mut d.content, &mut env, vh);
         }
@@ -1765,6 +1843,86 @@ impl Win {
     }
 
     /// Shows a toast for 4 s (B.10).
+    /// Tab / Shift+Tab: next / previous link in document order (B.16); scrolls it into view.
+    fn focus_step(&mut self, sh: &Shared, dir: i32) {
+        let cur = self.focus;
+        let Some(d) = self.doc() else { return };
+        let Content::Markdown(doc) = &mut d.content else {
+            return;
+        };
+        let n = doc.index.blocks.len();
+        let count = |doc: &mut Document, b: usize| -> u32 {
+            u32::try_from(doc.detail(b).links.len()).unwrap_or(0)
+        };
+        let next = if dir > 0 {
+            let (mut b, mut l) = cur.map_or((0, 0), |(b, l)| (b, l + 1));
+            loop {
+                if b >= n {
+                    break None;
+                }
+                if l < count(doc, b) {
+                    break Some((b, l));
+                }
+                b += 1;
+                l = 0;
+            }
+        } else {
+            match cur {
+                Some((b, l)) if l > 0 => Some((b, l - 1)),
+                _ => {
+                    let mut b = cur.map_or(n, |(b, _)| b);
+                    loop {
+                        if b == 0 {
+                            break None;
+                        }
+                        b -= 1;
+                        let c = count(doc, b);
+                        if c > 0 {
+                            break Some((b, c - 1));
+                        }
+                    }
+                }
+            }
+        };
+        self.focus = next;
+        if let Some((b, l)) = next {
+            self.scroll_into_view(sh, b, l);
+        }
+        self.invalidate();
+    }
+
+    /// Scrolls so link `l` of block `b` is visible (auto-scroll for focus and the driver).
+    fn scroll_into_view(&mut self, sh: &Shared, b: usize, l: u32) {
+        let vh = self.view_h();
+        for _ in 0..2 {
+            let Some(d) = self.doc() else { return };
+            let top = d.viewer.block_top(&d.content, b);
+            let ry = focus_rects(&d.viewer, b, l)
+                .first()
+                .map_or((0.0, 20.0), |r| (f64::from(r.y), f64::from(r.h)));
+            let (y0, y1) = (top + ry.0, top + ry.0 + ry.1);
+            let s = d.viewer.scroll;
+            if y0 >= s + 8.0 && y1 <= s + vh - 8.0 {
+                return;
+            }
+            self.anim = None;
+            self.set_scroll((y0 - vh / 3.0).max(0.0));
+            self.prepare_now(sh);
+        }
+    }
+
+    /// Middle-click on a link: Markdown targets open in a new window (R-LINK).
+    fn middle_click(&mut self, sh: &Shared, x: f32, y: f32) {
+        let (cx, _) = self.col(sh);
+        let View::Doc(d) = &self.view else { return };
+        if let Some((bi, HotKind::Link { link })) =
+            d.viewer
+                .hot_at(&d.content, x - cx, f64::from(y) + d.viewer.scroll)
+        {
+            self.link_click(sh, bi, link, true);
+        }
+    }
+
     fn toast(&mut self, m: Msg) {
         self.toast_with(m, "");
     }
@@ -1801,6 +1959,8 @@ impl Win {
         }
         match id {
             TIMER_ANIM => self.tick_anim(),
+            #[cfg(feature = "dev-tools")]
+            TIMER_SCRIPT => driver::tick(self, sh),
             TIMER_SB_HIDE => {
                 // SAFETY: valid hwnd.
                 let _ = unsafe { KillTimer(Some(self.hwnd), TIMER_SB_HIDE) };
@@ -1876,8 +2036,12 @@ impl Win {
             .renderer
             .as_ref()
             .map_or(0, |r| crate::render::band_bytes(r.width()));
+        let (img, lru) = match &self.view {
+            View::Doc(d) => (d.images.decoded_bytes(), d.images.lru_bytes()),
+            _ => (0, 0),
+        };
         let json = format!(
-            "{{\"schema\":\"yamdv.memstats/1\",\"source_text_bytes\":{src},\"block_index_bytes\":{idx},\"detail_cache_bytes\":{cache},\"layout_cache\":{{\"layouts\":{layouts},\"paras\":{paras},\"items\":{items},\"model_bytes_estimate\":{}}},\"band_buffer_bytes\":{band},\"commit_bytes_now\":{},\"commit_bytes_at_start\":{},\"note\":\"DirectWrite and other native memory = commit growth minus the Rust-side numbers; see 002_REPORT.md\"}}\n",
+            "{{\"schema\":\"yamdv.memstats/1\",\"image_decoded_bytes\":{img},\"image_lru_bytes\":{lru},\"source_text_bytes\":{src},\"block_index_bytes\":{idx},\"detail_cache_bytes\":{cache},\"layout_cache\":{{\"layouts\":{layouts},\"paras\":{paras},\"items\":{items},\"model_bytes_estimate\":{}}},\"band_buffer_bytes\":{band},\"commit_bytes_now\":{},\"commit_bytes_at_start\":{},\"note\":\"DirectWrite and other native memory = commit growth minus the Rust-side numbers; see 002_REPORT.md\"}}\n",
             paras * 160 + items * 40,
             crate::perf::commit_bytes(),
             sh.commit_at_start
@@ -1887,6 +2051,7 @@ impl Win {
 }
 
 /// Draws the visible part of a document (shared by windows and `--render-png`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_doc(
     b: &Band<'_>,
     content: &Content,
@@ -1895,6 +2060,7 @@ pub(crate) fn draw_doc(
     cx: f32,
     sel: Option<Range<u32>>,
     vh: f64,
+    images: Option<&crate::images::Store>,
 ) {
     let sel_alpha = f32::from(pal.selection_alpha_pct) / 100.0;
     for (bi, y, bl) in viewer.visible(content, vh) {
@@ -1965,6 +2131,18 @@ pub(crate) fn draw_doc(
                 }
                 // Drawn by the window on hover (not part of static renders).
                 Item::CodeToolbar { .. } => {}
+                Item::Image { rect, src, .. } => {
+                    let r = rect.offset(cx, y);
+                    let (wp, hp) = (
+                        (r.w * b.scale).round().max(1.0) as u32,
+                        (r.h * b.scale).round().max(1.0) as u32,
+                    );
+                    match images.and_then(|s| s.pixels(src, wp, hp)) {
+                        Some(bm) => b.image(r.x, r.y, bm.w, bm.h, &bm.px),
+                        // Decoding: a quiet `code_bg` box of the final size (no layout shift).
+                        None => b.fill(r, pal.code_bg, 1.0, 4.0),
+                    }
+                }
                 Item::PushClip(r) => b.push_clip(r.offset(cx, y)),
                 Item::PopClip => b.pop_clip(),
                 Item::HScrollBar(ri) => {
@@ -1978,6 +2156,17 @@ pub(crate) fn draw_doc(
             }
         }
     }
+}
+
+/// Hot rectangles (block-local) of link `l` in block `b`, when laid out.
+fn focus_rects(v: &Viewer, b: usize, l: u32) -> Vec<Rect> {
+    v.layout_of(b).map_or_else(Vec::new, |bl| {
+        bl.hot
+            .iter()
+            .filter(|h| matches!(h.kind, HotKind::Link { link } if link == l))
+            .map(|h| h.rect)
+            .collect()
+    })
 }
 
 fn apply_mode(hwnd: HWND, m: Mode) {
@@ -2087,7 +2276,14 @@ fn handle(
         }
         WM_KEYDOWN => {
             let vk = u16::try_from(wp.0).unwrap_or(0);
-            actions.extend(w.key(sh, vk));
+            // SAFETY: GetKeyState has no preconditions.
+            let (ctrl, shift) = unsafe {
+                (
+                    GetKeyState(i32::from(VK_CONTROL.0)) < 0,
+                    GetKeyState(i32::from(VK_SHIFT.0)) < 0,
+                )
+            };
+            actions.extend(w.key(sh, vk, ctrl, shift));
             Some(LRESULT(0))
         }
         // R-LINK-02: Alt+← / Alt+→ and mouse X1/X2 move through the history.
@@ -2132,7 +2328,15 @@ fn handle(
         }
         WM_LBUTTONDOWN => {
             let (x, y) = lparam_xy(lp, w.scale);
-            w.mouse_down(sh, x, y);
+            w.mouse_down(sh, x, y, wp.0 & MK_CONTROL_BIT != 0);
+            Some(LRESULT(0))
+        }
+        // Middle-click on a Markdown link opens it in a new window.
+        WM_MBUTTONUP => {
+            let (x, y) = lparam_xy(lp, w.scale);
+            if w.dialog.is_none() {
+                w.middle_click(sh, x, y);
+            }
             Some(LRESULT(0))
         }
         WM_MOUSEMOVE => {
@@ -2191,6 +2395,18 @@ fn handle(
             }
             Some(LRESULT(0))
         }
+        crate::images::WM_IMAGE_DONE => {
+            if let View::Doc(d) = &mut w.view {
+                let (any, relayout) = d.images.collect();
+                if relayout {
+                    d.viewer.invalidate_layouts();
+                }
+                if any {
+                    w.invalidate();
+                }
+            }
+            Some(LRESULT(0))
+        }
         WM_APP_AUTOSCROLL => {
             w.autoscroll_step();
             Some(LRESULT(0))
@@ -2240,6 +2456,7 @@ fn handle(
         }
         _ => None,
     };
+    actions.append(&mut w.actions);
     (r, actions)
 }
 
@@ -2505,6 +2722,8 @@ fn create_window(sh: &Shared, path: Option<&str>) {
         auto_phase: 0,
         deferred: Vec::new(),
         auto_steps: 0,
+        focus: None,
+        actions: Vec::new(),
     };
     let rcw = Rc::new(RefCell::new(win));
     WINDOWS.with(|m| m.borrow_mut().insert(hwnd.0 as isize, rcw.clone()));

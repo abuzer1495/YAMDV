@@ -159,6 +159,16 @@ pub enum Item {
     PushClip(Rect),
     /// Pop the innermost clip.
     PopClip,
+    /// Block image (R-IMG-03/04): the platform draws the decoded pixels of `src` into `rect`
+    /// (`ready` = the size comes from the probe, not the 4:3 estimate).
+    Image {
+        /// Display rectangle (logical px).
+        rect: Rect,
+        /// Source as written.
+        src: Box<str>,
+        /// Probed size.
+        ready: bool,
+    },
     /// Scrollbar of region `regions[i]` (drawn with the current offset).
     HScrollBar(usize),
     /// Code block header toolbar (drawn by the platform on hover / focus, B.6.7).
@@ -227,6 +237,23 @@ pub enum HotKind {
     FootNote {
         /// Note number.
         n: u32,
+    },
+    /// A block image (tooltip: alt/path; not focusable).
+    Image {
+        /// Source as written.
+        src: Box<str>,
+    },
+    /// R-IMG-06 placeholder card (tooltip with the details).
+    ImagePlaceholder {
+        /// Source as written.
+        src: Box<str>,
+        /// Reason.
+        reason: yamdv_core::image::Placeholder,
+    },
+    /// [Copy URL] button of a remote-image placeholder.
+    CopyUrl {
+        /// URL.
+        url: Box<str>,
     },
 }
 
@@ -308,6 +335,14 @@ pub trait Strings {
     fn alert(&self, a: Alert) -> &str;
     /// Placeholder card label (`table`, `html`, …).
     fn placeholder(&self, p: Placeholder) -> &str;
+    /// R-IMG-06 placeholder message.
+    fn image_message(&self, p: &yamdv_core::image::Placeholder) -> &str {
+        p.message()
+    }
+    /// Label of the [Copy URL] button.
+    fn copy_url(&self) -> &str {
+        "Copy URL"
+    }
     /// Collapsed front matter summary (R-REN-13): "Front matter · N fields".
     fn front_matter_summary(&self, n: usize) -> String {
         if n == 1 {
@@ -365,6 +400,8 @@ pub struct Ctx<'a> {
     pub block: usize,
     /// Code options for (block, node).
     pub code_opts: &'a dyn Fn(usize, usize) -> crate::code::CodeOpts,
+    /// Image knowledge of the platform.
+    pub images: &'a dyn crate::img::ImageHost,
 }
 
 /// Vertical margins (top, bottom) of a top-level block kind (B.6.2–B.6.9).
@@ -654,6 +691,33 @@ pub(crate) fn leaf_aligned(
             }
         }
     }
+    // B.6.3 `<kbd>` key cap: 1 px border with a 2 px bottom border around the code background.
+    for (s, seg) in sp.iter().zip(pt.segs.iter().filter(|g| g.style != 0)) {
+        if seg.style & st::KBD == 0 {
+            continue;
+        }
+        let em = s.style.size / 0.875;
+        for r in shaped.range_rects(s.range.clone()) {
+            let ih = s.style.size * 1.3 + 0.3 * em;
+            let iy = r.y + (r.h - ih) / 2.0;
+            let rect = Rect::new(x + r.x, y + iy, r.w, ih);
+            out.items.push(Item::Stroke {
+                rect,
+                color: ctx.pal.code_border,
+                radius: 4.0,
+            });
+            out.items.push(Item::Fill {
+                rect: Rect::new(
+                    rect.x + 2.0,
+                    rect.bottom() - 1.0,
+                    (rect.w - 4.0).max(0.0),
+                    1.0,
+                ),
+                color: ctx.pal.code_border,
+                radius: 0.0,
+            });
+        }
+    }
     // R-LINK-*: link text is activatable (one hot rect per line fragment).
     for (s, seg) in sp.iter().zip(pt.segs.iter().filter(|g| g.style != 0)) {
         if seg.link == yamdv_core::doc::detail::NO_LINK {
@@ -878,6 +942,12 @@ fn node(
     let m = ctx.m;
     let kids: Vec<usize> = d.children(i).collect();
     match &d.nodes[i].kind {
+        NodeKind::Paragraph { .. } if crate::img::sole_image(src, d, i).is_some() => {
+            match crate::img::sole_image(src, d, i) {
+                Some(r) => crate::img::block(ctx, r, x, y, w, out),
+                None => 0.0,
+            }
+        }
         NodeKind::Paragraph { .. } | NodeKind::DefTitle => {
             let pt = node_text(src, d, i, ctx.single_newline_break);
             let mut s = base(&m, env.color);

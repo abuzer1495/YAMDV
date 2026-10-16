@@ -8,3 +8,6 @@
 *.tmp
 .DS_Store
 Thumbs.db
+
+# driver logs
+tests/driver/*.log

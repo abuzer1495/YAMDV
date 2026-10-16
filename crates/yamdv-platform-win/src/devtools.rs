@@ -90,11 +90,17 @@ pub fn render_png(o: &RenderPng) -> i32 {
     let pal = theme::palette("default", o.dark);
     let strings = crate::window::strings(yamdv_core::i18n::Lang::En);
     let mut viewer = Viewer::new(&content, colw, m);
+    let images = crate::images::Store::synchronous(
+        &std::path::absolute(&o.input)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| o.input.clone()),
+    );
     let mut shaper = DwShaper(&dw);
     // Lay out everything (the viewport is the whole document); repeat until heights settle.
     let mut total = viewer.total_height();
     for _ in 0..16 {
         let mut env = Env {
+            images: &images,
             shaper: &mut shaper,
             m,
             pal: &pal,
@@ -115,7 +121,16 @@ pub fn render_png(o: &RenderPng) -> i32 {
     };
     let px = r.render_offscreen(h_px, pal.text, &mut |band| {
         band.clear(pal.bg);
-        crate::window::draw_doc(band, &content, &viewer, &pal, cx, None, total + 1.0);
+        crate::window::draw_doc(
+            band,
+            &content,
+            &viewer,
+            &pal,
+            cx,
+            None,
+            total + 1.0,
+            Some(&images),
+        );
     });
     let mut px = px;
     for p in px.as_chunks_mut::<4>().0 {

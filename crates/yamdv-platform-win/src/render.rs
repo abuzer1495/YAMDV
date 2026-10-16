@@ -579,6 +579,33 @@ impl Band<'_> {
         });
     }
 
+    /// Draws premultiplied pixels in band byte order (BGRA, as WIC `32bppPBGRA` delivers them)
+    /// with their top-left at DIP `(x, y)`, one source pixel per device pixel (R-IMG-04).
+    pub fn image(&self, x: f32, y: f32, w: u32, h: u32, px: &[u8]) {
+        let (wd, hd) = (w as f32 / self.scale, h as f32 / self.scale);
+        let r = Rect::new(x, y, wd, hd);
+        if !self.visible(y, hd) || !self.clip_allows(&r) {
+            return;
+        }
+        let Some(src) = tiny_skia::PixmapRef::from_bytes(px, w, h) else {
+            return;
+        };
+        self.with_clipped(|pm, t, m| {
+            let (dx, dy) = (
+                (x * t.sx + t.tx).round() as i32,
+                (y * t.sy + t.ty).round() as i32,
+            );
+            pm.draw_pixmap(
+                dx,
+                dy,
+                src,
+                &tiny_skia::PixmapPaint::default(),
+                Transform::identity(),
+                m,
+            );
+        });
+    }
+
     /// Strokes a (rounded) rectangle with a line of `width` DIPs inside its bounds.
     pub fn stroke(&self, r: Rect, color: u32, radius: f32, width: f32) {
         if !self.visible(r.y, r.h) || !self.clip_allows(&r) {

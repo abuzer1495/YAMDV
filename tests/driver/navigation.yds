@@ -1,0 +1,19 @@
+# Relative link, back/forward with scroll restore
+click-link "Go to target"
+wait-idle
+assert scroll_y > 500
+click-link "Open B again"
+wait-idle
+assert document == b.md
+assert scroll_y == 0
+assert nav_depth == 2
+wheel -360
+wait-idle
+key alt+Left
+wait-idle
+assert document == a.md
+assert scroll_y > 500
+key alt+Right
+wait-idle
+assert document == b.md
+assert scroll_y > 100

@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 
 pub mod decode;
+pub mod devscript;
 pub mod doc;
 pub mod emoji_table;
 pub mod html;
