@@ -43,4 +43,4 @@ YAMDV must open 1 MiB+ documents with a first paint ≤ 300 ms and ≤ 16 MiB pr
 See `docs/reports/002_REPORT.md` §5: M1b and M2 with the `mem-stats` breakdown (source text, block index, detail cache, layout cache, band buffer).
 
 ## Consequences
-The memory cost is roughly the source plus about 24 bytes per top-level block plus whatever is visible. Phase 006 can splice without a full reparse.
+Measured memory cost: about 90 bytes per top-level block, including the maps (large-1mb.md: 13,303 blocks → 1,205,180 B index), plus the source text, plus a 2 MiB cap on the detail cache, plus the layouts of at most 3 screens. Phase 006 can splice without a full reparse.

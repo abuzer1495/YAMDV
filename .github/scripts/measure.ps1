@@ -32,6 +32,9 @@ Probe 'M6' $rel @('--doc', $typ, '--runs', '3', '--open-dialog', '--settle-ms', 
 Probe 'T7-empty' $rel @('--runs', '1', '--cpu-ms', '30000', '--budget-cpu-ms', '1')
 Probe 'T7-doc' $rel @('--doc', $typ, '--runs', '1', '--cpu-ms', '30000', '--budget-cpu-ms', '1')
 # T4: autoscroll top -> bottom -> top (dev-tools build); 3 runs per document, gate on the median p99 <= 16 ms
+# One untimed warm-up pass first: the runner's system font cache is cold for the faces that
+# typical-basic uses (bold, italic, mono, fallback). Reported in 002_REPORT.md section 5.
+& cargo xtask memprobe $dev --doc $typ --runs 1 --wait-title SCROLL_DONE --settle-ms 200 --arg --autoscroll --arg --perf-log --arg "$m/T4-warmup.log" | Out-Null
 foreach ($d in @(@{n='typical'; f=$typ}, @{n='large'; f=$large})) {
   $p99s = @()
   foreach ($r in 1..3) {
