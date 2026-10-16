@@ -1,0 +1,7 @@
+# Blocked .exe link: "Blocked for safety" shown, nothing launched
+click-link "Run tool"
+wait-idle
+assert popover == blocked
+key Esc
+assert popover == none
+assert launched == 0

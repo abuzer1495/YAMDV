@@ -1,0 +1,5 @@
+# Ctrl+click / middle-click on a Markdown link opens a second window
+click-link "Open B" ctrl
+wait-idle
+assert windows == 2
+assert document == a.md

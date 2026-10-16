@@ -1,0 +1,6 @@
+# Anchor link scrolls the heading to 16 px below the top
+click-link "Go to target"
+wait-idle
+assert scroll_y > 500
+assert document == a.md
+dump
