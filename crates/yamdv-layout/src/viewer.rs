@@ -20,6 +20,7 @@ use yamdv_core::doc::text::ParaText;
 use yamdv_core::theme::Palette;
 
 use crate::block::{self, BlockLayout, Ctx, Item, LaidPara, Metrics, Strings};
+use crate::code::CodeOpts;
 use crate::fenwick::Fenwick;
 use crate::geom::Rect;
 use crate::plain;
@@ -159,6 +160,7 @@ impl Content {
                         hscroll: None,
                     }],
                     regions: Vec::new(),
+                    hot: Vec::new(),
                 }
             }
         }
@@ -219,6 +221,10 @@ pub struct Viewer {
     m: Metrics,
     /// Horizontal offsets per (block, region) — session state (R-CODE-03).
     hscroll: std::collections::HashMap<(usize, u16), f32>,
+    /// Default code options (`reading.code_line_numbers`, `reading.code_wrap`).
+    pub code_default: CodeOpts,
+    /// Per code block overrides (block, node) — session state (R-CODE-02).
+    code_opts: std::collections::HashMap<(usize, usize), CodeOpts>,
 }
 
 impl Viewer {
@@ -263,6 +269,58 @@ impl Viewer {
         })
     }
 
+    /// The code toolbar whose card contains (x, y) (column x, document y): (block, block top, item).
+    pub fn toolbar_at(&self, content: &Content, x: f32, y: f64) -> Option<(usize, f64, &Item)> {
+        if content.is_empty() {
+            return None;
+        }
+        let bi = self.block_at_y(y);
+        let bl = self.layout_of(bi)?;
+        let by = self.block_top(content, bi);
+        let ly = (y - by) as f32;
+        bl.items
+            .iter()
+            .find(|it| {
+                matches!(it, Item::CodeToolbar { card, .. }
+                    if x >= card.x && x < card.right() && ly >= card.y && ly < card.bottom())
+            })
+            .map(|it| (bi, by, it))
+    }
+
+    /// The interactive element at (x, y) (column x, document y).
+    pub fn hot_at(&self, content: &Content, x: f32, y: f64) -> Option<(usize, block::HotKind)> {
+        if content.is_empty() {
+            return None;
+        }
+        let bi = self.block_at_y(y);
+        let bl = self.layout_of(bi)?;
+        let ly = (y - self.block_top(content, bi)) as f32;
+        bl.hot
+            .iter()
+            .find(|h| x >= h.rect.x && x < h.rect.right() && ly >= h.rect.y && ly < h.rect.bottom())
+            .map(|h| (bi, h.kind.clone()))
+    }
+
+    /// Code options of (block, node).
+    pub fn code_opts(&self, b: usize, n: usize) -> CodeOpts {
+        self.code_opts
+            .get(&(b, n))
+            .copied()
+            .unwrap_or(self.code_default)
+    }
+
+    /// Sets code options of (block, node) and drops the block's layout so it is laid out again.
+    pub fn set_code_opts(&mut self, b: usize, n: usize, o: CodeOpts) {
+        self.code_opts.insert((b, n), o);
+        self.hscroll.retain(|k, _| k.0 != b);
+        self.invalidate_block(b);
+    }
+
+    /// Drops the cached layout of block `b` (re-laid out by the next `prepare`).
+    pub fn invalidate_block(&mut self, b: usize) {
+        self.layouts.retain(|e| e.0 != b);
+    }
+
     /// Typography metrics in use.
     pub fn metrics(&self) -> Metrics {
         self.m
@@ -280,6 +338,8 @@ impl Viewer {
             anchor: (0, 0.0),
             m,
             hscroll: std::collections::HashMap::new(),
+            code_default: CodeOpts::default(),
+            code_opts: std::collections::HashMap::new(),
         };
         v.reestimate(content);
         v
@@ -388,12 +448,16 @@ impl Viewer {
                 if self.layouts.iter().any(|e| e.0 == i) {
                     continue;
                 }
+                let (def, map) = (self.code_default, &self.code_opts);
+                let lookup = move |b: usize, n: usize| map.get(&(b, n)).copied().unwrap_or(def);
                 let mut ctx = Ctx {
                     shaper: &mut *env.shaper,
                     m: env.m,
                     pal: env.pal,
                     strings: env.strings,
                     single_newline_break: env.single_newline_break,
+                    block: i,
+                    code_opts: &lookup,
                 };
                 let bl = content.layout(i, &mut ctx, self.width);
                 let h = f64::from(content.gap(i, &self.m) + bl.height);

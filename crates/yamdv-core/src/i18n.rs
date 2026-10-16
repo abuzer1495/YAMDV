@@ -41,6 +41,7 @@ messages! {
     BinaryBody => "This looks like a binary file.", "Bu bir ikili dosya gibi görünüyor.";
     OpenAnyway => "Open anyway", "Yine de aç";
     DropFolders => "Drop Markdown files, not folders", "Klasör değil, Markdown dosyaları bırakın";
+    Copied => "Copied", "Kopyalandı";
     DialogHostFailed => "The file dialog could not be opened", "Dosya penceresi açılamadı";
     FilterMarkdown => "Markdown", "Markdown";
     FilterText => "Text", "Metin";

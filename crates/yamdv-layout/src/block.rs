@@ -133,6 +133,52 @@ pub enum Item {
     PopClip,
     /// Scrollbar of region `regions[i]` (drawn with the current offset).
     HScrollBar(usize),
+    /// Code block header toolbar (drawn by the platform on hover / focus, B.6.7).
+    CodeToolbar {
+        /// Detail node of the code block.
+        node: usize,
+        /// The whole card.
+        card: Rect,
+        /// Language label.
+        label: String,
+        /// Label rectangle.
+        label_rect: Rect,
+        /// [copy, line numbers, wrap] buttons.
+        buttons: [Rect; 3],
+        /// Current options.
+        opts: crate::code::CodeOpts,
+        /// Source range of the code text (copy).
+        raw: std::ops::Range<u32>,
+    },
+}
+
+/// Interactive element kinds (hit testing, focus, activation).
+#[derive(Debug, Clone, PartialEq)]
+pub enum HotKind {
+    /// Code block: copy.
+    CodeCopy {
+        /// Detail node.
+        node: usize,
+    },
+    /// Code block: toggle line numbers.
+    CodeLines {
+        /// Detail node.
+        node: usize,
+    },
+    /// Code block: toggle wrap.
+    CodeWrap {
+        /// Detail node.
+        node: usize,
+    },
+}
+
+/// An interactive rectangle in block coordinates.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Hot {
+    /// Rectangle.
+    pub rect: Rect,
+    /// What it is.
+    pub kind: HotKind,
 }
 
 /// A shaped paragraph placed in the block.
@@ -194,6 +240,8 @@ pub struct BlockLayout {
     pub paras: Vec<LaidPara>,
     /// Horizontal scroll regions.
     pub regions: Vec<HRegion>,
+    /// Interactive elements in document order.
+    pub hot: Vec<Hot>,
 }
 
 /// Localized strings layout needs.
@@ -246,6 +294,10 @@ pub struct Ctx<'a> {
     pub strings: &'a dyn Strings,
     /// `reading.single_newline_break`.
     pub single_newline_break: bool,
+    /// Top-level block being laid out.
+    pub block: usize,
+    /// Code options for (block, node).
+    pub code_opts: &'a dyn Fn(usize, usize) -> crate::code::CodeOpts,
 }
 
 /// Vertical margins (top, bottom) of a top-level block kind (B.6.2–B.6.9).
@@ -363,14 +415,15 @@ fn spans(segs: &[Seg], b: &Style, m: &Metrics, pal: &Palette) -> Vec<Span> {
     out
 }
 
-struct Out {
-    items: Vec<Item>,
-    paras: Vec<LaidPara>,
-    regions: Vec<HRegion>,
+pub(crate) struct Out {
+    pub(crate) items: Vec<Item>,
+    pub(crate) paras: Vec<LaidPara>,
+    pub(crate) regions: Vec<HRegion>,
+    pub(crate) hot: Vec<Hot>,
 }
 
 impl Out {
-    fn para(
+    pub(crate) fn para(
         &mut self,
         x: f32,
         y: f32,
@@ -651,9 +704,9 @@ fn node(
             };
             leaf(ctx, pt, s, size * 1.25, x, y, w, out)
         }
-        NodeKind::Code { .. } => {
+        NodeKind::Code { lang } => {
             let pt = node_text(src, d, i, true);
-            card(ctx, pt, None, x, y, w, out)
+            crate::code::code_block(ctx, i, lang, pt, x, y, w, out)
         }
         NodeKind::Placeholder(p) => {
             // PHASE-003: tables, HTML, math, footnotes, front matter are shown as source cards.
@@ -810,6 +863,7 @@ pub fn layout_block(ctx: &mut Ctx<'_>, src: &str, d: &Detail, w: f32) -> BlockLa
         items: Vec::new(),
         paras: Vec::new(),
         regions: Vec::new(),
+        hot: Vec::new(),
     };
     let roots: Vec<usize> = d.roots().collect();
     let env = Env {
@@ -823,5 +877,6 @@ pub fn layout_block(ctx: &mut Ctx<'_>, src: &str, d: &Detail, w: f32) -> BlockLa
         items: out.items,
         paras: out.paras,
         regions: out.regions,
+        hot: out.hot,
     }
 }

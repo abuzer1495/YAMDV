@@ -231,6 +231,8 @@ fn pipeline(src: &str, check: bool) -> (usize, usize) {
             pal: &pal,
             strings: &strings,
             single_newline_break: false,
+            block: 0,
+            code_opts: &|_, _| yamdv_layout::code::CodeOpts::default(),
         };
         let bl = layout_block(&mut ctx, src, &d, 600.0);
         assert!(bl.height.is_finite() && bl.height >= 0.0);

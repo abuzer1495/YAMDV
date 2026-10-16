@@ -497,6 +497,7 @@ dependencies = [
  "pulldown-cmark",
  "unicode-segmentation",
  "yamdv-core",
+ "yamdv-highlight",
 ]
 
 [[package]]

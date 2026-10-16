@@ -45,6 +45,62 @@ fn u(n: usize) -> u32 {
 }
 
 impl ParaText {
+    /// Sub-string `r` (layout bytes, on char boundaries) with its segments clipped; verbatim
+    /// segments keep an exact source mapping.
+    pub fn slice_bytes(&self, r: Range<usize>) -> ParaText {
+        let mut p = ParaText {
+            text: self.text.get(r.clone()).unwrap_or("").to_string(),
+            segs: Vec::new(),
+        };
+        let mut u16_pos = 0u32;
+        for s in &self.segs {
+            let sb = s.byte_start as usize;
+            let st = self.text.get(sb..).unwrap_or("");
+            let seg_text_len = st
+                .char_indices()
+                .scan(0u32, |n, (i, c)| {
+                    if *n >= s.u16_len {
+                        return None;
+                    }
+                    *n += c.len_utf16() as u32;
+                    Some(i + c.len_utf8())
+                })
+                .last()
+                .unwrap_or(0);
+            let se = sb + seg_text_len;
+            let a = sb.max(r.start);
+            let b = se.min(r.end);
+            if a >= b {
+                continue;
+            }
+            let t = self.text.get(a..b).unwrap_or("");
+            let len16 = t.encode_utf16().count() as u32;
+            let src = if s.verbatim {
+                (s.src.start + (a - sb) as u32)..(s.src.start + (b - sb) as u32)
+            } else {
+                s.src.clone()
+            };
+            p.segs.push(Seg {
+                u16_start: u16_pos,
+                u16_len: len16,
+                byte_start: (a - r.start) as u32,
+                src,
+                verbatim: s.verbatim,
+                style: s.style,
+            });
+            u16_pos += len16;
+        }
+        p
+    }
+
+    /// Source range covered by the segments.
+    pub fn source_range(&self) -> Range<u32> {
+        match (self.segs.first(), self.segs.last()) {
+            (Some(a), Some(b)) => a.src.start..b.src.end,
+            _ => 0..0,
+        }
+    }
+
     /// Builds the layout string from runs. Soft breaks become a space, or `\n` with
     /// `single_newline_break` (R-MD-15); hard breaks become `\n`.
     pub fn from_runs(source: &str, runs: &[Run], single_newline_break: bool) -> Self {

@@ -66,7 +66,7 @@ use yamdv_core::path as ypath;
 use yamdv_core::settings::Settings;
 use yamdv_core::theme::{self, Palette};
 use yamdv_layout::Rect;
-use yamdv_layout::block::{Bullet, Item, Metrics, Strings};
+use yamdv_layout::block::{Bullet, HotKind, Item, Metrics, Strings};
 use yamdv_layout::shaper::{Family, ParaSpec, Style, TextShaper};
 use yamdv_layout::viewer::{self, Content, Env, Hit, Viewer};
 use yamdv_ui::dialog::{self as dlg, Button, ConfirmDialog, Geometry, Outcome};
@@ -98,6 +98,7 @@ const TIMER_SB_FADE: usize = 3;
 const TIMER_DRAG: usize = 4;
 const TIMER_MEMSTATS: usize = 6;
 const TIMER_TOAST: usize = 7;
+const TIMER_COPIED: usize = 8;
 const LINE_STEP: f64 = 40.0;
 
 /// Developer options (feature `dev-tools`; never in release builds).
@@ -256,6 +257,10 @@ struct Win {
     warm: Vec<yamdv_layout::warm::WarmTask>,
     warm_pending: bool,
     toast: Option<Msg>,
+    /// Hovered code block (block, node) — its toolbar is shown (B.6.7).
+    code_hover: Option<(usize, usize)>,
+    /// Code block whose copy button shows the check mark (1.2 s).
+    code_copied: Option<(usize, usize)>,
     /// Code scrollbar drag: (block, region, grab x, offset at grab).
     hdrag: Option<(usize, u16, f32, f32)>,
     drag_dir: f64,
@@ -395,7 +400,11 @@ impl Win {
         } else {
             Content::Markdown(Document::new(d.text, sh.read))
         };
-        let viewer = Viewer::new(&content, col_w, sh.m);
+        let mut viewer = Viewer::new(&content, col_w, sh.m);
+        viewer.code_default = yamdv_layout::code::CodeOpts {
+            line_numbers: sh.read.code_line_numbers,
+            wrap: sh.read.code_wrap,
+        };
         self.warm_pending = true;
         self.view = View::Doc(Box::new(DocView {
             content,
@@ -804,6 +813,7 @@ impl Win {
             View::Doc(d) => {
                 let sel = self.sel.map(|(a, c)| a.min(c)..a.max(c));
                 draw_doc(b, &d.content, &d.viewer, pal, cx, sel, self.view_h());
+                self.draw_code_toolbar(sh, b, d, pal, cx);
                 if let Some(t) = self.thumb()
                     && self.sb.alpha > 0.0
                 {
@@ -997,6 +1007,9 @@ impl Win {
                 }
             }
         }
+        if self.code_click(sh, x, y) {
+            return;
+        }
         let Some(h) = self.hit(sh, x, y) else {
             if self.sel.take().is_some() {
                 self.invalidate();
@@ -1093,6 +1106,21 @@ impl Win {
                 self.set_scroll(target);
             }
             return;
+        }
+        let ch = if let View::Doc(d) = &self.view {
+            let (cx, _) = self.col(sh);
+            d.viewer
+                .toolbar_at(&d.content, x - cx, f64::from(y) + d.viewer.scroll)
+                .and_then(|(bi, _, it)| match it {
+                    Item::CodeToolbar { node, .. } => Some((bi, *node)),
+                    _ => None,
+                })
+        } else {
+            None
+        };
+        if ch != self.code_hover {
+            self.code_hover = ch;
+            self.invalidate();
         }
         let hover = x >= self.cw - 16.0 && self.thumb().is_some();
         if hover != self.sb.hover {
@@ -1270,6 +1298,108 @@ impl Win {
         let _ = unsafe { PostMessageW(Some(self.hwnd), WM_APP_AUTOSCROLL, WPARAM(0), LPARAM(0)) };
     }
 
+    /// Code toolbar buttons (R-CODE-02/05): copy, line numbers, wrap. True when handled.
+    fn code_click(&mut self, sh: &Shared, x: f32, y: f32) -> bool {
+        let (cx, _) = self.col(sh);
+        let View::Doc(d) = &mut self.view else {
+            return false;
+        };
+        let doc_y = f64::from(y) + d.viewer.scroll;
+        let Some((bi, kind)) = d.viewer.hot_at(&d.content, x - cx, doc_y) else {
+            return false;
+        };
+        match kind {
+            HotKind::CodeCopy { node } => {
+                let raw = d
+                    .viewer
+                    .toolbar_at(&d.content, x - cx, doc_y)
+                    .and_then(|(_, _, it)| match it {
+                        Item::CodeToolbar { raw, .. } => Some(raw.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or(0..0);
+                let text = d
+                    .content
+                    .source()
+                    .get(raw.start as usize..raw.end as usize)
+                    .unwrap_or("")
+                    .to_string();
+                if sys::copy_text(self.hwnd, &text) {
+                    self.code_copied = Some((bi, node));
+                    // SAFETY: valid hwnd; one-shot timer.
+                    unsafe { SetTimer(Some(self.hwnd), TIMER_COPIED, 1200, None) };
+                    self.toast(Msg::Copied);
+                }
+            }
+            HotKind::CodeLines { node } => {
+                let mut o = d.viewer.code_opts(bi, node);
+                o.line_numbers = !o.line_numbers;
+                d.viewer.set_code_opts(bi, node, o);
+            }
+            HotKind::CodeWrap { node } => {
+                let mut o = d.viewer.code_opts(bi, node);
+                o.wrap = !o.wrap;
+                d.viewer.set_code_opts(bi, node, o);
+            }
+        }
+        self.invalidate();
+        true
+    }
+
+    /// Draws the hovered code block's toolbar (label + buttons).
+    fn draw_code_toolbar(&self, sh: &Shared, b: &Band<'_>, d: &DocView, pal: &Palette, cx: f32) {
+        let Some((hb, hn)) = self.code_hover else {
+            return;
+        };
+        for (bi, y, bl) in d.viewer.visible(&d.content, self.view_h()) {
+            if bi != hb {
+                continue;
+            }
+            let y = y as f32;
+            for it in &bl.items {
+                let Item::CodeToolbar {
+                    node,
+                    label,
+                    label_rect,
+                    buttons,
+                    opts,
+                    ..
+                } = it
+                else {
+                    continue;
+                };
+                if *node != hn {
+                    continue;
+                }
+                if !label.is_empty() {
+                    let t = self.shape_ui(sh, label, 11.0, 400, pal.text, None);
+                    b.text(t.as_ref(), cx + label_rect.x, y + label_rect.y);
+                }
+                let copied = self.code_copied == Some((bi, *node));
+                let glyphs = [
+                    if copied { "\u{2713}" } else { "\u{2398}" },
+                    "#",
+                    "\u{21B5}",
+                ];
+                let on = [copied, opts.line_numbers, opts.wrap];
+                for ((r, g), on) in buttons.iter().zip(glyphs).zip(on) {
+                    let r = r.offset(cx, y);
+                    b.fill(r, pal.bg, 0.9, 4.0);
+                    if on {
+                        b.fill(r, pal.accent, 0.18, 4.0);
+                    }
+                    b.stroke(r, pal.code_border, 4.0, 1.0);
+                    let t = self.shape_ui(sh, g, 12.0, 400, pal.text, None);
+                    b.text(
+                        t.as_ref(),
+                        r.x + ((r.w - t.width()) / 2.0).round(),
+                        r.y + ((r.h - t.height()) / 2.0).round(),
+                    );
+                }
+            }
+        }
+    }
+
     /// Shows a toast for 4 s (B.10).
     fn toast(&mut self, m: Msg) {
         self.toast = Some(m);
@@ -1281,6 +1411,15 @@ impl Win {
     }
 
     fn timer(&mut self, sh: &Shared, id: usize) {
+        if id == TIMER_COPIED {
+            self.code_copied = None;
+            // SAFETY: valid hwnd.
+            unsafe {
+                let _ = KillTimer(Some(self.hwnd), TIMER_COPIED);
+                let _ = InvalidateRect(Some(self.hwnd), None, false);
+            }
+            return;
+        }
         if id == TIMER_TOAST {
             self.toast = None;
             // SAFETY: valid hwnd.
@@ -1439,6 +1578,8 @@ pub(crate) fn draw_doc(
                     }
                     b.text(p.shaped.as_ref(), px, y + p.y);
                 }
+                // Drawn by the window on hover (not part of static renders).
+                Item::CodeToolbar { .. } => {}
                 Item::PushClip(r) => b.push_clip(r.offset(cx, y)),
                 Item::PopClip => b.pop_clip(),
                 Item::HScrollBar(ri) => {
@@ -1944,6 +2085,8 @@ fn create_window(sh: &Shared, path: Option<&str>) {
         warm: Vec::new(),
         warm_pending: false,
         toast: None,
+        code_hover: None,
+        code_copied: None,
         hdrag: None,
         drag_dir: 0.0,
         perf: Vec::new(),
@@ -2016,6 +2159,8 @@ pub fn run(paths: &[String], dev: DevOptions) -> i32 {
             subscript_tilde: s.bool("reading.subscript_tilde"),
             smart_punctuation: s.bool("reading.smart_punctuation"),
             single_newline_break: s.bool("reading.single_newline_break"),
+            code_line_numbers: s.bool("reading.code_line_numbers"),
+            code_wrap: s.bool("reading.code_wrap"),
         },
         column_pct: s.int("typography.column_width_pct") as f32 / 100.0,
         smooth: s.bool("reading.smooth_scrolling"),
