@@ -1,6 +1,7 @@
 //! YAMDV developer tasks: `cargo xtask <ci|check-imports|size|memprobe|gen-icons>`.
 //! Dev-only; never linked into `yamdv.exe`.
 
+mod golden;
 mod icons;
 mod memprobe;
 mod pe;
@@ -196,6 +197,8 @@ fn main() -> ExitCode {
         "size" => size_cmd(rest),
         "memprobe" => memprobe_cmd(rest),
         "spec-check" => spec::check(&root()),
+        "golden" => golden::run(&root(), rest),
+        "gen-large" => golden::gen_large(&root(), rest),
         "spec-patch" => spec::patch(&root()),
         "gen-icons" => icons::generate(&root()).map(|files| {
             for f in files {
@@ -204,7 +207,7 @@ fn main() -> ExitCode {
         }),
         _ => {
             println!(
-                "usage: cargo xtask <ci | check-imports [<exe>] | size [<exe>] | memprobe <exe> [...] | gen-icons | spec-check | spec-patch>"
+                "usage: cargo xtask <ci | check-imports [<exe>] | size [<exe>] | memprobe <exe> [...] | gen-icons | spec-check | spec-patch | golden --exe <exe> [--update] | gen-large [<out>]>"
             );
             Ok(())
         }

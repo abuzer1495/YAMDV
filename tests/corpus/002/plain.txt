@@ -1,0 +1,10 @@
+Plain text mode
+===============
+
+Line breaks are preserved.
+    Leading spaces too.
+Tabs	are	kept.
+
+*Not emphasis*, # not a heading, `not code`.
+
+A long line that wraps at the column width without any Markdown interpretation whatsoever, because this is a .txt file and it should be shown exactly as written.
