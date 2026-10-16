@@ -1,0 +1,53 @@
+# cargo-deny policy (S-SUP-01, S-SUP-03, S-SUP-04).
+[graph]
+all-features = false
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+confidence-threshold = 0.93
+# The allowlist is policy; not every allowed license is in use yet.
+unused-allowed-license = "allow"
+# S-SUP-04 allowlist. Anything else needs an ADR.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "BSL-1.0",
+    "CC0-1.0",
+]
+
+[licenses.private]
+# Workspace crates are `publish = false`; they are exempt from the allowlist.
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Workspace-internal path dependencies (all inside YAMDV/) are not wildcards in practice.
+allow-wildcard-paths = true
+# S-SUP-03 banned crates (never allowed, not even transitively).
+deny = [
+    "reqwest", "hyper", "hyper-util", "h2", "h3", "ureq", "isahc", "curl", "curl-sys", "surf",
+    "attohttpc", "minreq", "tokio", "async-std", "smol", "mio", "socket2", "native-tls", "openssl",
+    "openssl-sys", "rustls", "webpki", "webpki-roots", "quinn", "tungstenite", "tokio-tungstenite",
+    "websocket", "lettre", "trust-dns-resolver", "hickory-resolver", "wry", "tao", "tauri",
+    "webview2", "webview2-com", "winit", "egui", "eframe", "iced", "slint", "druid", "gtk", "glib",
+    "fltk", "wgpu", "glutin", "sdl2", "skia-safe", "rquickjs", "quick-js", "boa_engine", "v8",
+    "deno_core", "mlua", "rlua", "pyo3", "libloading",
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
