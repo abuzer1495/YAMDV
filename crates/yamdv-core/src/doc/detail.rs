@@ -146,6 +146,10 @@ pub mod style {
     pub const FOOTREF: u16 = 1 << 9;
     /// Inline math source (PHASE-003).
     pub const MATH: u16 = 1 << 10;
+    /// `==highlight==` (R-MD-05).
+    pub const HIGHLIGHT: u16 = 1 << 11;
+    /// GFM autolink literal (R-MD-03); always together with [`LINK`].
+    pub const AUTOLINK: u16 = 1 << 12;
 }
 
 /// Inline run kind.
@@ -366,6 +370,34 @@ impl Builder<'_> {
         }
     }
 
+    /// Text event through the inline extension pass (§4.7). Only verbatim text (no escapes or
+    /// entities) is split, so every piece maps to an exact source range.
+    fn text(&mut self, r: &Range<usize>, t: &str) {
+        let a = self.abs(r);
+        let verbatim = self.source.get(a.start as usize..a.end as usize) == Some(t);
+        let cur = self.style.last().copied().unwrap_or(0);
+        if !verbatim || cur & style::CODE != 0 || self.image.is_some() {
+            self.run(RunKind::Text, r, t, 0);
+            return;
+        }
+        let ps = super::inline::pieces(t, cur & style::LINK != 0);
+        if ps.len() == 1
+            && ps
+                .first()
+                .is_some_and(|p| p.extra == 0 && p.display.is_none())
+        {
+            self.run(RunKind::Text, r, t, 0);
+            return;
+        }
+        for p in ps {
+            let pr = r.start + p.range.start..r.start + p.range.end;
+            let shown = p
+                .display
+                .unwrap_or_else(|| t.get(p.range.clone()).unwrap_or(""));
+            self.run(RunKind::Text, &pr, shown, p.extra);
+        }
+    }
+
     fn with_style(&mut self, f: u16) {
         let s = self.style.last().copied().unwrap_or(0) | f;
         self.style.push(s);
@@ -559,7 +591,7 @@ impl Detail {
                         b.style.pop();
                     }
                 },
-                Event::Text(t) => b.run(RunKind::Text, &r, &t, 0),
+                Event::Text(t) => b.text(&r, &t),
                 Event::Code(t) => b.run(RunKind::Text, &r, &t, style::CODE),
                 Event::InlineMath(t) | Event::DisplayMath(t) => {
                     b.run(RunKind::Text, &r, &t, style::CODE | style::MATH)

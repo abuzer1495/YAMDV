@@ -477,6 +477,13 @@ pub(crate) fn spans(segs: &[Seg], b: &Style, m: &Metrics, pal: &Palette) -> Vec<
         if f & st::IMAGE != 0 {
             t.italic = true;
         }
+        if f & (st::SUP | st::SUB) != 0 {
+            // R-MD-06: 0.75 em. PARTIAL: no baseline shift until inline objects (§4.1.3).
+            t.size = b.size * 0.75;
+        }
+        if f & st::HIGHLIGHT != 0 && pal.highlight_text != 0 {
+            t.color = pal.highlight_text;
+        }
         if f & st::FOOTREF != 0 {
             // PHASE-003: superscript-styled footnote reference without navigation.
             t.color = pal.link;
@@ -584,6 +591,18 @@ pub(crate) fn leaf_aligned(
     // B.6.3: inline code background, padding 0.15 em × 0.4 em, radius 4 — drawn before the text.
     // The horizontal padding is part of the shaped advance (character spacing, F-13/P-21), so the
     // background is exactly the range rectangle and never overlaps neighbouring glyphs.
+    // R-MD-05: highlight background (radius 2), behind the text like inline code.
+    for (s, seg) in sp.iter().zip(pt.segs.iter().filter(|g| g.style != 0)) {
+        if seg.style & st::HIGHLIGHT != 0 {
+            for r in shaped.range_rects(s.range.clone()) {
+                out.items.push(Item::Fill {
+                    rect: Rect::new(x + r.x, y + r.y, r.w, r.h),
+                    color: ctx.pal.highlight_bg,
+                    radius: 2.0,
+                });
+            }
+        }
+    }
     for s in &sp {
         if s.style.family == Family::Code {
             let em = s.style.size / 0.875;
