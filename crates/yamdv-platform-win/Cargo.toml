@@ -18,6 +18,7 @@ mem-stats = []
 yamdv-core = { path = "../yamdv-core" }
 yamdv-layout = { path = "../yamdv-layout" }
 yamdv-ui = { path = "../yamdv-ui" }
+yamdv-export = { path = "../yamdv-export" }
 
 [target.'cfg(windows)'.dependencies]
 tiny-skia = { workspace = true }

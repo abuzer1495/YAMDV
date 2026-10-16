@@ -485,6 +485,9 @@ version = "0.1.0"
 [[package]]
 name = "yamdv-export"
 version = "0.1.0"
+dependencies = [
+ "yamdv-core",
+]
 
 [[package]]
 name = "yamdv-highlight"
@@ -517,6 +520,7 @@ dependencies = [
  "windows-core",
  "windows-numerics",
  "yamdv-core",
+ "yamdv-export",
  "yamdv-layout",
  "yamdv-ui",
 ]

@@ -76,6 +76,12 @@ pub fn stat(long: &str) -> std::io::Result<(FileInfo, bool)> {
 
 /// Puts `text` on the clipboard as `CF_UNICODETEXT`.
 pub fn copy_text(hwnd: HWND, text: &str) -> bool {
+    copy_text_html(hwnd, text, None)
+}
+
+/// Copies plain text and, when given, a `CF_HTML` document (§4.9, R-REN-16).
+pub fn copy_text_html(hwnd: HWND, text: &str, cf_html: Option<&str>) -> bool {
+    use windows::Win32::System::DataExchange::RegisterClipboardFormatW;
     let w: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
     let bytes = w.len() * 2;
     // SAFETY: standard clipboard sequence; the global memory is owned by the clipboard after a
@@ -97,6 +103,25 @@ pub fn copy_text(hwnd: HWND, text: &str) -> bool {
             if SetClipboardData(u32::from(CF_UNICODETEXT.0), Some(HANDLE(h.0))).is_err() {
                 let _ = GlobalFree(Some(HGLOBAL(h.0)));
                 return None;
+            }
+            if let Some(html) = cf_html {
+                let fmt = RegisterClipboardFormatW(windows::core::w!("HTML Format"));
+                let bytes = html.as_bytes();
+                if fmt != 0
+                    && let Ok(h) = GlobalAlloc(GMEM_MOVEABLE, bytes.len() + 1)
+                {
+                    let p = GlobalLock(h);
+                    if p.is_null() {
+                        let _ = GlobalFree(Some(h));
+                    } else {
+                        std::ptr::copy_nonoverlapping(bytes.as_ptr(), p.cast::<u8>(), bytes.len());
+                        *p.cast::<u8>().add(bytes.len()) = 0;
+                        let _ = GlobalUnlock(h);
+                        if SetClipboardData(fmt, Some(HANDLE(h.0))).is_err() {
+                            let _ = GlobalFree(Some(HGLOBAL(h.0)));
+                        }
+                    }
+                }
             }
             Some(())
         })()

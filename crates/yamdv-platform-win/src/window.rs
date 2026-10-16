@@ -915,6 +915,30 @@ impl Win {
             return;
         }
         let text = d.content.copy_text(a..b);
+        let html = match &d.content {
+            Content::Markdown(doc) => Some(yamdv_export::html::cf_html(
+                &yamdv_export::html::fragment(doc, a..b),
+            )),
+            Content::Plain { .. } => None,
+        };
+        sys::copy_text_html(self.hwnd, &text, html.as_deref());
+    }
+
+    /// `Ctrl+Shift+C` → Copy as Markdown: the source slice expanded to whole constructs.
+    fn copy_markdown(&self) {
+        let (View::Doc(d), Some((a, b))) = (&self.view, self.sel) else {
+            return;
+        };
+        let (a, b) = (a.min(b), a.max(b));
+        if a == b {
+            return;
+        }
+        let text = match &d.content {
+            Content::Markdown(doc) => yamdv_export::html::markdown_slice(doc, a..b),
+            Content::Plain { text, .. } => {
+                text.get(a as usize..b as usize).unwrap_or("").to_string()
+            }
+        };
         sys::copy_text(self.hwnd, &text);
     }
 
@@ -1225,6 +1249,7 @@ impl Win {
                     self.invalidate();
                 }
             }
+            v if ctrl && shift && v == u16::from(b'C') => self.copy_markdown(),
             v if ctrl && v == u16::from(b'C') => self.copy(),
             v if v == VK_UP.0 => self.scroll_by(sh, -LINE_STEP, true),
             v if v == VK_DOWN.0 => self.scroll_by(sh, LINE_STEP, true),
