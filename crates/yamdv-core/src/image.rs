@@ -71,6 +71,8 @@ pub enum Placeholder {
     Unsupported,
     /// Malformed `data:` URI or empty source.
     Invalid,
+    /// P-27: device name, alternate data stream or NUL — the file system is never touched.
+    InvalidPath,
 }
 
 impl Placeholder {
@@ -83,6 +85,7 @@ impl Placeholder {
             Self::TooLarge => "Image too large",
             Self::Unsupported => "Unsupported image format",
             Self::Invalid => "Invalid image source",
+            Self::InvalidPath => "Invalid image path",
         }
     }
 }
@@ -181,6 +184,10 @@ pub fn resolve(src: &str, doc_path: &str) -> Result<Source, Placeholder> {
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c))
         {
+            // `name.ext:stream` is an alternate data stream, not a scheme (P-27).
+            if scheme.contains('.') {
+                return Err(Placeholder::InvalidPath);
+            }
             return Err(Placeholder::Remote);
         }
         percent_decode(src)
@@ -188,7 +195,7 @@ pub fn resolve(src: &str, doc_path: &str) -> Result<Source, Placeholder> {
         percent_decode(src)
     };
     if path.contains('\0') {
-        return Err(Placeholder::Invalid);
+        return Err(Placeholder::InvalidPath);
     }
     let path: String = path
         .chars()
@@ -200,7 +207,7 @@ pub fn resolve(src: &str, doc_path: &str) -> Result<Source, Placeholder> {
         return Err(Placeholder::Network);
     }
     if pl.starts_with("\\\\?\\") || pl.starts_with("\\\\.\\") || pl.starts_with("\\??\\") {
-        return Err(Placeholder::Network);
+        return Err(Placeholder::InvalidPath);
     }
     if path.starts_with("\\\\") {
         return check_unc(&path, doc_path);
@@ -229,12 +236,32 @@ pub fn resolve(src: &str, doc_path: &str) -> Result<Source, Placeholder> {
     let n = normalize(&abs, rl);
     // ADS: a colon after the drive letter (file.png:stream).
     if n[2..].contains(':') {
-        return Err(Placeholder::Network);
+        return Err(Placeholder::InvalidPath);
+    }
+    if n.split('\\').any(is_device_name) {
+        return Err(Placeholder::InvalidPath);
     }
     if n.starts_with("\\\\") {
         return check_unc(&n, doc_path);
     }
     Ok(Source::File(n))
+}
+
+/// DOS device names (`CON`, `NUL`, `COM1`, `lpt9.png`, …) in any path component.
+fn is_device_name(c: &str) -> bool {
+    let stem = c
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end()
+        .to_ascii_uppercase();
+    matches!(
+        stem.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) || (stem.len() == 4
+        && (stem.starts_with("COM") || stem.starts_with("LPT"))
+        && stem.as_bytes()[3].is_ascii_digit()
+        && stem.as_bytes()[3] != b'0')
 }
 
 fn check_unc(path: &str, doc_path: &str) -> Result<Source, Placeholder> {
@@ -756,11 +783,50 @@ mod tests {
             let mut m = Mock::default();
             let r = resolve_policy(s, DOC, &mut m);
             assert!(
-                matches!(r, Err(Placeholder::Network | Placeholder::Remote)),
+                matches!(
+                    r,
+                    Err(Placeholder::Network | Placeholder::Remote | Placeholder::InvalidPath)
+                ),
                 "{s}: {r:?}"
             );
             assert!(m.calls.is_empty(), "{s}: fs touched {:?}", m.calls);
         }
+    }
+
+    /// P-27: device names, ADS and NUL are *invalid path* and never touch the file system.
+    #[test]
+    fn p27_invalid_path_never_touches_fs() {
+        for s in [
+            "\\\\?\\C:\\a.png",
+            "\\\\.\\C:\\a.png",
+            "\\??\\C:\\a.png",
+            "\\\\.\\pipe\\x",
+            "a.png:Zone.Identifier",
+            "C:\\x\\a.png:ads",
+            "a%00.png",
+            "CON",
+            "nul.png",
+            "sub/COM1.jpg",
+            "LPT9",
+        ] {
+            let mut m = Mock::default();
+            assert_eq!(
+                resolve_policy(s, DOC, &mut m),
+                Err(Placeholder::InvalidPath),
+                "{s}"
+            );
+            assert!(m.calls.is_empty(), "{s}");
+        }
+        assert_eq!(Placeholder::InvalidPath.message(), "Invalid image path");
+        let mut m = Mock::default();
+        assert_eq!(
+            resolve_policy("COM0.png", DOC, &mut m),
+            Err(Placeholder::Missing)
+        );
+        assert_eq!(
+            resolve_policy("console.png", DOC, &mut m),
+            Err(Placeholder::Missing)
+        );
     }
 
     #[test]
