@@ -284,6 +284,7 @@ fn pipeline(src: &str, check: bool) -> (usize, usize) {
             }
         }
         let mut ctx = Ctx {
+            images: &yamdv_layout::img::NO_IMAGES,
             shaper: &mut shaper,
             m: Metrics::default(),
             pal: &pal,

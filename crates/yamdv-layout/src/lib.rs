@@ -10,6 +10,7 @@ pub mod code;
 pub mod fenwick;
 pub mod front;
 pub mod geom;
+pub mod img;
 pub mod plain;
 pub mod shaper;
 pub mod table;

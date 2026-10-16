@@ -958,6 +958,7 @@ impl Win {
             let strings = I18nStrings(sh.lang);
             let mut shaper = DwShaper(&sh.dw);
             let mut env = Env {
+                images: &yamdv_layout::img::NO_IMAGES,
                 shaper: &mut shaper,
                 m: sh.m,
                 pal: &self.pal,
@@ -1680,6 +1681,7 @@ impl Win {
             let strings = I18nStrings(sh.lang);
             let mut shaper = DwShaper(&sh.dw);
             let mut env = Env {
+                images: &yamdv_layout::img::NO_IMAGES,
                 shaper: &mut shaper,
                 m: sh.m,
                 pal: &self.pal,

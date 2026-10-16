@@ -95,6 +95,7 @@ pub fn render_png(o: &RenderPng) -> i32 {
     let mut total = viewer.total_height();
     for _ in 0..16 {
         let mut env = Env {
+            images: &yamdv_layout::img::NO_IMAGES,
             shaper: &mut shaper,
             m,
             pal: &pal,
