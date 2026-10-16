@@ -13,10 +13,10 @@
     clippy::indexing_slicing
 )]
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use tiny_skia::{
-    Color, FillRule, GradientStop, LinearGradient, Paint, PathBuilder, PixmapMut, Point,
+    Color, FillRule, GradientStop, LinearGradient, Mask, Paint, PathBuilder, PixmapMut, Point,
     SpreadMode, Stroke, Transform,
 };
 use windows::Win32::Foundation::{COLORREF, DWRITE_E_NOCOLOR, HWND, RECT};
@@ -395,6 +395,7 @@ impl Renderer {
                 scale: self.scale,
                 gdi: Cell::new(false),
                 text_color,
+                clips: RefCell::new(Vec::new()),
             };
             draw(&band);
             band.cpu_begin();
@@ -441,6 +442,7 @@ impl Renderer {
                 scale: self.scale,
                 gdi: Cell::new(false),
                 text_color,
+                clips: RefCell::new(Vec::new()),
             };
             draw(&band);
             band.cpu_begin();
@@ -469,9 +471,51 @@ pub struct Band<'a> {
     pub scale: f32,
     gdi: Cell<bool>,
     text_color: u32,
+    /// Clip stack (P-19): effective clip rectangle (client DIPs) and its band mask.
+    clips: RefCell<Vec<(Rect, Option<Mask>)>>,
 }
 
 impl Band<'_> {
+    /// Pushes a clip rectangle (intersected with the current clip). Everything drawn until the
+    /// matching [`Band::pop_clip`] — shapes, glyph runs, images — stays inside it.
+    pub fn push_clip(&self, r: Rect) {
+        let eff = match self.clip() {
+            Some(c) => c.intersect(&r),
+            None => r,
+        };
+        let mut mask = Mask::new(self.w as u32, self.h as u32);
+        if let Some(m) = mask.as_mut()
+            && let Some(rc) =
+                tiny_skia::Rect::from_xywh(eff.x, eff.y, eff.w.max(0.0), eff.h.max(0.0))
+        {
+            let t =
+                Transform::from_row(self.scale, 0.0, 0.0, self.scale, 0.0, -(self.top_px as f32));
+            m.fill_path(&PathBuilder::from_rect(rc), FillRule::Winding, false, t);
+        }
+        self.clips.borrow_mut().push((eff, mask));
+    }
+
+    /// Pops the innermost clip.
+    pub fn pop_clip(&self) {
+        self.clips.borrow_mut().pop();
+    }
+
+    /// Current effective clip (client DIPs).
+    pub fn clip(&self) -> Option<Rect> {
+        self.clips.borrow().last().map(|c| c.0)
+    }
+
+    /// False when `r` lies completely outside the current clip.
+    fn clip_allows(&self, r: &Rect) -> bool {
+        self.clip().is_none_or(|c| c.overlaps(r))
+    }
+
+    /// Runs a tiny-skia draw with the current clip mask (if any).
+    fn with_clipped(&self, f: impl FnOnce(&mut PixmapMut<'_>, Transform, Option<&Mask>)) {
+        let clips = self.clips.borrow();
+        let mask = clips.last().and_then(|c| c.1.as_ref());
+        self.with_pixmap(|pm, t| f(pm, t, mask));
+    }
     /// DIP range covered by this band.
     pub fn dip_range(&self) -> (f32, f32) {
         (
@@ -523,24 +567,24 @@ impl Band<'_> {
 
     /// Fills a (rounded) rectangle.
     pub fn fill(&self, r: Rect, color: u32, alpha: f32, radius: f32) {
-        if !self.visible(r.y, r.h) || r.w <= 0.0 || r.h <= 0.0 {
+        if !self.visible(r.y, r.h) || r.w <= 0.0 || r.h <= 0.0 || !self.clip_allows(&r) {
             return;
         }
-        self.with_pixmap(|pm, t| {
+        self.with_clipped(|pm, t, m| {
             if let Some(rc) = tiny_skia::Rect::from_xywh(r.x, r.y, r.w, r.h)
                 && let Some(p) = rounded(rc, radius)
             {
-                pm.fill_path(&p, &paint(color, alpha), FillRule::Winding, t, None);
+                pm.fill_path(&p, &paint(color, alpha), FillRule::Winding, t, m);
             }
         });
     }
 
     /// Strokes a (rounded) rectangle with a line of `width` DIPs inside its bounds.
     pub fn stroke(&self, r: Rect, color: u32, radius: f32, width: f32) {
-        if !self.visible(r.y, r.h) {
+        if !self.visible(r.y, r.h) || !self.clip_allows(&r) {
             return;
         }
-        self.with_pixmap(|pm, t| {
+        self.with_clipped(|pm, t, m| {
             let half = width / 2.0;
             if let Some(rc) =
                 tiny_skia::Rect::from_xywh(r.x + half, r.y + half, r.w - width, r.h - width)
@@ -554,7 +598,7 @@ impl Band<'_> {
                         ..Default::default()
                     },
                     t,
-                    None,
+                    m,
                 );
             }
         });
@@ -562,13 +606,15 @@ impl Band<'_> {
 
     /// Filled circle or ring.
     pub fn circle(&self, cx: f32, cy: f32, r: f32, color: u32, ring: Option<f32>) {
-        if !self.visible(cy - r, 2.0 * r) {
+        if !self.visible(cy - r, 2.0 * r)
+            || !self.clip_allows(&Rect::new(cx - r, cy - r, 2.0 * r, 2.0 * r))
+        {
             return;
         }
-        self.with_pixmap(|pm, t| match ring {
+        self.with_clipped(|pm, t, m| match ring {
             None => {
                 if let Some(p) = PathBuilder::from_circle(cx, cy, r) {
-                    pm.fill_path(&p, &paint(color, 1.0), FillRule::Winding, t, None);
+                    pm.fill_path(&p, &paint(color, 1.0), FillRule::Winding, t, m);
                 }
             }
             Some(w) => {
@@ -581,7 +627,7 @@ impl Band<'_> {
                             ..Default::default()
                         },
                         t,
-                        None,
+                        m,
                     );
                 }
             }
@@ -590,10 +636,10 @@ impl Band<'_> {
 
     /// Horizontal fade from transparent to `color` (left → right).
     pub fn fade_right(&self, r: Rect, color: u32) {
-        if !self.visible(r.y, r.h) {
+        if !self.visible(r.y, r.h) || !self.clip_allows(&r) {
             return;
         }
-        self.with_pixmap(|pm, t| {
+        self.with_clipped(|pm, t, m| {
             let Some(shader) = LinearGradient::new(
                 Point::from_xy(r.x, 0.0),
                 Point::from_xy(r.x + r.w, 0.0),
@@ -612,7 +658,7 @@ impl Band<'_> {
                 ..Default::default()
             };
             if let Some(rc) = tiny_skia::Rect::from_xywh(r.x, r.y, r.w, r.h) {
-                pm.fill_rect(rc, &p, t, None);
+                pm.fill_rect(rc, &p, t, m);
             }
         });
     }
@@ -629,6 +675,48 @@ impl Band<'_> {
         if !self.visible(y, shaped.height()) {
             return;
         }
+        let bbox = Rect::new(x, y, shaped.width(), shaped.height());
+        match self.clip() {
+            Some(c) if !c.overlaps(&bbox) => {}
+            // Glyph runs are rasterized by DirectWrite straight into the DIB, which ignores GDI
+            // clip regions: save the band rows, draw, and restore every pixel outside the clip.
+            Some(c) if !c.contains_rect(&bbox) => {
+                self.clipped_px(c, || self.text_raw(shaped, x, y))
+            }
+            _ => self.text_raw(shaped, x, y),
+        }
+    }
+
+    /// Runs `draw`, then restores all band pixels outside `clip` (client DIPs) to their prior
+    /// values. The saved copy is at most one band (≤ 512 KiB, P-12).
+    fn clipped_px(&self, clip: Rect, draw: impl FnOnce()) {
+        self.cpu_begin();
+        let stride = self.w as usize * 4;
+        let rows = self.rows.max(0) as usize;
+        let len = stride * rows;
+        // SAFETY: the DIB holds ≥ `rows` rows of `stride` bytes; GDI work was flushed above.
+        let saved = unsafe { std::slice::from_raw_parts(self.bits, len) }.to_vec();
+        draw();
+        self.cpu_begin();
+        let s = self.scale;
+        let x0 = ((clip.x * s).floor().max(0.0) as usize).min(self.w as usize);
+        let x1 = ((clip.right() * s).ceil().max(0.0) as usize).min(self.w as usize);
+        let y0 = ((clip.y * s).floor() - self.top_px as f32).clamp(0.0, rows as f32) as usize;
+        let y1 = ((clip.bottom() * s).ceil() - self.top_px as f32).clamp(0.0, rows as f32) as usize;
+        // SAFETY: as above; no other reference to the bits exists here.
+        let buf = unsafe { std::slice::from_raw_parts_mut(self.bits, len) };
+        for row in 0..rows {
+            let a = row * stride;
+            if row < y0 || row >= y1 || x0 >= x1 {
+                buf[a..a + stride].copy_from_slice(&saved[a..a + stride]);
+            } else {
+                buf[a..a + x0 * 4].copy_from_slice(&saved[a..a + x0 * 4]);
+                buf[a + x1 * 4..a + stride].copy_from_slice(&saved[a + x1 * 4..a + stride]);
+            }
+        }
+    }
+
+    fn text_raw(&self, shaped: &dyn Shaped, x: f32, y: f32) {
         let Some(dw) = shaped.as_any().downcast_ref::<DwShaped>() else {
             return;
         };

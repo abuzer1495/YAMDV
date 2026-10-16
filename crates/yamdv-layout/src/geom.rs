@@ -29,6 +29,22 @@ impl Rect {
         self.y + self.h
     }
 
+    /// Intersection (empty rectangles have zero width/height).
+    pub fn intersect(&self, o: &Self) -> Self {
+        let x = self.x.max(o.x);
+        let y = self.y.max(o.y);
+        let r = self.right().min(o.right());
+        let b = self.bottom().min(o.bottom());
+        Self::new(x, y, (r - x).max(0.0), (b - y).max(0.0))
+    }
+    /// Does `o` lie completely inside?
+    pub fn contains_rect(&self, o: &Self) -> bool {
+        o.x >= self.x && o.y >= self.y && o.right() <= self.right() && o.bottom() <= self.bottom()
+    }
+    /// Do the rectangles overlap?
+    pub fn overlaps(&self, o: &Self) -> bool {
+        self.x < o.right() && o.x < self.right() && self.y < o.bottom() && o.y < self.bottom()
+    }
     /// Translated copy.
     pub fn offset(&self, dx: f32, dy: f32) -> Self {
         Self {

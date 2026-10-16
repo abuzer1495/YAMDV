@@ -55,7 +55,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, QS_ALLINPUT,
-    SetForegroundWindow, WM_COPYDATA, WM_QUIT, WaitMessage,
+    SetForegroundWindow, WM_COPYDATA, WM_MOUSEHWHEEL, WM_QUIT, WaitMessage,
 };
 use windows::core::{HSTRING, PCWSTR, w};
 use yamdv_core::decode::{self, Guard};
@@ -256,6 +256,8 @@ struct Win {
     warm: Vec<yamdv_layout::warm::WarmTask>,
     warm_pending: bool,
     toast: Option<Msg>,
+    /// Code scrollbar drag: (block, region, grab x, offset at grab).
+    hdrag: Option<(usize, u16, f32, f32)>,
     drag_dir: f64,
     perf: Vec<f64>,
     auto_phase: u8,
@@ -977,6 +979,24 @@ impl Win {
             self.invalidate_scrollbar();
             return;
         }
+        if let View::Doc(d) = &self.view {
+            let (cx, _) = self.col(sh);
+            let doc_y = f64::from(y) + d.viewer.scroll;
+            if let Some((bi, r, top)) = d.viewer.region_at(&d.content, x - cx, doc_y)
+                && let Some(g) = d
+                    .viewer
+                    .layout_of(bi)
+                    .and_then(|l| l.regions.get(usize::from(r)))
+            {
+                let ly = (doc_y - top) as f32;
+                if ly >= g.track.y - 4.0 && ly < g.track.bottom() + 4.0 {
+                    self.hdrag = Some((bi, r, x, d.viewer.hscroll(bi, r)));
+                    // SAFETY: valid hwnd.
+                    unsafe { SetCapture(self.hwnd) };
+                    return;
+                }
+            }
+        }
         let Some(h) = self.hit(sh, x, y) else {
             if self.sel.take().is_some() {
                 self.invalidate();
@@ -1049,6 +1069,20 @@ impl Win {
             }
             return;
         }
+        if let Some((bi, r, gx, off)) = self.hdrag {
+            if let View::Doc(d) = &mut self.view
+                && let Some(g) = d
+                    .viewer
+                    .layout_of(bi)
+                    .and_then(|l| l.regions.get(usize::from(r)))
+            {
+                let k = g.content_w / g.track.w.max(1.0);
+                if d.viewer.set_hscroll(bi, r, off + (x - gx) * k) {
+                    self.invalidate();
+                }
+            }
+            return;
+        }
         if let Some(grab) = self.sb.drag {
             let vh = self.view_h();
             if let (View::Doc(dv), Some(t)) = (&self.view, self.thumb()) {
@@ -1091,6 +1125,10 @@ impl Win {
     }
 
     fn mouse_up(&mut self) {
+        if self.hdrag.take().is_some() {
+            // SAFETY: capture release.
+            let _ = unsafe { ReleaseCapture() };
+        }
         if self.selecting || self.sb.drag.is_some() {
             self.selecting = false;
             self.sb.drag = None;
@@ -1113,6 +1151,47 @@ impl Win {
         // Precision touchpads send fractional notches: apply directly, no animation.
         let notch = delta % 120 == 0;
         self.scroll_by(sh, d, notch);
+    }
+
+    /// Horizontal scroll of the code region under the cursor (R-CODE-03): `Shift+Wheel`,
+    /// `WM_MOUSEHWHEEL` and touchpad deltas. Positive `delta` scrolls right. Only the region
+    /// repaints. Returns false when no region is under the cursor.
+    fn hwheel(&mut self, sh: &Shared, delta: i16, sx: i32, sy: i32) -> bool {
+        if self.dialog.is_some() {
+            return false;
+        }
+        let mut pt = POINT { x: sx, y: sy };
+        // SAFETY: valid hwnd and point.
+        let _ = unsafe { ScreenToClient(self.hwnd, &mut pt) };
+        let (x, y) = (pt.x as f32 / self.scale, pt.y as f32 / self.scale);
+        let (cx, _) = self.col(sh);
+        let View::Doc(d) = &mut self.view else {
+            return false;
+        };
+        let doc_y = f64::from(y) + d.viewer.scroll;
+        let Some((bi, r, top)) = d.viewer.region_at(&d.content, x - cx, doc_y) else {
+            return false;
+        };
+        let step = f32::from(delta) / 120.0 * 3.0 * LINE_STEP as f32;
+        let cur = d.viewer.hscroll(bi, r);
+        if d.viewer.set_hscroll(bi, r, cur + step)
+            && let Some(g) = d
+                .viewer
+                .layout_of(bi)
+                .and_then(|l| l.regions.get(usize::from(r)))
+        {
+            let ty = (top - d.viewer.scroll) as f32;
+            let s = self.scale;
+            let rc = RECT {
+                left: ((cx + g.view.x) * s).floor() as i32,
+                top: ((ty + g.view.y) * s).floor() as i32,
+                right: ((cx + g.view.right()) * s).ceil() as i32,
+                bottom: ((ty + g.track.bottom() + 2.0) * s).ceil() as i32,
+            };
+            // SAFETY: valid hwnd and rect.
+            let _ = unsafe { InvalidateRect(Some(self.hwnd), Some(&rc), false) };
+        }
+        true
     }
 
     fn drop_files(&mut self, sh: &Shared, hdrop: HDROP) -> Vec<Action> {
@@ -1309,11 +1388,18 @@ pub(crate) fn draw_doc(
     vh: f64,
 ) {
     let sel_alpha = f32::from(pal.selection_alpha_pct) / 100.0;
-    for (_, y, bl) in viewer.visible(content, vh) {
+    for (bi, y, bl) in viewer.visible(content, vh) {
         let y = y as f32;
         if !b.visible(y, bl.height.max(1.0)) {
             continue;
         }
+        let off = |r: u16| {
+            let max = bl
+                .regions
+                .get(usize::from(r))
+                .map_or(0.0, |g| g.max_scroll());
+            viewer.hscroll(bi, r).min(max)
+        };
         for it in &bl.items {
             match it {
                 Item::Fill {
@@ -1345,12 +1431,23 @@ pub(crate) fn draw_doc(
                 Item::FadeRight { rect, color } => b.fade_right(rect.offset(cx, y), *color),
                 Item::Para(i) => {
                     let Some(p) = bl.paras.get(*i) else { continue };
+                    let px = cx + p.x - p.hscroll.map_or(0.0, off);
                     if let Some(s) = &sel {
                         for r in viewer::selection_rects(p, s) {
-                            b.fill(r.offset(cx + p.x, y + p.y), pal.accent, sel_alpha, 0.0);
+                            b.fill(r.offset(px, y + p.y), pal.accent, sel_alpha, 0.0);
                         }
                     }
-                    b.text(p.shaped.as_ref(), cx + p.x, y + p.y);
+                    b.text(p.shaped.as_ref(), px, y + p.y);
+                }
+                Item::PushClip(r) => b.push_clip(r.offset(cx, y)),
+                Item::PopClip => b.pop_clip(),
+                Item::HScrollBar(ri) => {
+                    let Some(g) = bl.regions.get(*ri) else {
+                        continue;
+                    };
+                    let o = off(u16::try_from(*ri).unwrap_or(0));
+                    b.fill(g.track.offset(cx, y), pal.text, 0.08, 3.0);
+                    b.fill(g.thumb(o).offset(cx, y), pal.text, 0.35, 3.0);
                 }
             }
         }
@@ -1473,7 +1570,23 @@ fn handle(
         }
         WM_MOUSEWHEEL => {
             let delta = ((wp.0 >> 16) & 0xFFFF) as u16 as i16;
-            w.wheel(sh, delta);
+            let shift = wp.0 & 0x0004 != 0; // MK_SHIFT
+            let (sx, sy) = (
+                i32::from(lp.0 as u16 as i16),
+                i32::from((lp.0 >> 16) as u16 as i16),
+            );
+            if !(shift && w.hwheel(sh, -delta, sx, sy)) {
+                w.wheel(sh, delta);
+            }
+            Some(LRESULT(0))
+        }
+        WM_MOUSEHWHEEL => {
+            let delta = ((wp.0 >> 16) & 0xFFFF) as u16 as i16;
+            let (sx, sy) = (
+                i32::from(lp.0 as u16 as i16),
+                i32::from((lp.0 >> 16) as u16 as i16),
+            );
+            w.hwheel(sh, delta, sx, sy);
             Some(LRESULT(0))
         }
         WM_LBUTTONDOWN => {
@@ -1831,6 +1944,7 @@ fn create_window(sh: &Shared, path: Option<&str>) {
         warm: Vec::new(),
         warm_pending: false,
         toast: None,
+        hdrag: None,
         drag_dir: 0.0,
         perf: Vec::new(),
         auto_phase: 0,

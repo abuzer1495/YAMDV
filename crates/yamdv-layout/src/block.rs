@@ -72,8 +72,6 @@ pub const CODE_PAD_TOP: f32 = 16.0;
 pub const CODE_PAD_X: f32 = 32.0;
 /// Bottom code padding.
 pub const CODE_PAD_BOTTOM: f32 = 16.0;
-/// Right-edge fade width for overflowing code (PHASE-003: horizontal scrolling).
-pub const CODE_FADE: f32 = 24.0;
 
 /// Bullet shape by depth (B.6.4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,6 +127,12 @@ pub enum Item {
     },
     /// Paragraph `paras[i]`.
     Para(usize),
+    /// Push a clip rectangle (P-19).
+    PushClip(Rect),
+    /// Pop the innermost clip.
+    PopClip,
+    /// Scrollbar of region `regions[i]` (drawn with the current offset).
+    HScrollBar(usize),
 }
 
 /// A shaped paragraph placed in the block.
@@ -142,8 +146,41 @@ pub struct LaidPara {
     pub shaped: Box<dyn Shaped>,
     /// Source mapping (`None` for decorations such as list numbers and labels).
     pub map: Option<ParaText>,
-    /// Clip rectangle (code blocks).
-    pub clip: Option<Rect>,
+    /// Horizontal scroll region of the block this paragraph scrolls with (code blocks).
+    pub hscroll: Option<u16>,
+}
+
+/// A horizontally scrollable region of a block (R-CODE-03, B.6.7).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HRegion {
+    /// Visible area (block coordinates); content is clipped to it.
+    pub view: Rect,
+    /// Content width.
+    pub content_w: f32,
+    /// Scrollbar track (block coordinates), 6 px tall.
+    pub track: Rect,
+}
+
+impl HRegion {
+    /// Maximum scroll offset.
+    pub fn max_scroll(&self) -> f32 {
+        (self.content_w - self.view.w).max(0.0)
+    }
+    /// Scrollbar thumb for an offset (block coordinates).
+    pub fn thumb(&self, off: f32) -> Rect {
+        let t = self.track;
+        if self.content_w <= 0.0 {
+            return t;
+        }
+        let w = (t.w * self.view.w / self.content_w).clamp(24.0_f32.min(t.w), t.w);
+        let max = self.max_scroll();
+        let x = if max > 0.0 {
+            t.x + (t.w - w) * (off / max).clamp(0.0, 1.0)
+        } else {
+            t.x
+        };
+        Rect::new(x, t.y, w, t.h)
+    }
 }
 
 /// Layout of one top-level block.
@@ -155,6 +192,8 @@ pub struct BlockLayout {
     pub items: Vec<Item>,
     /// Paragraphs.
     pub paras: Vec<LaidPara>,
+    /// Horizontal scroll regions.
+    pub regions: Vec<HRegion>,
 }
 
 /// Localized strings layout needs.
@@ -236,9 +275,6 @@ pub fn gap_before(blocks: &[Block], i: usize, m: &Metrics) -> f32 {
         Some(prev) => mt.max(margins(prev.kind, m).1),
     }
 }
-
-/// Width of the page-background mask right of an overflowing code card (covers any window width).
-pub const OVERFLOW_MASK_W: f32 = 16_384.0;
 
 /// Height estimate of a not-yet-laid-out block (§4.4.4, documented in ADR-0007):
 /// text blocks `max(lines, ceil(half_ems × 0.5 em / width)) × pitch`; code and placeholders
@@ -330,6 +366,7 @@ fn spans(segs: &[Seg], b: &Style, m: &Metrics, pal: &Palette) -> Vec<Span> {
 struct Out {
     items: Vec<Item>,
     paras: Vec<LaidPara>,
+    regions: Vec<HRegion>,
 }
 
 impl Out {
@@ -339,7 +376,7 @@ impl Out {
         y: f32,
         shaped: Box<dyn Shaped>,
         map: Option<ParaText>,
-        clip: Option<Rect>,
+        hscroll: Option<u16>,
     ) -> f32 {
         let h = shaped.height();
         self.paras.push(LaidPara {
@@ -347,7 +384,7 @@ impl Out {
             y,
             shaped,
             map,
-            clip,
+            hscroll,
         });
         self.items.push(Item::Para(self.paras.len() - 1));
         h
@@ -472,25 +509,32 @@ fn card(
         text_h,
     );
     let overflow = shaped.width() > inner.w;
-    out.para(inner.x, inner.y, shaped, Some(pt), Some(inner));
     if overflow {
-        // Clip: the renderer has no glyph clipping, so the right padding is repainted over the
-        // overflowing text, then the fade hints at more content (PHASE-003: horizontal scrolling).
-        out.items.push(Item::Fill {
-            rect: Rect::new(inner.right(), inner.y, CODE_PAD_X - 1.0, inner.h),
-            color: ctx.pal.code_bg,
-            radius: 0.0,
+        // R-CODE-03 / P-19: the code scrolls horizontally inside the card, clipped to the card
+        // interior; a 6 px scrollbar sits in the bottom padding while overflowing (B.6.7).
+        let view = Rect::new(
+            x + 1.0,
+            inner.y - CODE_PAD_TOP,
+            w - 2.0,
+            text_h + CODE_PAD_TOP,
+        );
+        let region = out.regions.len();
+        out.regions.push(HRegion {
+            view,
+            content_w: shaped.width() + 2.0 * CODE_PAD_X,
+            track: Rect::new(
+                inner.x,
+                inner.bottom() + (CODE_PAD_BOTTOM - 6.0) / 2.0,
+                inner.w,
+                6.0,
+            ),
         });
-        // Text past the card's right edge is repainted with the page background.
-        out.items.push(Item::Fill {
-            rect: Rect::new(rect.right(), inner.y, OVERFLOW_MASK_W, inner.h),
-            color: ctx.pal.bg,
-            radius: 0.0,
-        });
-        out.items.push(Item::FadeRight {
-            rect: Rect::new(inner.right() - CODE_FADE, inner.y, CODE_FADE, inner.h),
-            color: ctx.pal.code_bg,
-        });
+        out.items.push(Item::PushClip(view));
+        out.para(inner.x, inner.y, shaped, Some(pt), Some(region as u16));
+        out.items.push(Item::PopClip);
+        out.items.push(Item::HScrollBar(region));
+    } else {
+        out.para(inner.x, inner.y, shaped, Some(pt), None);
     }
     out.items.push(Item::Stroke {
         rect,
@@ -765,6 +809,7 @@ pub fn layout_block(ctx: &mut Ctx<'_>, src: &str, d: &Detail, w: f32) -> BlockLa
     let mut out = Out {
         items: Vec::new(),
         paras: Vec::new(),
+        regions: Vec::new(),
     };
     let roots: Vec<usize> = d.roots().collect();
     let env = Env {
@@ -777,5 +822,6 @@ pub fn layout_block(ctx: &mut Ctx<'_>, src: &str, d: &Detail, w: f32) -> BlockLa
         height: bottom.max(0.0),
         items: out.items,
         paras: out.paras,
+        regions: out.regions,
     }
 }
