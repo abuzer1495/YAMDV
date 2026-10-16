@@ -82,6 +82,8 @@ pub const PROP_FIRST_PAINT: PCWSTR = w!("YAMDV.FirstPaintMs");
 pub const PROP_BAND_BYTES: PCWSTR = w!("YAMDV.BandBytes");
 
 const WM_APP_AUTOSCROLL: u32 = WM_APP + 1;
+/// One font warm-up task per message (F-10).
+const WM_APP_WARM: u32 = WM_APP + 2;
 const TIMER_ANIM: usize = 1;
 const TIMER_SB_HIDE: usize = 2;
 const TIMER_SB_FADE: usize = 3;
@@ -240,6 +242,8 @@ struct Win {
     dialog: Option<(ConfirmDialog, Pending)>,
     renderer: Option<Renderer>,
     first_paint: bool,
+    warm: Vec<yamdv_layout::warm::WarmTask>,
+    warm_pending: bool,
     drag_dir: f64,
     perf: Vec<f64>,
     auto_phase: u8,
@@ -376,6 +380,7 @@ impl Win {
             Content::Markdown(Document::new(d.text, sh.read))
         };
         let viewer = Viewer::new(&content, col_w, sh.m);
+        self.warm_pending = true;
         self.view = View::Doc(Box::new(DocView {
             content,
             viewer,
@@ -660,6 +665,10 @@ impl Win {
         if self.auto_phase > 0 {
             self.perf.push(t0.elapsed().as_secs_f64() * 1000.0);
         }
+        if self.warm_pending {
+            self.warm_pending = false;
+            self.start_warmup();
+        }
         if !self.first_paint {
             self.first_paint = true;
             let ms = crate::perf::ms_since_process_start();
@@ -682,6 +691,24 @@ impl Win {
                 // SAFETY: valid hwnd; one-shot (killed when it fires).
                 unsafe { SetTimer(Some(self.hwnd), TIMER_MEMSTATS, 2000, None) };
             }
+        }
+    }
+
+    /// Queues the font warm-up for the current document (F-10). Runs one task per posted
+    /// message after the first paint, so input messages interleave between tasks.
+    fn start_warmup(&mut self) {
+        let View::Doc(d) = &self.view else { return };
+        let text: &str = match &d.content {
+            Content::Markdown(doc) => &doc.source,
+            Content::Plain { text, .. } => text,
+        };
+        let mut plan = yamdv_layout::warm::warm_plan(&d.viewer.metrics(), text);
+        plan.reverse();
+        let was_empty = self.warm.is_empty();
+        self.warm = plan;
+        if was_empty && !self.warm.is_empty() {
+            // SAFETY: valid hwnd.
+            let _ = unsafe { PostMessageW(Some(self.hwnd), WM_APP_WARM, WPARAM(0), LPARAM(0)) };
         }
     }
 
@@ -1415,6 +1442,17 @@ fn handle(
             w.timer(sh, wp.0);
             Some(LRESULT(0))
         }
+        WM_APP_WARM => {
+            if let Some((st, sample)) = w.warm.pop() {
+                sh.dw.warm(&st, sample);
+                if !w.warm.is_empty() {
+                    // SAFETY: valid hwnd.
+                    let _ =
+                        unsafe { PostMessageW(Some(w.hwnd), WM_APP_WARM, WPARAM(0), LPARAM(0)) };
+                }
+            }
+            Some(LRESULT(0))
+        }
         WM_APP_AUTOSCROLL => {
             w.autoscroll_step();
             Some(LRESULT(0))
@@ -1696,6 +1734,8 @@ fn create_window(sh: &Shared, path: Option<&str>) {
         dialog: None,
         renderer,
         first_paint: false,
+        warm: Vec::new(),
+        warm_pending: false,
         drag_dir: 0.0,
         perf: Vec::new(),
         auto_phase: 0,

@@ -10,5 +10,6 @@ pub mod geom;
 pub mod plain;
 pub mod shaper;
 pub mod viewer;
+pub mod warm;
 
 pub use geom::Rect;

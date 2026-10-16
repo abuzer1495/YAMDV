@@ -31,26 +31,28 @@ Probe 'M6' $rel @('--doc', $typ, '--runs', '3', '--open-dialog', '--settle-ms', 
 # T7: idle CPU 30 s on the empty state and on a document
 Probe 'T7-empty' $rel @('--runs', '1', '--cpu-ms', '30000', '--budget-cpu-ms', '1')
 Probe 'T7-doc' $rel @('--doc', $typ, '--runs', '1', '--cpu-ms', '30000', '--budget-cpu-ms', '1')
-# T4: autoscroll top -> bottom -> top (dev-tools build); 3 runs per document, gate on the median p99 <= 16 ms
-# One untimed warm-up pass first: the runner's system font cache is cold for the faces that
-# typical-basic uses (bold, italic, mono, fallback). Reported in 002_REPORT.md section 5.
-& cargo xtask memprobe $dev --doc $typ --runs 1 --wait-title SCROLL_DONE --settle-ms 200 --arg --autoscroll --arg --perf-log --arg "$m/T4-warmup.log" | Out-Null
+# T4 (F-10): autoscroll top -> bottom -> top (dev-tools build). No external warm-up pass any more:
+# the app warms its fonts in idle time after the first paint. Per document, run 1 is "cold"
+# (reported against <= 33 ms), runs 2-4 are "warm" (gate: median p99 <= 16 ms).
+function T4Run([string]$n, [string]$f, [string]$tag) {
+  $log = "$m/T4-$n-$tag.log"
+  Probe "T4-$n-$tag" $dev @('--doc', $f, '--runs', '1', '--wait-title', 'SCROLL_DONE', '--settle-ms', '500', '--arg', '--autoscroll', '--arg', '--perf-log', '--arg', $log)
+  if (-not (Test-Path $log)) { $script:failed += "T4-$n-$tag-log"; return $null }
+  $p99 = [double](((Get-Content $log) | Where-Object { $_ -like 'p99_ms *' }) -split ' ')[1]
+  $frames = [int](((Get-Content $log) | Where-Object { $_ -like 'frames *' }) -split ' ')[1]
+  Write-Host "T4-$n-$tag frames = $frames, p99 = $p99 ms"
+  if ($frames -lt 10) { $script:failed += "T4-$n-$tag-frames" }
+  return $p99
+}
 foreach ($d in @(@{n='typical'; f=$typ}, @{n='large'; f=$large})) {
+  $cold = T4Run $d.n $d.f 'cold'
   $p99s = @()
-  foreach ($r in 1..3) {
-    $log = "$m/T4-$($d.n)-$r.log"
-    Probe "T4-$($d.n)-$r" $dev @('--doc', $d.f, '--runs', '1', '--wait-title', 'SCROLL_DONE', '--settle-ms', '500', '--arg', '--autoscroll', '--arg', '--perf-log', '--arg', $log)
-    if (-not (Test-Path $log)) { $failed += "T4-$($d.n)-$r-log"; continue }
-    $p99 = [double](((Get-Content $log) | Where-Object { $_ -like 'p99_ms *' }) -split ' ')[1]
-    $frames = [int](((Get-Content $log) | Where-Object { $_ -like 'frames *' }) -split ' ')[1]
-    Write-Host "T4-$($d.n)-$r frames = $frames, p99 = $p99 ms"
-    if ($frames -lt 10) { $failed += "T4-$($d.n)-$r-frames" }
-    $p99s += $p99
-  }
+  foreach ($r in 1..3) { $v = T4Run $d.n $d.f "warm$r"; if ($null -ne $v) { $p99s += $v } }
   $med = ($p99s | Sort-Object)[[math]::Floor(($p99s.Count - 1) / 2)]
-  Write-Host "T4-$($d.n) median p99 = $med ms (runs: $($p99s -join ', '))"
-  "T4-$($d.n) median_p99_ms $med runs $($p99s -join ' ')" | Out-File -Append "$m/T4-summary.txt"
-  if ($med -gt 16) { $failed += "T4-$($d.n)"; Write-Host "::error::T4 median p99 $med ms > 16 ms" }
+  Write-Host "T4-$($d.n) cold p99 = $cold ms; warm median p99 = $med ms (runs: $($p99s -join ', '))"
+  "T4-$($d.n) cold_p99_ms $cold warm_median_p99_ms $med runs $($p99s -join ' ')" | Out-File -Append "$m/T4-summary.txt"
+  if ($cold -gt 33) { Write-Host "::warning::T4 cold p99 $cold ms > 33 ms target (report only)" }
+  if ($med -gt 16) { $failed += "T4-$($d.n)"; Write-Host "::error::T4 warm median p99 $med ms > 16 ms" }
 }
 # Subsystem breakdown (mem-stats build), informational
 foreach ($d in @(@{n='M1b'; f=$typ}, @{n='M2'; f=$large})) {

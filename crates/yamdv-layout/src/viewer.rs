@@ -218,6 +218,11 @@ pub struct Viewer {
 }
 
 impl Viewer {
+    /// Typography metrics in use.
+    pub fn metrics(&self) -> Metrics {
+        self.m
+    }
+
     /// New viewer with estimated heights.
     pub fn new(content: &Content, width: f32, m: Metrics) -> Self {
         let mut v = Self {

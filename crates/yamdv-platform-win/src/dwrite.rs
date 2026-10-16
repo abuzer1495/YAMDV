@@ -134,6 +134,22 @@ impl DWrite {
         v
     }
 
+    /// Font warm-up task (F-10): creates the text format for `s` and lays out `sample`, which
+    /// loads the font faces (and fallback fonts for non-Latin samples) into the DWrite caches.
+    pub fn warm(&self, s: &Style, sample: &str) {
+        let _ = self.space_advance(s);
+        if let Ok(f) = self.format(s) {
+            let t: Vec<u16> = sample.encode_utf16().collect();
+            // SAFETY: valid factory/format; the text buffer outlives the calls.
+            unsafe {
+                if let Ok(l) = self.factory.CreateTextLayout(&t, &f, 1000.0, 100.0) {
+                    let mut m = DWRITE_TEXT_METRICS::default();
+                    let _ = l.GetMetrics(&mut m);
+                }
+            }
+        }
+    }
+
     /// Text width/height of a simple string (UI measurement).
     pub fn measure(&self, text: &str, size: f32, weight: u16, max_w: f32) -> (f32, f32) {
         let s = Style {
