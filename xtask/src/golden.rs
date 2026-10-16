@@ -212,7 +212,11 @@ pub const MAX_LOGICAL_ROWS: u32 = 4000;
 /// Crops an image to the first [`MAX_LOGICAL_ROWS`] logical px at `scale`.
 pub fn crop(p: &tiny_skia::Pixmap, scale: &str) -> Result<tiny_skia::Pixmap, String> {
     let s: f32 = scale.parse().map_err(|_| format!("bad scale {scale}"))?;
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     let max = (MAX_LOGICAL_ROWS as f32 * s).round() as u32;
     if p.height() <= max {
         return Ok(p.clone());
