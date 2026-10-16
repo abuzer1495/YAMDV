@@ -4,7 +4,9 @@
 mod icons;
 mod memprobe;
 mod pe;
+mod sha256;
 mod size;
+mod spec;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -191,6 +193,8 @@ fn main() -> ExitCode {
         "check-imports" => check_imports(rest),
         "size" => size_cmd(rest),
         "memprobe" => memprobe_cmd(rest),
+        "spec-check" => spec::check(&root()),
+        "spec-patch" => spec::patch(&root()),
         "gen-icons" => icons::generate(&root()).map(|files| {
             for f in files {
                 println!("wrote {f}");
@@ -198,7 +202,7 @@ fn main() -> ExitCode {
         }),
         _ => {
             println!(
-                "usage: cargo xtask <ci | check-imports [<exe>] | size [<exe>] | memprobe <exe> [...] | gen-icons>"
+                "usage: cargo xtask <ci | check-imports [<exe>] | size [<exe>] | memprobe <exe> [...] | gen-icons | spec-check | spec-patch>"
             );
             Ok(())
         }

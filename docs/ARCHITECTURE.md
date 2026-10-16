@@ -77,7 +77,7 @@ yamdv-app ─► yamdv-ui ─► yamdv-layout ─► yamdv-core
 
 ## E.4 Document model
 - `Document { source, encoding, line_endings, bom, path, disk_state(size, mtime, hash) }`.
-- `BlockTree`: a flat `Vec<Block>` arena; each block has `kind`, `source_range: Range<u32>`, `parent`, `children` range, and kind-specific data (heading level + slug, list info, code lang, table alignments, callout kind…). Inline content is parsed lazily per block into compact runs referencing source ranges (owned strings only where unescaping requires).
+- **Two-level document model.** (1) At load, one full pulldown-cmark pass builds the **top-level block index**: for every top-level block its kind, source byte range (`u32`) and height-estimate inputs, plus document-wide facts collected on the way — headings (level, source range, text, slug), link reference definitions and footnote definitions (stored in maps), and the front-matter range. Inline events are not kept. (2) A top-level block's **detail tree** (nested blocks in a flat arena with `parent`/`children` ranges and kind-specific data — heading level + slug, list info, code language, table alignments, callout kind… — plus compact inline runs referencing source ranges; owned strings only where unescaping requires) is built **lazily** by re-parsing exactly that block's source slice. Top-level blocks are self-contained in CommonMark once reference and footnote definitions are supplied from the document maps (pulldown-cmark's broken-link callback). Detail trees live in an LRU cache with a byte budget and are dropped when far off-screen.
 - Extensions (autolink literals, `==highlight==`, callout detection, wikilinks, emoji, front matter, sanitized HTML) run as passes on the pulldown-cmark event stream (`into_offset_iter`) so every element keeps its source range — required for F2/F3 mapping.
 - **Incremental reparse** (designed in Phase 002, used from Phase 006): after an edit, reparse from the start of the top-level block containing the edit until the new block boundaries re-synchronize with the old ones; splice the arena; global constructs (link reference definitions, footnote definitions, front matter) trigger an inline re-resolution pass rather than a full block reparse.
 
@@ -123,6 +123,7 @@ large_stack_arrays = "warn"
 large_types_passed_by_value = "warn"
 ```
 Tests may opt out locally with `#[allow(...)]` at the test module level.
+Hard rule H14 (`docs/PROCESS.md`) is amended by A-1: `spikes/` may use `unsafe` (each block with a `// SAFETY:` comment); `spikes/` is never part of the product build.
 
 ## E.10 Threading
 - **UI thread:** everything interactive.

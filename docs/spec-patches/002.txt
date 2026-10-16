@@ -1,0 +1,70 @@
+# Spec patches of prompt 002 §3, extracted verbatim from docs/prompts/002_READING_MVP.md.
+
+=== P-01 docs/SPEC.md REPLACE
+--- old
+document types on the allowlist in `S-EXEC-02`
+--- new
+document types on the allowlist in `S-LINK-03`
+
+=== P-02 docs/SPEC.md REPLACE
+--- old
+Light and dark palettes (Appendix B §B.6.12)
+--- new
+Light and dark palettes (Appendix B §B.3.6)
+
+=== P-03a docs/SPEC.md REPLACE
+--- old
+applies instantly; reset per token / all.
+--- new
+applies instantly; reset per token / all. `border` is an editor-facing alias that sets both `code_border` and `table_border`; in `custom-theme.ini` an explicit `code_border` or `table_border` key overrides the alias.
+
+=== P-03b docs/UI_SPEC.md INSERT_AFTER
+--- anchor
+(The values were sampled from the reference screenshots; `link` and Mint `heading` were minimally darkened to meet R-A11Y-04.)
+--- new
+The custom-colors alias `border` (R-THEME-06) maps to `code_border` + `table_border` in both modes.
+
+=== P-04 docs/PERFORMANCE.md REPLACE
+--- old
+8. **Allocator:** the system heap (default). No arena/segment allocators that reserve large regions. `shrink_to_fit` long-lived buffers after load.
+--- new
+8. **Allocator:** Rust's default global allocator (the Windows process heap via HeapAlloc). No third-party allocators (mimalloc, jemalloc, bump/arena allocators that reserve large regions). The Windows heap *type* (NT heap vs. SegmentHeap via the manifest) is a measured choice recorded in ADR-0002 (currently the default NT heap). `shrink_to_fit` long-lived buffers after load.
+
+=== P-05 docs/PERFORMANCE.md INSERT_AFTER
+--- anchor
+## D.3 Measurement method (normative)
+--- new
+- **Units:** "MB" in this project means **MiB (2^20 bytes)**, the unit Task Manager uses. Tools always print raw bytes and MiB with two decimals. All budgets in §D.2 are MiB.
+
+=== P-06 docs/ARCHITECTURE.md INSERT_AFTER
+--- anchor
+Tests may opt out locally with `#[allow(...)]` at the test module level.
+--- new
+Hard rule H14 (`docs/PROCESS.md`) is amended by A-1: `spikes/` may use `unsafe` (each block with a `// SAFETY:` comment); `spikes/` is never part of the product build.
+
+=== P-07 docs/ARCHITECTURE.md REPLACE
+--- old
+- `BlockTree`: a flat `Vec<Block>` arena; each block has `kind`, `source_range: Range<u32>`, `parent`, `children` range, and kind-specific data (heading level + slug, list info, code lang, table alignments, callout kind…). Inline content is parsed lazily per block into compact runs referencing source ranges (owned strings only where unescaping requires).
+--- new
+- **Two-level document model.** (1) At load, one full pulldown-cmark pass builds the **top-level block index**: for every top-level block its kind, source byte range (`u32`) and height-estimate inputs, plus document-wide facts collected on the way — headings (level, source range, text, slug), link reference definitions and footnote definitions (stored in maps), and the front-matter range. Inline events are not kept. (2) A top-level block's **detail tree** (nested blocks in a flat arena with `parent`/`children` ranges and kind-specific data — heading level + slug, list info, code language, table alignments, callout kind… — plus compact inline runs referencing source ranges; owned strings only where unescaping requires) is built **lazily** by re-parsing exactly that block's source slice. Top-level blocks are self-contained in CommonMark once reference and footnote definitions are supplied from the document maps (pulldown-cmark's broken-link callback). Detail trees live in an LRU cache with a byte budget and are dropped when far off-screen.
+
+=== P-08a docs/SPEC.md REPLACE
+--- old
+- **R-MD-06 MUST** Superscript `^x^` and subscript `~x~` (pulldown-cmark options; `~~x~~` stays strikethrough).
+--- new
+- **R-MD-06 MUST** Superscript `^x^` (pulldown-cmark option). Subscript with single tildes `~x~` is **off by default** (setting `reading.subscript_tilde`), because GFM renders `~x~` as strikethrough; when it is off, both `~x~` and `~~x~~` are strikethrough. `<sub>` and `<sup>` HTML always work (R-MD-14).
+
+=== P-08b docs/UI_SPEC.md INSERT_AFTER
+--- anchor
+| `reading.smart_punctuation` | bool | `false` | |
+--- new
+| `reading.subscript_tilde` | bool | `false` | R-MD-06 |
+
+=== P-09 docs/PERFORMANCE.md INSERT_AFTER
+--- anchor
+| **T10** | PDF export of 100 pages | ≤ 3 s; transient memory ≤ +30 MB, released afterwards | same |
+--- new
+
+Interim scenarios used before the full corpus exists (Phase 002): **M1b** = `typical-basic.md` (soft ≤ 8.0 MiB), **T1b** = first paint of `typical-basic.md` (soft ≤ 150 ms), **T1L** = first paint of `large-1mb.md` (soft ≤ 300 ms). From Phase 003 on they are replaced by M1 and T1.
+
+=== end
