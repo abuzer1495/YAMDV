@@ -395,6 +395,8 @@ fn leaf(
         tab_spaces: None,
     });
     // B.6.3: inline code background, padding 0.15 em × 0.4 em, radius 4 — drawn before the text.
+    // The horizontal padding is part of the shaped advance (character spacing, F-13/P-21), so the
+    // background is exactly the range rectangle and never overlaps neighbouring glyphs.
     for s in &sp {
         if s.style.family == Family::Code {
             let em = s.style.size / 0.875;
@@ -402,7 +404,7 @@ fn leaf(
                 let ih = s.style.size * 1.3 + 0.3 * em;
                 let iy = r.y + (r.h - ih) / 2.0;
                 out.items.push(Item::Fill {
-                    rect: Rect::new(x + r.x - 0.4 * em, y + iy, r.w + 0.8 * em, ih),
+                    rect: Rect::new(x + r.x, y + iy, r.w, ih),
                     color: ctx.pal.inline_code_bg,
                     radius: 4.0,
                 });
