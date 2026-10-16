@@ -162,6 +162,10 @@ pub fn parse_url(s: &str) -> Result<Url, UrlError> {
                     Some("") | None => None,
                     Some(n) => Some(n.parse::<u16>().map_err(|_| UrlError::Malformed)?),
                 };
+                // Only bracketed IPv6 literals may contain ':' / '[' / ']' (fuzz regression).
+                if h.contains([':', '[', ']']) {
+                    return Err(UrlError::Malformed);
+                }
                 (h.to_lowercase(), port)
             };
             if host.is_empty()
@@ -468,5 +472,17 @@ mod tests {
         assert!(must_ask(ExternalMode::Open, true));
         assert!(!must_ask(ExternalMode::Open, false));
         assert!(must_ask(ExternalMode::Ask, false));
+    }
+
+    /// Fuzz regression (url target): a host with a stray ':' broke serialize/parse idempotence.
+    #[test]
+    fn fuzz_url_host_colon_rejected() {
+        assert_eq!(parse_url("http://udata::/x"), Err(UrlError::Malformed));
+        assert_eq!(parse_url("http://a]b/"), Err(UrlError::Malformed));
+        let u = parse_url("http://h:/p").unwrap();
+        assert_eq!(
+            parse_url(&u.serialize()).unwrap().serialize(),
+            u.serialize()
+        );
     }
 }

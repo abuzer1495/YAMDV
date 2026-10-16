@@ -373,6 +373,8 @@ struct Builder<'s> {
     implicit: Option<u32>,
     style: Vec<u16>,
     image: Option<(usize, String, String, bool)>,
+    /// Open inline drop-with-content elements (S-HTML-01) split across inline events.
+    inline_drop: Vec<String>,
     image_depth: usize,
     skip: usize,
     /// Open inline HTML elements (tag, style flag) of the current leaf.
@@ -468,6 +470,10 @@ impl Builder<'_> {
     }
 
     fn run(&mut self, kind: RunKind, r: &Range<usize>, text: &str, extra: u16) {
+        if !self.inline_drop.is_empty() {
+            // S-HTML-01: content of an inline `<style>`/`<script>`/… is dropped.
+            return;
+        }
         let range = self.abs(r);
         if let Some((_, alt, _, _)) = self.image.as_mut() {
             alt.push_str(text);
@@ -576,6 +582,41 @@ impl Builder<'_> {
     /// Inline HTML inside a leaf (R-MD-14): allowlisted tags toggle styles, `<br>` breaks,
     /// `<img>` becomes the image placeholder; everything else is dropped.
     fn inline_html(&mut self, r: &Range<usize>, t: &str) {
+        let tt = t.trim();
+        if let Some(rest) = tt.strip_prefix("</") {
+            let name: String = rest
+                .chars()
+                .take_while(char::is_ascii_alphanumeric)
+                .collect::<String>()
+                .to_ascii_lowercase();
+            if let Some(p) = self.inline_drop.iter().rposition(|n| *n == name) {
+                self.inline_drop.truncate(p);
+                return;
+            }
+        } else if let Some(rest) = tt.strip_prefix('<') {
+            let name: String = rest
+                .chars()
+                .take_while(char::is_ascii_alphanumeric)
+                .collect::<String>()
+                .to_ascii_lowercase();
+            let void = matches!(name.as_str(), "input" | "link" | "meta" | "base" | "embed");
+            if crate::html::DROP.contains(&name.as_str())
+                && !void
+                && !tt.ends_with("/>")
+                && !tt.to_ascii_lowercase().contains(&format!("</{name}"))
+            {
+                if !self.inline_drop.is_empty() || matches!(name.as_str(), "svg" | "math") {
+                    for tok in crate::html::sanitize(t, &mut self.html_budget) {
+                        self.html_tok(r.start, tok);
+                    }
+                }
+                self.inline_drop.push(name);
+                return;
+            }
+        }
+        if !self.inline_drop.is_empty() {
+            return;
+        }
         for tok in crate::html::sanitize(t, &mut self.html_budget) {
             self.html_tok(r.start, tok);
         }
@@ -849,6 +890,7 @@ impl Builder<'_> {
             self.pop();
         }
         self.html.clear();
+        self.inline_drop.clear();
     }
 
     fn with_style(&mut self, f: u16) {
@@ -899,6 +941,7 @@ impl Detail {
             implicit: None,
             style: Vec::new(),
             image: None,
+            inline_drop: Vec::new(),
             image_depth: 0,
             skip: 0,
             html: Vec::new(),

@@ -325,7 +325,8 @@ pub fn url_allowed(v: &str, img: bool) -> bool {
         .filter(|c| !c.is_whitespace() && !c.is_control())
         .collect::<String>()
         .to_ascii_lowercase();
-    if t.starts_with("javascript:") || t.starts_with("vbscript:") {
+    // Any active scheme anywhere (also behind quotes/backticks the tokenizer kept).
+    if t.contains("javascript:") || t.contains("vbscript:") || t.contains("livescript:") {
         return false;
     }
     if t.starts_with("data:") {

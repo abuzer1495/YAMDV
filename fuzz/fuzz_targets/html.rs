@@ -9,9 +9,16 @@ fuzz_target!(|data: &[u8]| {
     }
     let s = String::from_utf8_lossy(data);
     let mut budget = 100_000;
+    // Text tokens are shown as text (never interpreted); only elements and attributes matter.
     for t in yamdv_core::html::sanitize(&s, &mut budget) {
-        let dbg = format!("{t:?}").to_ascii_lowercase();
-        assert!(!dbg.contains("<script"));
+        if let yamdv_core::html::Tok::Open { tag, attrs, .. } = &t {
+            assert!(!yamdv_core::html::DROP.contains(&tag.as_str()), "{tag}");
+            for (k, v) in attrs {
+                assert!(!k.starts_with("on"), "{k}");
+                let l = v.to_ascii_lowercase();
+                assert!(!l.contains("javascript:") && !l.contains("vbscript:"), "{v}");
+            }
+        }
     }
     let _ = yamdv_core::html::decode_entities(&s);
     let _ = yamdv_core::html::sanitize_style(&s);
