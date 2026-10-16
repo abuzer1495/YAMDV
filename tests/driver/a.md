@@ -125,4 +125,4 @@ Paragraph 59 of filler text so the document scrolls well past one screen of cont
 
 ## Target section
 
-Back to [the top](#driver-fixture-a).
+Back to [the top](#driver-fixture-a). Also [Open B again](b.md).
