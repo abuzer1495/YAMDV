@@ -56,6 +56,8 @@ messages! {
     LabelMath => "math", "matematik";
     LabelFootnotes => "footnotes", "dipnotlar";
     LabelFrontMatter => "front matter", "ön bilgi";
+    FrontMatterOne => "Front matter · 1 field", "Ön bilgi · 1 alan";
+    FrontMatterN => "Front matter · {} fields", "Ön bilgi · {} alan";
     LabelDetails => "details", "ayrıntılar";
     Image => "image", "görsel";
 }

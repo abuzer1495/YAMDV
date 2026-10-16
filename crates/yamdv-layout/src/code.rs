@@ -28,6 +28,8 @@ pub struct CodeOpts {
     pub wrap: bool,
     /// Fold state toggled away from the node's default (callouts, details; session state).
     pub fold_toggled: bool,
+    /// `reading.front_matter` (see [`crate::front::mode`]); the same for every node.
+    pub front_matter: u8,
 }
 
 /// Lines per shaped chunk; blocks longer than this are split so no single text layout grows

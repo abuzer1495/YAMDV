@@ -198,10 +198,30 @@ pub enum HotKind {
         /// Detail node.
         node: usize,
     },
-    /// Foldable callout / collapsible container title row (R-REN-06).
+    /// Foldable callout / collapsible container title row (R-REN-06); front matter card.
     Fold {
         /// Detail node.
         node: usize,
+    },
+    /// Footnote reference `[n]` (R-REN-10): activation scrolls to note `n`. `ord` counts the
+    /// references to the same note earlier in this block.
+    FootRef {
+        /// Note number (1-based).
+        n: u32,
+        /// Occurrence within the block.
+        ord: u32,
+    },
+    /// Footnote back-link `↩` / `↩²` …: activation scrolls to reference `k` (0-based) of note `n`.
+    FootBack {
+        /// Note number.
+        n: u32,
+        /// Reference index in [`yamdv_core::doc::index::FootnoteUse::refs`].
+        k: u32,
+    },
+    /// Target rectangle of note `n` in the notes section (not clickable; navigation anchor).
+    FootNote {
+        /// Note number.
+        n: u32,
     },
 }
 
@@ -283,6 +303,14 @@ pub trait Strings {
     fn alert(&self, a: Alert) -> &str;
     /// Placeholder card label (`table`, `html`, …).
     fn placeholder(&self, p: Placeholder) -> &str;
+    /// Collapsed front matter summary (R-REN-13): "Front matter · N fields".
+    fn front_matter_summary(&self, n: usize) -> String {
+        if n == 1 {
+            "Front matter · 1 field".to_string()
+        } else {
+            format!("Front matter · {n} fields")
+        }
+    }
 }
 
 /// English fallback strings (tests).
@@ -342,11 +370,11 @@ pub fn margins(kind: BlockKind, m: &Metrics) -> (f32, f32) {
         BlockKind::Heading(_) => (20.0, 8.0),
         BlockKind::BlockQuote { .. } | BlockKind::Code => (16.0, 16.0),
         BlockKind::Rule => (24.0, 24.0),
-        BlockKind::Table
-        | BlockKind::Html
-        | BlockKind::Math
-        | BlockKind::FootnoteDef
-        | BlockKind::FrontMatter => (16.0, 16.0),
+        // R-REN-10: definitions vanish from their source position.
+        BlockKind::FootnoteDef => (0.0, 0.0),
+        // B.6.9: front matter card margin 0 0 16.
+        BlockKind::FrontMatter => (0.0, 16.0),
+        BlockKind::Table | BlockKind::Html | BlockKind::Math => (16.0, 16.0),
         BlockKind::Paragraph | BlockKind::List | BlockKind::DefList => (0.0, m.para_spacing),
     }
 }
@@ -365,6 +393,9 @@ pub fn gap_before(blocks: &[Block], i: usize, m: &Metrics) -> f32 {
 /// text blocks `max(lines, ceil(half_ems × 0.5 em / width)) × pitch`; code and placeholders
 /// `lines × code_pitch + paddings`; rules 2 px.
 pub fn estimate(b: &Block, width: f32, m: &Metrics) -> f32 {
+    if let Some(h) = estimate_special(b, m) {
+        return h;
+    }
     let width = width.max(1.0);
     let wrapped = |size: f32, pitch: f32| {
         let w = b.est.half_ems as f32 * 0.5 * size;
@@ -387,6 +418,18 @@ pub fn estimate(b: &Block, width: f32, m: &Metrics) -> f32 {
         }
         BlockKind::Rule => 2.0,
         _ => wrapped(m.font_size, m.pitch()),
+    }
+}
+
+/// Height estimate including the special cases that need no source scan.
+fn estimate_special(b: &Block, m: &Metrics) -> Option<f32> {
+    match b.kind {
+        BlockKind::FootnoteDef => Some(0.0),
+        BlockKind::FrontMatter => Some(13.0 * 1.5 + 16.0),
+        _ => {
+            let _ = m;
+            None
+        }
     }
 }
 
@@ -555,6 +598,29 @@ pub(crate) fn leaf_aligned(
             }
         }
     }
+    // R-REN-10: footnote references are activatable.
+    for (s, seg) in sp.iter().zip(pt.segs.iter().filter(|g| g.style != 0)) {
+        if seg.style & yamdv_core::doc::detail::style::FOOTREF == 0 {
+            continue;
+        }
+        let label = pt.slice16(s.range.start, s.range.end);
+        let Ok(n) = label.trim_matches(['[', ']']).parse::<u32>() else {
+            continue;
+        };
+        let ord = u32::try_from(
+            out.hot
+                .iter()
+                .filter(|h| matches!(h.kind, HotKind::FootRef { n: m, .. } if m == n))
+                .count(),
+        )
+        .unwrap_or(0);
+        if let Some(r) = shaped.range_rects(s.range.clone()).first() {
+            out.hot.push(Hot {
+                rect: Rect::new(x + r.x, y + r.y, r.w.max(6.0), r.h),
+                kind: HotKind::FootRef { n, ord },
+            });
+        }
+    }
     out.para(x, y, shaped, Some(pt), None)
 }
 
@@ -681,7 +747,9 @@ fn node_margins(kind: &NodeKind, m: &Metrics, tight: bool) -> (f32, f32) {
         | NodeKind::Code { .. }
         | NodeKind::Placeholder(_)
         | NodeKind::Table { .. } => (16.0, 16.0),
-        NodeKind::TableRow { .. } | NodeKind::TableCell => (0.0, 0.0),
+        NodeKind::TableRow { .. } | NodeKind::TableCell | NodeKind::FootnoteDef { .. } => {
+            (0.0, 0.0)
+        }
         NodeKind::Rule => (24.0, 24.0),
         NodeKind::List { .. } | NodeKind::DefList => {
             (0.0, if tight { 0.0 } else { m.para_spacing })
@@ -768,6 +836,11 @@ fn node(
         }
         NodeKind::Table { aligns } => crate::table::table(ctx, src, d, i, aligns, x, y, w, out),
         NodeKind::TableRow { .. } | NodeKind::TableCell => 0.0,
+        // R-REN-10: laid out in the notes section (see `layout_with_notes`).
+        NodeKind::FootnoteDef { .. } => 0.0,
+        NodeKind::Placeholder(Placeholder::FrontMatter) => {
+            crate::front::front_matter(ctx, src, d, i, x, y, w, out)
+        }
         NodeKind::Placeholder(p) => {
             // PHASE-003: tables, HTML, math, footnotes, front matter are shown as source cards.
             let label = ctx.strings.placeholder(*p).to_string();
@@ -952,6 +1025,45 @@ pub fn layout_block(ctx: &mut Ctx<'_>, src: &str, d: &Detail, w: f32) -> BlockLa
     let bottom = stack(ctx, src, d, &roots, 0.0, 0.0, w, &env, &mut out);
     BlockLayout {
         height: bottom.max(0.0),
+        items: out.items,
+        paras: out.paras,
+        regions: out.regions,
+        hot: out.hot,
+    }
+}
+
+/// One note of the footnotes section: number, reference count, detail tree of its definition.
+pub struct Note {
+    /// Note number (1-based).
+    pub n: u32,
+    /// Number of references (back-links `↩`, `↩²`, …).
+    pub refs: u32,
+    /// Detail tree of the top-level block holding the definition.
+    pub detail: Detail,
+}
+
+/// [`layout_block`] plus the footnotes section appended (the last block of a document with
+/// referenced footnotes, R-REN-10 / B.6.9).
+pub fn layout_with_notes(
+    ctx: &mut Ctx<'_>,
+    src: &str,
+    d: &Detail,
+    notes: &[Note],
+    w: f32,
+) -> BlockLayout {
+    let mut bl = layout_block(ctx, src, d, w);
+    if notes.is_empty() {
+        return bl;
+    }
+    let mut out = Out {
+        items: std::mem::take(&mut bl.items),
+        paras: std::mem::take(&mut bl.paras),
+        regions: std::mem::take(&mut bl.regions),
+        hot: std::mem::take(&mut bl.hot),
+    };
+    let bottom = crate::front::notes_section(ctx, src, notes, bl.height, w, &mut out);
+    BlockLayout {
+        height: bottom,
         items: out.items,
         paras: out.paras,
         regions: out.regions,

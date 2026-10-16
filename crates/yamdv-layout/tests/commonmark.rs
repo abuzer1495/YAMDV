@@ -50,6 +50,24 @@ fn reference(src: &str) -> (Vec<B>, String) {
     let evs: Vec<_> = Parser::new_ext(src, parser_options(ReadOpts::default()))
         .into_offset_iter()
         .collect();
+    // GitHub footnote numbering: defined labels in order of first reference.
+    let fold = |l: &str| yamdv_core::doc::index::fold_label(l);
+    let defined: Vec<String> = evs
+        .iter()
+        .filter_map(|(e, _)| match e {
+            Event::Start(Tag::FootnoteDefinition(l)) => Some(fold(l)),
+            _ => None,
+        })
+        .collect();
+    let mut order: Vec<String> = Vec::new();
+    for (e, _) in &evs {
+        if let Event::FootnoteReference(l) = e {
+            let f = fold(l);
+            if defined.contains(&f) && !order.contains(&f) {
+                order.push(f);
+            }
+        }
+    }
     let mut blocks = Vec::new();
     let mut text = String::new();
     let mut depth = 0usize;
@@ -106,7 +124,7 @@ fn reference(src: &str) -> (Vec<B>, String) {
                         });
                     }
                     depth += 1;
-                    if ["html", "footnotes", "front", "math"].contains(&k.as_str()) {
+                    if ["html", "front", "math"].contains(&k.as_str()) {
                         skip = 1;
                     }
                 } else if matches!(t, Tag::Image { .. }) {
@@ -143,11 +161,10 @@ fn reference(src: &str) -> (Vec<B>, String) {
             | Event::DisplayMath(t)
             | Event::InlineHtml(t)
             | Event::Html(t) => text.push_str(t),
-            Event::FootnoteReference(l) => {
-                text.push('[');
-                text.push_str(l);
-                text.push(']');
-            }
+            Event::FootnoteReference(l) => match order.iter().position(|o| *o == fold(l)) {
+                Some(p) => text.push_str(&format!("[{}]", p + 1)),
+                None => text.push_str(&format!("[^{l}]")),
+            },
             Event::Rule if depth < MAX_DEPTH => {
                 blocks.push(B {
                     depth,
@@ -178,7 +195,7 @@ fn node_kind(k: &NodeKind) -> Option<&'static str> {
         NodeKind::TableRow { .. } | NodeKind::TableCell => return None,
         NodeKind::Placeholder(Placeholder::Html) => "html",
         NodeKind::Placeholder(Placeholder::Math) => "math",
-        NodeKind::Placeholder(Placeholder::Footnotes) => "footnotes",
+        NodeKind::Placeholder(Placeholder::Footnotes) | NodeKind::FootnoteDef { .. } => "footnotes",
         NodeKind::Placeholder(Placeholder::FrontMatter) => "front",
     })
 }

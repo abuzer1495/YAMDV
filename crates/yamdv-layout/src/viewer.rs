@@ -31,8 +31,40 @@ pub const TOP_PAD: f64 = 48.0;
 /// Bottom padding (B.6.1).
 pub const BOTTOM_PAD: f64 = 120.0;
 
+/// Detail trees of the referenced footnote definitions in note order (R-REN-10).
+fn notes(d: &Document) -> Vec<block::Note> {
+    let ix = &d.index;
+    let mut out = Vec::with_capacity(ix.footnote_order.len());
+    for (k, u) in ix.footnote_order.iter().enumerate() {
+        let Some(r) = ix.footnotes.get(&u.label) else {
+            continue;
+        };
+        // Only top-level definitions are laid out (nested ones stay hidden in their container).
+        let Ok(bi) = ix.blocks.binary_search_by(|b| b.range.start.cmp(&r.start)) else {
+            continue;
+        };
+        out.push(block::Note {
+            n: u32::try_from(k + 1).unwrap_or(u32::MAX),
+            refs: u32::try_from(u.refs.len()).unwrap_or(u32::MAX),
+            detail: d.detail_uncached(bi),
+        });
+    }
+    out
+}
+
+/// Document y of a footnote navigation target, if its block is laid out (see
+/// [`Viewer::footnote_target`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FootTarget {
+    /// Note `n` in the notes section.
+    Note(u32),
+    /// Reference `k` of note `n`.
+    Ref(u32, u32),
+}
+
 /// What is shown: a Markdown document or plain text.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)] // one per window
 pub enum Content {
     /// Markdown.
     Markdown(Document),
@@ -117,10 +149,14 @@ impl Content {
         }
     }
 
-    fn layout(&mut self, i: usize, ctx: &mut Ctx<'_>, w: f32) -> BlockLayout {
+    pub(crate) fn layout(&mut self, i: usize, ctx: &mut Ctx<'_>, w: f32) -> BlockLayout {
         match self {
             Content::Markdown(d) => {
                 let det = d.detail(i);
+                if i + 1 == d.index.blocks.len() && !d.index.footnote_order.is_empty() {
+                    let notes = notes(d);
+                    return block::layout_with_notes(ctx, &d.source, &det, &notes, w);
+                }
                 block::layout_block(ctx, &d.source, &det, w)
             }
             Content::Plain { text, chunks } => {
@@ -299,6 +335,40 @@ impl Viewer {
             .iter()
             .find(|h| x >= h.rect.x && x < h.rect.right() && ly >= h.rect.y && ly < h.rect.bottom())
             .map(|h| (bi, h.kind.clone()))
+    }
+
+    /// Block that holds a footnote target (for a first scroll before the exact position is known).
+    pub fn footnote_block(content: &Content, t: FootTarget) -> Option<(usize, u32)> {
+        let Content::Markdown(d) = content else {
+            return None;
+        };
+        let ix = &d.index;
+        match t {
+            FootTarget::Note(_) => ix.blocks.len().checked_sub(1).map(|b| (b, 0)),
+            FootTarget::Ref(n, k) => {
+                let u = ix.footnote_order.get((n as usize).checked_sub(1)?)?;
+                let b = *u.refs.get(k as usize)?;
+                let ord = u.refs[..k as usize].iter().filter(|&&x| x == b).count();
+                Some((b as usize, u32::try_from(ord).unwrap_or(0)))
+            }
+        }
+    }
+
+    /// Exact document y of a footnote target when its block layout is cached.
+    pub fn footnote_target(&self, content: &Content, t: FootTarget) -> Option<f64> {
+        let (b, ord) = Self::footnote_block(content, t)?;
+        let bl = self.layout_of(b)?;
+        let top = self.block_top(content, b);
+        bl.hot
+            .iter()
+            .find(|h| match (t, &h.kind) {
+                (FootTarget::Note(n), block::HotKind::FootNote { n: m }) => n == *m,
+                (FootTarget::Ref(n, _), block::HotKind::FootRef { n: m, ord: o }) => {
+                    n == *m && ord == *o
+                }
+                _ => false,
+            })
+            .map(|h| top + f64::from(h.rect.y))
     }
 
     /// Code options of (block, node).

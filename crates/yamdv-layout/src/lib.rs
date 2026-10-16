@@ -8,6 +8,7 @@ pub mod block;
 pub mod callout;
 pub mod code;
 pub mod fenwick;
+pub mod front;
 pub mod geom;
 pub mod plain;
 pub mod shaper;

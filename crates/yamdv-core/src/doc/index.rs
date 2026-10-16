@@ -109,6 +109,18 @@ pub struct Index {
     pub footnotes: HashMap<String, Range<u32>>,
     /// Front matter range.
     pub front_matter: Option<Range<u32>>,
+    /// Defined footnotes in order of first reference (GitHub numbering, R-REN-10): note `n` is
+    /// `footnote_order[n - 1]`.
+    pub footnote_order: Vec<FootnoteUse>,
+}
+
+/// A referenced, defined footnote and where it is referenced.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FootnoteUse {
+    /// Case-folded label.
+    pub label: String,
+    /// Top-level block of each reference, in source order.
+    pub refs: Vec<u32>,
 }
 
 /// Case-folds a reference label: whitespace collapsed, lower-cased, plus the full case folds
@@ -175,6 +187,7 @@ struct Scan {
     headings: Vec<HeadingEntry>,
     footnotes: HashMap<String, Range<u32>>,
     front_matter: Option<Range<u32>>,
+    footrefs: Vec<(String, u32)>,
 }
 
 /// Scans `text[base..]` and collects top-level blocks (absolute ranges) until `stop` returns true
@@ -283,6 +296,9 @@ fn scan(text: &str, base: usize, opts: ReadOpts, mut stop: impl FnMut(&Block) ->
                 }
             }
             other => {
+                if let Event::FootnoteReference(l) = &other {
+                    out.footrefs.push((fold_label(l), u(out.blocks.len())));
+                }
                 if let Some(h) = heading.as_mut() {
                     match &other {
                         Event::Text(t) | Event::Code(t) | Event::InlineMath(t) => h.2.push_str(t),
@@ -343,6 +359,23 @@ fn collect_refdefs(text: &str, opts: ReadOpts) -> HashMap<String, RefDef> {
     map
 }
 
+fn footnote_order(refs: &[(String, u32)], defs: &HashMap<String, Range<u32>>) -> Vec<FootnoteUse> {
+    let mut out: Vec<FootnoteUse> = Vec::new();
+    for (l, b) in refs {
+        if !defs.contains_key(l) {
+            continue;
+        }
+        match out.iter_mut().find(|u| &u.label == l) {
+            Some(u) => u.refs.push(*b),
+            None => out.push(FootnoteUse {
+                label: l.clone(),
+                refs: vec![*b],
+            }),
+        }
+    }
+    out
+}
+
 /// Result of [`Index::splice`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Splice {
@@ -364,9 +397,19 @@ impl Index {
             blocks: s.blocks,
             headings: s.headings,
             refdefs: collect_refdefs(text, opts),
+            footnote_order: footnote_order(&s.footrefs, &s.footnotes),
             footnotes: s.footnotes,
             front_matter: s.front_matter,
         }
+    }
+
+    /// Note number (1-based) of a footnote label, if it is defined and referenced.
+    pub fn footnote_number(&self, label: &str) -> Option<usize> {
+        let f = fold_label(label);
+        self.footnote_order
+            .iter()
+            .position(|u| u.label == f)
+            .map(|p| p + 1)
     }
 
     /// Index of the top-level block containing byte `pos` or the first block after it.
@@ -388,6 +431,11 @@ impl Index {
                 .map(|(k, v)| k.len() + v.dest.len() + v.title.len() + 80)
                 .sum::<usize>()
             + self.footnotes.keys().map(|k| k.len() + 40).sum::<usize>()
+            + self
+                .footnote_order
+                .iter()
+                .map(|u| u.label.len() + u.refs.len() * 4 + 48)
+                .sum::<usize>()
     }
 
     /// Incremental update (designed for Phase 006, ADR-0007). `new_text` is the full text after
@@ -494,6 +542,11 @@ impl Index {
             || self.footnotes.values().any(hits);
         self.blocks = all;
         self.headings = headings;
+        if refs_changed || !self.footnotes.is_empty() || new_region.contains("[^") {
+            // Note numbering and reference blocks depend on the whole document.
+            let full = Index::build(new_text, opts);
+            self.footnote_order = full.footnote_order;
+        }
         if refs_changed {
             // Re-resolution pass: rebuild the global maps.
             let full = Index::build(new_text, opts);
@@ -635,6 +688,7 @@ mod tests {
         assert_eq!(ix.headings, full.headings, "headings");
         assert_eq!(ix.refdefs, full.refdefs, "refdefs");
         assert_eq!(ix.footnotes, full.footnotes, "footnotes");
+        assert_eq!(ix.footnote_order, full.footnote_order, "footnote order");
         assert_eq!(ix.front_matter, full.front_matter, "front matter");
     }
 

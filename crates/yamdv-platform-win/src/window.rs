@@ -68,7 +68,7 @@ use yamdv_core::theme::{self, Palette};
 use yamdv_layout::Rect;
 use yamdv_layout::block::{Bullet, HotKind, Item, Metrics, Strings};
 use yamdv_layout::shaper::{Family, ParaSpec, Style, TextShaper};
-use yamdv_layout::viewer::{self, Content, Env, Hit, Viewer};
+use yamdv_layout::viewer::{self, Content, Env, FootTarget, Hit, Viewer};
 use yamdv_ui::dialog::{self as dlg, Button, ConfirmDialog, Geometry, Outcome};
 
 use crate::dwrite::{DWrite, DwShaper};
@@ -171,6 +171,13 @@ impl Strings for I18nStrings {
                 Placeholder::FrontMatter => Msg::LabelFrontMatter,
             },
         )
+    }
+    fn front_matter_summary(&self, n: usize) -> String {
+        if n == 1 {
+            tr(self.0, Msg::FrontMatterOne).to_string()
+        } else {
+            tr(self.0, Msg::FrontMatterN).replace("{}", &n.to_string())
+        }
     }
 }
 
@@ -405,6 +412,7 @@ impl Win {
             line_numbers: sh.read.code_line_numbers,
             wrap: sh.read.code_wrap,
             fold_toggled: false,
+            front_matter: sh.read.front_matter,
         };
         self.warm_pending = true;
         self.view = View::Doc(Box::new(DocView {
@@ -1347,9 +1355,59 @@ impl Win {
                 o.fold_toggled = !o.fold_toggled;
                 d.viewer.set_code_opts(bi, node, o);
             }
+            HotKind::FootRef { n, .. } => {
+                self.footnote_jump(sh, FootTarget::Note(n));
+                return true;
+            }
+            HotKind::FootBack { n, k } => {
+                self.footnote_jump(sh, FootTarget::Ref(n, k));
+                return true;
+            }
+            HotKind::FootNote { .. } => return false,
         }
         self.invalidate();
         true
+    }
+
+    /// Lays out the blocks around the current scroll position now (outside WM_PAINT).
+    fn prepare_now(&mut self, sh: &Shared) {
+        let vh = self.view_h();
+        let (_, cwid) = self.col(sh);
+        if let View::Doc(d) = &mut self.view {
+            if (d.viewer.width - cwid).abs() > 0.5 {
+                d.viewer.set_width(&d.content, cwid, vh);
+            }
+            let strings = I18nStrings(sh.lang);
+            let mut shaper = DwShaper(&sh.dw);
+            let mut env = Env {
+                shaper: &mut shaper,
+                m: sh.m,
+                pal: &self.pal,
+                strings: &strings,
+                single_newline_break: sh.read.single_newline_break,
+            };
+            d.viewer.prepare(&mut d.content, &mut env, vh);
+        }
+    }
+
+    /// R-REN-10: smooth-scrolls to a footnote or back to one of its references (B.15). The
+    /// target block is laid out first at an estimated position, then the exact y is used.
+    fn footnote_jump(&mut self, sh: &Shared, t: FootTarget) {
+        let vh = self.view_h();
+        let Some(d) = self.doc() else { return };
+        let Some((b, _)) = Viewer::footnote_block(&d.content, t) else {
+            return;
+        };
+        let old = d.viewer.scroll;
+        let approx = d.viewer.block_top(&d.content, b);
+        d.viewer.scroll_to(approx, vh);
+        self.prepare_now(sh);
+        let Some(d) = self.doc() else { return };
+        let target = d.viewer.footnote_target(&d.content, t).unwrap_or(approx);
+        // Leave a little context above the target (B.15 anchor offset).
+        let target = (target - 24.0).max(0.0);
+        d.viewer.scroll_to(old, vh);
+        self.scroll_by(sh, target - old, true);
     }
 
     /// Draws the hovered code block's toolbar (label + buttons).
@@ -2184,6 +2242,11 @@ pub fn run(paths: &[String], dev: DevOptions) -> i32 {
             single_newline_break: s.bool("reading.single_newline_break"),
             code_line_numbers: s.bool("reading.code_line_numbers"),
             code_wrap: s.bool("reading.code_wrap"),
+            front_matter: match s.str("reading.front_matter") {
+                "expanded" => 1,
+                "hidden" => 2,
+                _ => 0,
+            },
         },
         column_pct: s.int("typography.column_width_pct") as f32 / 100.0,
         smooth: s.bool("reading.smooth_scrolling"),

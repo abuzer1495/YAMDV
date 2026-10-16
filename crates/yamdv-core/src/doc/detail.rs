@@ -98,6 +98,12 @@ pub enum NodeKind {
     },
     /// Table cell (inline leaf).
     TableCell,
+    /// Footnote definition (R-REN-10): hidden at its source position, laid out in the notes
+    /// section at the end of the document. `number` is 0 when the note is never referenced.
+    FootnoteDef {
+        /// 1-based note number (order of first reference).
+        number: u32,
+    },
     /// Interim placeholder card showing source text.
     Placeholder(Placeholder),
 }
@@ -468,9 +474,12 @@ impl Detail {
                         Tag::TableRow => Some(NodeKind::TableRow { head: false }),
                         Tag::TableCell => Some(NodeKind::TableCell),
                         Tag::HtmlBlock => Some(NodeKind::Placeholder(Placeholder::Html)),
-                        Tag::FootnoteDefinition(_) => {
-                            Some(NodeKind::Placeholder(Placeholder::Footnotes))
-                        }
+                        Tag::FootnoteDefinition(l) => Some(NodeKind::FootnoteDef {
+                            number: index
+                                .footnote_number(l)
+                                .and_then(|n| u32::try_from(n).ok())
+                                .unwrap_or(0),
+                        }),
                         Tag::MetadataBlock(_) => {
                             Some(NodeKind::Placeholder(Placeholder::FrontMatter))
                         }
@@ -531,7 +540,8 @@ impl Detail {
                     | TagEnd::Table
                     | TagEnd::TableHead
                     | TagEnd::TableRow
-                    | TagEnd::TableCell => {
+                    | TagEnd::TableCell
+                    | TagEnd::FootnoteDefinition => {
                         b.close_implicit();
                         b.pop();
                     }
@@ -555,9 +565,11 @@ impl Detail {
                     b.run(RunKind::Text, &r, &t, style::CODE | style::MATH)
                 }
                 Event::InlineHtml(t) | Event::Html(t) => b.run(RunKind::Text, &r, &t, style::MUTED),
-                Event::FootnoteReference(l) => {
-                    b.run(RunKind::Text, &r, &format!("[{l}]"), style::FOOTREF)
-                }
+                Event::FootnoteReference(l) => match index.footnote_number(&l) {
+                    // R-REN-10: GitHub numbering by first reference.
+                    Some(n) => b.run(RunKind::Text, &r, &format!("[{n}]"), style::FOOTREF),
+                    None => b.run(RunKind::Text, &r, &format!("[^{l}]"), 0),
+                },
                 Event::SoftBreak => b.run(RunKind::SoftBreak, &r, "", 0),
                 Event::HardBreak => b.run(RunKind::HardBreak, &r, "", 0),
                 Event::Rule => {
@@ -794,7 +806,7 @@ mod tests {
         );
         assert!(
             runs.iter()
-                .any(|r| r.style & style::FOOTREF != 0 && r.text(src) == "[n]"),
+                .any(|r| r.style & style::FOOTREF != 0 && r.text(src) == "[1]"),
             "{runs:?}"
         );
     }
