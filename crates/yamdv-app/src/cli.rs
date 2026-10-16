@@ -1,7 +1,7 @@
 //! Command-line parsing and the only module allowed to produce CLI text (APPENDIX F §F.4).
 //! `--help`, `--version` and file paths; builds with the `dev-tools` feature additionally accept the
 //! developer flags (`--render-png`, `--width`, `--scale`, `--theme`, `--autoscroll`, `--perf-log`,
-//! `--mem-stats`). Every other flag is a usage error (exit code 2).
+//! `--mem-stats`, `--script`). Every other flag is a usage error (exit code 2).
 
 /// Product version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -48,6 +48,8 @@ pub struct Dev {
     pub perf_log: Option<String>,
     /// `--mem-stats <file>`.
     pub mem_stats: Option<String>,
+    /// `--script <file>` (in-window test driver).
+    pub script: Option<String>,
 }
 
 /// Whether developer flags are accepted (compile-time).
@@ -95,7 +97,8 @@ pub fn parse_with<I: IntoIterator<Item = String>>(args: I, dev_tools: bool) -> C
             "--version" | "-V" => return Command::Version,
             "--" => only_paths = true,
             "--autoscroll" if dev_tools => dev.autoscroll = true,
-            "--render-png" | "--perf-log" | "--mem-stats" | "--width" | "--scale" | "--theme"
+            "--render-png" | "--perf-log" | "--mem-stats" | "--script" | "--width" | "--scale"
+            | "--theme"
                 if dev_tools =>
             {
                 let Some(v) = it.next() else {
@@ -105,6 +108,7 @@ pub fn parse_with<I: IntoIterator<Item = String>>(args: I, dev_tools: bool) -> C
                     "--render-png" => dev.render_png = Some(v),
                     "--perf-log" => dev.perf_log = Some(v),
                     "--mem-stats" => dev.mem_stats = Some(v),
+                    "--script" => dev.script = Some(v),
                     "--width" => match v.parse::<f32>() {
                         Ok(w) if (100.0..=8000.0).contains(&w) => dev.width = Some(w),
                         _ => return usage(&a),
