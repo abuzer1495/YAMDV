@@ -1,0 +1,97 @@
+# Spec patches of prompt 003 §3, extracted verbatim from docs/prompts/003_FULL_RENDERING.md.
+
+=== P-10 docs/PERFORMANCE.md REPLACE
+--- old
+| **M6** | After closing the Open-file dialog — PWS returns to ≤ M1 + 1 MB within 2 s | required | required |
+--- new
+| **M6** | 2 s after closing the Open-file dialog (shown by the out-of-process dialog host, S-PROC-07), **without any working-set trim** — PWS and commit vs M1 | PWS ≤ M1 + 0.5 MB and commit ≤ M1 commit + 0.5 MB | PWS ≤ M1 + 1 MB and commit ≤ M1 commit + 1.5 MB |
+
+=== P-11 docs/PERFORMANCE.md REPLACE
+--- old
+10. **Transient spikes** (file dialogs, printing, PDF export) are allowed; afterwards transient buffers are freed, and a working-set trim (`SetProcessWorkingSetSizeEx(-1, -1)`) MAY be performed **once, right after the transient operation** and on minimize. Periodic or timer-based trimming is **forbidden** — it fakes the metric.
+--- new
+10. **Transient spikes:** native file and print dialogs run in the out-of-process dialog host (S-PROC-07), so shell components are never loaded into the main process. Printing and PDF export may spike in-process; afterwards transient buffers are freed, and a working-set trim (`SetProcessWorkingSetSizeEx(-1, -1)`) MAY be performed **once, right after that operation** and on minimize. Periodic or timer-based trimming is **forbidden** — it fakes the metric. Budgets measured after a transient operation are checked on both private working set and commit.
+
+=== P-12 docs/PERFORMANCE.md REPLACE
+--- old
+Scrolling reuses pixels (`ScrollWindowEx`) and paints only exposed strips.
+--- new
+Scrolling reuses pixels (`ScrollWindowEx`) and paints only exposed strips. The band buffer is capped at 512 KiB regardless of window width (band height = clamp(524288 / (4 × width_px), 32, 128) rows).
+
+=== P-13 docs/PERFORMANCE.md REPLACE
+--- old
+4. **Images** decoded at display size; LRU cache ≤ 1.5 MB decoded pixels; off-screen images evicted; re-decoded on demand.
+--- new
+4. **Images** are decoded at display size in device pixels, on the worker thread (E.10). Images intersecting the viewport ± one screen stay decoded; all **other** decoded images share an LRU cache ≤ 1.5 MB and are re-decoded on demand. The bitmap storage type (DIB section vs. device-dependent bitmap) is a measured choice recorded in an ADR.
+
+=== P-14 docs/SECURITY.md REPLACE
+--- old
+- **S-PROC-07 MUST** Child processes only for: the external editor (user action), self-install/uninstall helper, nothing else.
+--- new
+- **S-PROC-07 MUST** Child processes only for: the external editor (user action); the **dialog host** — a second instance of our own `yamdv.exe`, started by absolute path (`GetModuleFileNameW`) with the internal flag `--dialog-host`, which shows exactly one native file-open/save or print dialog and exits; and the self-install/uninstall helper — nothing else.
+
+=== P-15 docs/SECURITY.md INSERT_AFTER
+--- anchor
+- **S-IPC-04 MUST** No named pipes, sockets, shared memory sections, COM servers, DDE, or listening endpoints of any kind.
+--- new
+- **S-IPC-05 MUST** Dialog-host results return through `WM_COPYDATA` with their own magic value, a versioned payload and the per-launch nonce. The main window accepts them only while it waits for a host it started, only from that host's process ID (checked with `GetWindowThreadProcessId` on the sender window), and treats returned paths exactly like user-opened paths. The host refuses to run if the owner window does not belong to a process of the same user, and it never does anything other than show one dialog.
+
+=== P-16 docs/SECURITY.md REPLACE
+--- old
+and the install folder during `--install`. Read mode never writes the document.
+--- new
+and the install folder during `--install`. Read mode never writes the document, with one opt-in exception: when `reading.task_toggle_in_read_mode` is on, clicking a task checkbox performs a single edit of that `[ ]`/`[x]` marker through the editor's save path (atomic save and conflict detection, available from Phase 006).
+
+=== P-17 docs/SPEC.md REPLACE
+--- old
+task-list checkboxes (rendered, not interactive in read mode unless the setting allows).
+--- new
+task-list checkboxes (rendered; in read mode clickable only when `reading.task_toggle_in_read_mode` is on, which edits the file per S-FILE-01 — available from Phase 006).
+
+=== P-18 docs/ARCHITECTURE.md INSERT_AFTER
+--- anchor
+- Communication via `PostMessageW` + a lock-free or mutex-protected queue. No async runtime.
+--- new
+- **Re-entrancy rule:** many Win32 calls dispatch window messages synchronously (`SetWindowPos`, `ShowWindow`, `UpdateWindow`, `RedrawWindow` with `RDW_UPDATENOW`, `DestroyWindow`, `SetFocus`, `EnableWindow`, `SetCursor`-triggering calls, `MessageBoxW`, any modal loop). Never hold a borrow of window or app state across such a call. Mutations requested while handling a message are queued as deferred commands and applied after the handler returns; a re-entrant `WM_PAINT` is skipped and the region re-invalidated. Debug builds detect re-entrant borrows and log the message id.
+
+=== P-19 docs/ARCHITECTURE.md INSERT_AFTER
+--- anchor
+Backend per ADR-0002. Requirements regardless of backend: dirty-rect invalidation; scrolling by pixel reuse + exposed-strip painting; overlays (find bar, toasts, badges, viewers) drawn as top layers of the same window; menus, popovers and tooltips as separate layered popup windows; correct per-monitor DPI; no work when nothing changed.
+--- new
+The renderer supports true rectangular clipping (`PushClip`/`PopClip`) for glyph runs, shapes and images — required for horizontally scrolled blocks, table cells, callouts and viewers. Rounded clips MAY use corner masks painted in the known container color. Painting background over overflow is not a substitute for clipping.
+
+=== P-20 docs/SHORTCUTS.md INSERT_AFTER
+--- anchor
+Exit codes: `0` success · `1` runtime error · `2` usage error. Console output only when started from a console (`AttachConsole`).
+--- new
+Internal flag, not shown in `--help`: `--dialog-host <kind> <owner-hwnd> <nonce> …` — used only by YAMDV itself (S-PROC-07, S-IPC-05); it exits with code 2 when started any other way.
+
+=== P-21 docs/UI_SPEC.md REPLACE
+--- old
+padding 0.15 em × 0.4 em, radius 4 (sharp 0).
+--- new
+padding 0.15 em × 0.4 em (the horizontal padding is realized as extra character spacing on the span's first and last character, so neighbouring glyphs never overlap), radius 4 (sharp 0).
+
+=== P-22 docs/ROADMAP.md REPLACE
+--- old
+fullscreen diagram viewer, mind map view |
+--- new
+fullscreen diagram viewer, mind map view, local SVG images (R-IMG-01, renderer chosen by ADR) |
+
+=== P-23 docs/TESTING.md INSERT_AFTER
+--- anchor
+- Each report links the new/changed goldens so the owner can review the look without building.
+--- new
+- Goldens are stored as tiles of ≤ 5 000 rows and ≤ 1 MB each, saved with maximum PNG compression; prefer several focused documents over one tall document. Each report lists the number and total bytes of goldens added or changed.
+
+=== P-24 docs/SPEC.md REPLACE
+--- old
+Allowed attributes: `align` (p, div, h1–h6, img, td, th),
+--- new
+Allowed attributes: `id` and `name` (any allowed element; used only as anchor targets, restricted to `[A-Za-z0-9_.:-]{1,128}`), `align` (p, div, h1–h6, img, td, th),
+
+=== P-25 docs/SPEC.md REPLACE
+--- old
+*blocked network path*, *too large*, *unsupported format*.
+--- new
+*blocked network path*, *too large*, *unsupported format*. Images that sit inside a line of text (e.g. README badges, usually remote) use a **compact inline chip** instead of the block placeholder: line-height tall, radius 4, `code_bg` fill, a 12 px glyph and the alt text (or file name) in 12 px `text_muted`; the full message and actions are in its tooltip and on click.

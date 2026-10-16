@@ -39,7 +39,7 @@ Requirement keywords: **MUST** (v1), **SHOULD** (v1 unless a phase prompt defers
 - **R-MD-11 SHOULD** Definition lists (pulldown-cmark option).
 - **R-MD-12 MUST** Wikilinks: `[[Page]]`, `[[Page|alias]]`, `[[Page#Heading]]`, `[[#Heading]]`, and embeds `![[image.png]]`, `![[image.png|300]]` (width). Resolution: R-LINK-03.
 - **R-MD-13 SHOULD** Emoji shortcodes `:smile:` (GitHub set, compile-time table; not inside code/URLs).
-- **R-MD-14 MUST** Raw HTML is never executed. A **safe subset** is rendered natively; everything else is sanitized (rules in `S-HTML-*`). Allowed tags: `b strong i em u ins s del strike mark sub sup small kbd code var samp abbr br hr p div span center h1–h6 blockquote ul ol li dl dt dd table thead tbody tfoot tr th td pre a img details summary picture source(srcset ignored) figure figcaption`. Allowed attributes: `align` (p, div, h1–h6, img, td, th), `width`/`height` (img), `src`/`alt`/`title` (img), `href`/`title` (a), `open` (details), `colspan`/`rowspan` (td, th), `style` restricted to `color`, `background-color`, `text-align`. HTML comments are hidden (including multi-line). Entities decoded. README patterns like `<p align="center"><img …></p>` MUST render centered.
+- **R-MD-14 MUST** Raw HTML is never executed. A **safe subset** is rendered natively; everything else is sanitized (rules in `S-HTML-*`). Allowed tags: `b strong i em u ins s del strike mark sub sup small kbd code var samp abbr br hr p div span center h1–h6 blockquote ul ol li dl dt dd table thead tbody tfoot tr th td pre a img details summary picture source(srcset ignored) figure figcaption`. Allowed attributes: `id` and `name` (any allowed element; used only as anchor targets, restricted to `[A-Za-z0-9_.:-]{1,128}`), `align` (p, div, h1–h6, img, td, th), `width`/`height` (img), `src`/`alt`/`title` (img), `href`/`title` (a), `open` (details), `colspan`/`rowspan` (td, th), `style` restricted to `color`, `background-color`, `text-align`. HTML comments are hidden (including multi-line). Entities decoded. README patterns like `<p align="center"><img …></p>` MUST render centered.
 - **R-MD-15 MUST** Hard breaks: two trailing spaces, backslash. Setting "Single newline as line break" (default **off**).
 - **R-MD-16 SHOULD** Smart punctuation (setting, default off).
 - **R-MD-17 MUST** Indented code blocks; tabs expand to 4 columns inside code.
@@ -74,7 +74,7 @@ Requirement keywords: **MUST** (v1), **SHOULD** (v1 unless a phase prompt defers
 - **R-REN-01 MUST** Reading view: one centered column, web-page-like, no chrome.
 - **R-REN-02 MUST** Headings H1–H6 (styles per theme), anchors per R-MD-10.
 - **R-REN-03 MUST** Paragraphs, emphasis, strong, strikethrough, highlight, sub/superscript, inline code, `<kbd>`.
-- **R-REN-04 MUST** Lists: bullets by depth `•` `◦` `▪` (repeat); ordered lists honor the start number (decimal at all depths); tight vs loose spacing; task-list checkboxes (rendered, not interactive in read mode unless the setting allows).
+- **R-REN-04 MUST** Lists: bullets by depth `•` `◦` `▪` (repeat); ordered lists honor the start number (decimal at all depths); tight vs loose spacing; task-list checkboxes (rendered; in read mode clickable only when `reading.task_toggle_in_read_mode` is on, which edits the file per S-FILE-01 — available from Phase 006).
 - **R-REN-05 MUST** Blockquotes, nested (one bar per level).
 - **R-REN-06 MUST** Callouts (R-MD-02/04) with icon + title row; foldable ones toggle on title click.
 - **R-REN-07 MUST** Tables: alignment, header style, borders, inline formatting in cells, wrapping long cell text (break anywhere if needed — never overflow the column), optional zebra rows, hover toolbar with ⛶ fullscreen (R-READ-08) and CSV export (R-EXP-04).
@@ -107,7 +107,7 @@ Requirement keywords: **MUST** (v1), **SHOULD** (v1 unless a phase prompt defers
 - **R-IMG-03 MUST** Size: 1 image pixel = 1 logical px, scaled down to the column width (aspect preserved); HTML `width`/`height` and `![[x.png|300]]` honored; never upscaled beyond 100 % automatically.
 - **R-IMG-04 MUST** Lazy: header-only probe for dimensions at layout time; full decode only when visible, **decoded at display size**; LRU cache with a byte budget (Appendix D).
 - **R-IMG-05 MUST** Hover ⛶ badge → fullscreen image viewer (R-READ-08).
-- **R-IMG-06 MUST** Placeholders: *missing* (icon + alt + path), *blocked remote* ("Remote image not loaded — YAMDV works offline" + [Copy URL]), *blocked network path*, *too large*, *unsupported format*.
+- **R-IMG-06 MUST** Placeholders: *missing* (icon + alt + path), *blocked remote* ("Remote image not loaded — YAMDV works offline" + [Copy URL]), *blocked network path*, *too large*, *unsupported format*. Images that sit inside a line of text (e.g. README badges, usually remote) use a **compact inline chip** instead of the block placeholder: line-height tall, radius 4, `code_bg` fill, a 12 px glyph and the alt text (or file name) in 12 px `text_muted`; the full message and actions are in its tooltip and on click.
 
 ## A.7 Links (R-LINK)
 - **R-LINK-01 MUST** `#anchor` links smooth-scroll to the heading/footnote/`id`.

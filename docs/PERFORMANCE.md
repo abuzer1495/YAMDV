@@ -15,7 +15,7 @@ Memory is a feature. Everything is lazy, virtualized and measured. "Fast and lig
 | **M3** | `math-heavy.md` (50 formulas) / `mermaid-heavy.md` (5 diagrams) — PWS | ≤ 6.0 MB | ≤ 9.6 MB |
 | **M4** | Each additional window with `typical.md` (same process) — PWS delta | ≤ +1.5 MB | ≤ +2.4 MB |
 | **M5** | F3 and F2 after 200 edits on `typical.md` — PWS | ≤ 6.0 MB | ≤ 9.6 MB |
-| **M6** | After closing the Open-file dialog — PWS returns to ≤ M1 + 1 MB within 2 s | required | required |
+| **M6** | 2 s after closing the Open-file dialog (shown by the out-of-process dialog host, S-PROC-07), **without any working-set trim** — PWS and commit vs M1 | PWS ≤ M1 + 0.5 MB and commit ≤ M1 commit + 0.5 MB | PWS ≤ M1 + 1 MB and commit ≤ M1 commit + 1.5 MB |
 | **M7** | Commit (`PrivateUsage`) | ≤ 2.5 × PWS | ≤ 3 × PWS |
 | **T1** | Process start → first paint of `typical.md` (warm file cache) | ≤ 80 ms | ≤ 150 ms |
 | **T2** | Process start → welcome page painted | ≤ 60 ms | ≤ 100 ms |
@@ -41,14 +41,14 @@ Interim scenarios used before the full corpus exists (Phase 002): **M1b** = `typ
 ## D.4 Memory design rules
 1. **Source once.** The document text is stored once (UTF-8 `String`, later a rope in edit modes). The block tree stores byte ranges (`u32`), not copies.
 2. **Virtualized layout.** Lay out only visible blocks ± one screen. Unseen blocks keep only an estimated height. Paragraph layout objects are cached LRU for ≤ 3 screens.
-3. **No full-window framebuffers in our process** if the chosen backend allows it (banded rendering / DWM-owned surfaces). Scrolling reuses pixels (`ScrollWindowEx`) and paints only exposed strips.
-4. **Images** decoded at display size; LRU cache ≤ 1.5 MB decoded pixels; off-screen images evicted; re-decoded on demand.
+3. **No full-window framebuffers in our process** if the chosen backend allows it (banded rendering / DWM-owned surfaces). Scrolling reuses pixels (`ScrollWindowEx`) and paints only exposed strips. The band buffer is capped at 512 KiB regardless of window width (band height = clamp(524288 / (4 × width_px), 32, 128) rows).
+4. **Images** are decoded at display size in device pixels, on the worker thread (E.10). Images intersecting the viewport ± one screen stay decoded; all **other** decoded images share an LRU cache ≤ 1.5 MB and are re-decoded on demand. The bitmap storage type (DIB section vs. device-dependent bitmap) is a measured choice recorded in an ADR.
 5. **Glyph caching** is left to DirectWrite/the OS. No own glyph atlas.
 6. **Lazy subsystems:** WIC/COM only when the first image appears; math engine and Cambria Math only when math exists; Mermaid only when diagrams exist; font enumeration only when the font picker opens; History/Files tab data only when the tab is shown.
 7. **Threads:** UI thread + one file-watcher thread + at most one worker for heavy jobs (export, large layout); explicit 256 KB stacks; no thread pools, no async runtime.
 8. **Allocator:** Rust's default global allocator (the Windows process heap via HeapAlloc). No third-party allocators (mimalloc, jemalloc, bump/arena allocators that reserve large regions). The Windows heap *type* (NT heap vs. SegmentHeap via the manifest) is a measured choice recorded in ADR-0002 (currently the default NT heap). `shrink_to_fit` long-lived buffers after load.
 9. **Compact data:** `u32` offsets/indices, small enums, interned style runs, no per-glyph or per-character heap objects.
-10. **Transient spikes** (file dialogs, printing, PDF export) are allowed; afterwards transient buffers are freed, and a working-set trim (`SetProcessWorkingSetSizeEx(-1, -1)`) MAY be performed **once, right after the transient operation** and on minimize. Periodic or timer-based trimming is **forbidden** — it fakes the metric.
+10. **Transient spikes:** native file and print dialogs run in the out-of-process dialog host (S-PROC-07), so shell components are never loaded into the main process. Printing and PDF export may spike in-process; afterwards transient buffers are freed, and a working-set trim (`SetProcessWorkingSetSizeEx(-1, -1)`) MAY be performed **once, right after that operation** and on minimize. Periodic or timer-based trimming is **forbidden** — it fakes the metric. Budgets measured after a transient operation are checked on both private working set and commit.
 11. Static data (highlighter keyword tables, emoji table, strings) lives in read-only sections (`&'static`), never copied to the heap at startup.
 
 ## D.5 Tooling

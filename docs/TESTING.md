@@ -28,6 +28,7 @@
 - Dev tool `yamdv --render-png` (feature `dev-tools`) renders a document headlessly at a given width, scale, scheme and mode.
 - Goldens live in `tests/golden/<phase>/<name>@<scale>-<scheme>-<mode>.png`; comparison uses a per-pixel tolerance plus a maximum differing-pixel ratio (fonts differ slightly across Windows builds; CI uses a fixed runner image). `cargo xtask golden --update` refreshes them **only** with a note in the report explaining each visual change.
 - Each report links the new/changed goldens so the owner can review the look without building.
+- Goldens are stored as tiles of ≤ 5 000 rows and ≤ 1 MB each, saved with maximum PNG compression; prefer several focused documents over one tall document. Each report lists the number and total bytes of goldens added or changed.
 
 ## H.5 Manual QA checklist format (in every report)
 Numbered steps written for a non-developer on Windows: what to download/build, what to click/press, what should happen, and what to send back if it doesn't (screenshot + the step number).
