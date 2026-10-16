@@ -961,7 +961,6 @@ impl Win {
             let strings = I18nStrings(sh.lang);
             let mut shaper = DwShaper(&sh.dw);
             let mut env = Env {
-                images: &yamdv_layout::img::NO_IMAGES,
                 shaper: &mut shaper,
                 m: sh.m,
                 pal: &self.pal,
@@ -1679,7 +1678,12 @@ impl Win {
                 self.footnote_jump(sh, FootTarget::Ref(n, k));
                 return true;
             }
-            HotKind::FootNote { .. } => return false,
+            HotKind::FootNote { .. } | HotKind::Image { .. } | HotKind::ImagePlaceholder { .. } => {
+                return false;
+            }
+            HotKind::CopyUrl { url } => {
+                let _ = sys::copy_text(self.hwnd, &url);
+            }
             HotKind::Link { link } => {
                 self.link_click(sh, bi, link);
                 return true;
@@ -1700,7 +1704,6 @@ impl Win {
             let strings = I18nStrings(sh.lang);
             let mut shaper = DwShaper(&sh.dw);
             let mut env = Env {
-                images: &yamdv_layout::img::NO_IMAGES,
                 shaper: &mut shaper,
                 m: sh.m,
                 pal: &self.pal,
@@ -1909,6 +1912,7 @@ impl Win {
 }
 
 /// Draws the visible part of a document (shared by windows and `--render-png`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_doc(
     b: &Band<'_>,
     content: &Content,

@@ -7,7 +7,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -62,14 +62,16 @@ fn attrs(path: &str) -> Option<WIN32_FILE_ATTRIBUTE_DATA> {
 
 fn u16_at(b: &[u8], o: usize) -> usize {
     b.get(o..o + 2)
-        .map_or(0, |s| usize::from(u16::from_le_bytes([s[0], s[1]])))
+        .and_then(|s| <[u8; 2]>::try_from(s).ok())
+        .map_or(0, |s| usize::from(u16::from_le_bytes(s)))
 }
 
 /// Substitute name of a symlink / mount-point reparse buffer (`""` for other tags).
 pub fn parse_reparse(b: &[u8]) -> String {
     let tag = b
         .get(0..4)
-        .map_or(0, |s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]));
+        .and_then(|s| <[u8; 4]>::try_from(s).ok())
+        .map_or(0, u32::from_le_bytes);
     let base = match tag {
         TAG_SYMLINK => 20,
         TAG_MOUNT_POINT => 16,
@@ -80,8 +82,10 @@ pub fn parse_reparse(b: &[u8]) -> String {
         return String::new();
     };
     let w: Vec<u16> = raw
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
         .collect();
     String::from_utf16_lossy(&w)
 }
@@ -269,9 +273,9 @@ fn spawn(hwnd: isize, done: Arc<Mutex<Vec<Done>>>) -> Option<Worker> {
             // SAFETY: COM for this thread only, uninitialized on exit.
             let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
             if let Some(f) = factory() {
-                loop {
-                    match rx.recv_timeout(IDLE_EXIT) {
-                        Ok(j) => {
+                while let Ok(j) = rx.recv_timeout(IDLE_EXIT) {
+                    {
+                        {
                             let r = decode(&f, &j.src, j.w, j.h);
                             if let Ok(mut d) = done.lock() {
                                 d.push((j.key, j.generation, j.w, j.h, r));
@@ -286,7 +290,6 @@ fn spawn(hwnd: isize, done: Arc<Mutex<Vec<Done>>>) -> Option<Worker> {
                                 )
                             };
                         }
-                        Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => break,
                     }
                 }
             }
@@ -444,9 +447,11 @@ impl Store {
 
     fn queue(&self, j: Job) {
         let mut w = self.worker.borrow_mut();
-        let j = match w.as_ref().map(|x| x.tx.send(j)) {
-            Some(Ok(())) => return,
-            Some(Err(e)) => e.0,
+        let j = match w.as_ref() {
+            Some(x) => match x.tx.send(j) {
+                Ok(()) => return,
+                Err(e) => e.0,
+            },
             None => j,
         };
         // Worker exited after idling (or never started): start a new one.
@@ -548,13 +553,13 @@ mod tests {
         let mut b = TAG_SYMLINK.to_le_bytes().to_vec();
         b.extend([0, 0, 0, 0]);
         b.extend(0u16.to_le_bytes());
-        b.extend((name.len() as u16).to_le_bytes());
+        b.extend(u16::try_from(name.len()).unwrap_or(0).to_le_bytes());
         b.extend([0; 8]);
         b.extend(&name);
         assert_eq!(parse_reparse(&b), "\\??\\UNC\\evil\\s");
         let mut j = TAG_MOUNT_POINT.to_le_bytes().to_vec();
         j.extend([0, 0, 0, 0, 0, 0]);
-        j.extend((name.len() as u16).to_le_bytes());
+        j.extend(u16::try_from(name.len()).unwrap_or(0).to_le_bytes());
         j.extend([0; 4]);
         j.extend(&name);
         assert_eq!(parse_reparse(&j), "\\??\\UNC\\evil\\s");
