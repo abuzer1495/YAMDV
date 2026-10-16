@@ -29,6 +29,10 @@ pub struct Metrics {
     pub line_height: f32,
     /// `typography.paragraph_spacing`.
     pub para_spacing: f32,
+    /// `appearance.table_zebra` (R-THEME-09).
+    pub table_zebra: bool,
+    /// `appearance.corner_style == rounded`.
+    pub rounded: bool,
 }
 
 impl Default for Metrics {
@@ -37,6 +41,8 @@ impl Default for Metrics {
             font_size: 16.0,
             line_height: 1.6,
             para_spacing: 16.0,
+            table_zebra: false,
+            rounded: true,
         }
     }
 }
@@ -357,7 +363,7 @@ pub fn estimate(b: &Block, width: f32, m: &Metrics) -> f32 {
     }
 }
 
-fn base(m: &Metrics, color: u32) -> Style {
+pub(crate) fn base(m: &Metrics, color: u32) -> Style {
     Style {
         family: Family::Body,
         size: m.font_size,
@@ -369,7 +375,7 @@ fn base(m: &Metrics, color: u32) -> Style {
     }
 }
 
-fn spans(segs: &[Seg], b: &Style, m: &Metrics, pal: &Palette) -> Vec<Span> {
+pub(crate) fn spans(segs: &[Seg], b: &Style, m: &Metrics, pal: &Palette) -> Vec<Span> {
     let mut out = Vec::new();
     for s in segs {
         if s.style == 0 {
@@ -444,7 +450,7 @@ impl Out {
     }
 }
 
-fn shape_text(
+pub(crate) fn shape_text(
     ctx: &mut Ctx<'_>,
     text: &str,
     style: Style,
@@ -463,7 +469,7 @@ fn shape_text(
 }
 
 /// Inline leaf → shaped paragraph with inline-code backgrounds.
-fn leaf(
+pub(crate) fn leaf(
     ctx: &mut Ctx<'_>,
     pt: ParaText,
     style: Style,
@@ -471,6 +477,22 @@ fn leaf(
     x: f32,
     y: f32,
     w: f32,
+    out: &mut Out,
+) -> f32 {
+    leaf_aligned(ctx, pt, style, pitch, x, y, w, 0, out)
+}
+
+/// [`leaf`] with a horizontal alignment of the shaped box inside `w` (0/1 start, 2 center,
+/// 3 end; used by table cells).
+pub(crate) fn leaf_aligned(
+    ctx: &mut Ctx<'_>,
+    pt: ParaText,
+    style: Style,
+    pitch: f32,
+    x: f32,
+    y: f32,
+    w: f32,
+    align: u8,
     out: &mut Out,
 ) -> f32 {
     let sp = spans(&pt.segs, &style, &ctx.m, ctx.pal);
@@ -484,6 +506,11 @@ fn leaf(
         rtl,
         tab_spaces: None,
     });
+    let x = match align {
+        2 => x + ((w - shaped.width()) / 2.0).max(0.0),
+        3 => x + (w - shaped.width()).max(0.0),
+        _ => x,
+    };
     // B.6.3: inline code background, padding 0.15 em × 0.4 em, radius 4 — drawn before the text.
     // The horizontal padding is part of the shaped advance (character spacing, F-13/P-21), so the
     // background is exactly the range rectangle and never overlaps neighbouring glyphs.
@@ -506,7 +533,7 @@ fn leaf(
 
 /// Code-like card: code blocks and interim placeholders (PHASE-003).
 #[allow(clippy::too_many_arguments)]
-fn card(
+pub(crate) fn card(
     ctx: &mut Ctx<'_>,
     pt: ParaText,
     label: Option<&str>,
@@ -597,7 +624,7 @@ fn card(
     h
 }
 
-fn source_text(src: &str, r: &std::ops::Range<u32>) -> ParaText {
+pub(crate) fn source_text(src: &str, r: &std::ops::Range<u32>) -> ParaText {
     let mut t = src.get(r.start as usize..r.end as usize).unwrap_or("");
     while t.ends_with('\n') || t.ends_with('\r') {
         t = &t[..t.len() - 1];
@@ -623,7 +650,11 @@ fn node_margins(kind: &NodeKind, m: &Metrics, tight: bool) -> (f32, f32) {
         NodeKind::Paragraph { .. } | NodeKind::DefBody => (0.0, m.para_spacing),
         NodeKind::DefTitle => (0.0, 0.0),
         NodeKind::Heading(l) => margins(BlockKind::Heading(*l), m),
-        NodeKind::BlockQuote(_) | NodeKind::Code { .. } | NodeKind::Placeholder(_) => (16.0, 16.0),
+        NodeKind::BlockQuote(_)
+        | NodeKind::Code { .. }
+        | NodeKind::Placeholder(_)
+        | NodeKind::Table { .. } => (16.0, 16.0),
+        NodeKind::TableRow { .. } | NodeKind::TableCell => (0.0, 0.0),
         NodeKind::Rule => (24.0, 24.0),
         NodeKind::List { .. } | NodeKind::DefList => {
             (0.0, if tight { 0.0 } else { m.para_spacing })
@@ -708,6 +739,8 @@ fn node(
             let pt = node_text(src, d, i, true);
             crate::code::code_block(ctx, i, lang, pt, x, y, w, out)
         }
+        NodeKind::Table { aligns } => crate::table::table(ctx, src, d, i, aligns, x, y, w, out),
+        NodeKind::TableRow { .. } | NodeKind::TableCell => 0.0,
         NodeKind::Placeholder(p) => {
             // PHASE-003: tables, HTML, math, footnotes, front matter are shown as source cards.
             let label = ctx.strings.placeholder(*p).to_string();

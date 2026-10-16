@@ -2150,6 +2150,8 @@ pub fn run(paths: &[String], dev: DevOptions) -> i32 {
         font_size: s.int("typography.font_size") as f32,
         line_height: s.float("typography.line_height") as f32,
         para_spacing: s.int("typography.paragraph_spacing") as f32,
+        table_zebra: s.bool("appearance.table_zebra"),
+        rounded: s.str("appearance.corner_style") != "sharp",
     };
     let shared = Shared {
         dw,

@@ -10,6 +10,7 @@ pub mod fenwick;
 pub mod geom;
 pub mod plain;
 pub mod shaper;
+pub mod table;
 pub mod viewer;
 pub mod warm;
 

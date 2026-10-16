@@ -86,6 +86,18 @@ pub enum NodeKind {
     DefTitle,
     /// Definition body.
     DefBody,
+    /// GFM table (R-REN-07); `aligns` per column: 0 none, 1 left, 2 center, 3 right.
+    Table {
+        /// Column alignments.
+        aligns: Vec<u8>,
+    },
+    /// Table row (`head` = the header row).
+    TableRow {
+        /// Header row.
+        head: bool,
+    },
+    /// Table cell (inline leaf).
+    TableCell,
     /// Interim placeholder card showing source text.
     Placeholder(Placeholder),
 }
@@ -98,6 +110,7 @@ impl NodeKind {
             NodeKind::Paragraph { .. }
                 | NodeKind::Heading(_)
                 | NodeKind::DefTitle
+                | NodeKind::TableCell
                 | NodeKind::Code { .. }
         )
     }
@@ -440,7 +453,20 @@ impl Detail {
                         Tag::DefinitionList => Some(NodeKind::DefList),
                         Tag::DefinitionListTitle => Some(NodeKind::DefTitle),
                         Tag::DefinitionListDefinition => Some(NodeKind::DefBody),
-                        Tag::Table(_) => Some(NodeKind::Placeholder(Placeholder::Table)),
+                        Tag::Table(al) => Some(NodeKind::Table {
+                            aligns: al
+                                .iter()
+                                .map(|a| match a {
+                                    pulldown_cmark::Alignment::None => 0,
+                                    pulldown_cmark::Alignment::Left => 1,
+                                    pulldown_cmark::Alignment::Center => 2,
+                                    pulldown_cmark::Alignment::Right => 3,
+                                })
+                                .collect(),
+                        }),
+                        Tag::TableHead => Some(NodeKind::TableRow { head: true }),
+                        Tag::TableRow => Some(NodeKind::TableRow { head: false }),
+                        Tag::TableCell => Some(NodeKind::TableCell),
                         Tag::HtmlBlock => Some(NodeKind::Placeholder(Placeholder::Html)),
                         Tag::FootnoteDefinition(_) => {
                             Some(NodeKind::Placeholder(Placeholder::Footnotes))
@@ -501,7 +527,11 @@ impl Detail {
                     | TagEnd::Item
                     | TagEnd::DefinitionList
                     | TagEnd::DefinitionListTitle
-                    | TagEnd::DefinitionListDefinition => {
+                    | TagEnd::DefinitionListDefinition
+                    | TagEnd::Table
+                    | TagEnd::TableHead
+                    | TagEnd::TableRow
+                    | TagEnd::TableCell => {
                         b.close_implicit();
                         b.pop();
                     }
@@ -773,11 +803,10 @@ mod tests {
     fn placeholders_and_inline_kinds() {
         let src = "|a|\n|-|\n|1|\n\nx ![alt *t*](p) <b>h</b> $m$ ~~s~~ `c`\n\n$$\ne\n$$\n\n> [!WARNING]\n> w\n";
         let (_, ds) = tree(src);
-        assert_eq!(
-            ds[0].nodes[0].kind,
-            NodeKind::Placeholder(Placeholder::Table)
-        );
-        assert_eq!(ds[0].nodes.len(), 1);
+        assert_eq!(ds[0].nodes[0].kind, NodeKind::Table { aligns: vec![0] });
+        assert_eq!(ds[0].nodes[1].kind, NodeKind::TableRow { head: true });
+        assert_eq!(ds[0].nodes[2].kind, NodeKind::TableCell);
+        assert_eq!(ds[0].nodes.len(), 5);
         let runs = ds[1].runs_of(0);
         let find = |f: u16| {
             runs.iter()

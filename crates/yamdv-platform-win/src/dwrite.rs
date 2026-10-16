@@ -20,9 +20,9 @@ use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_ITALIC,
     DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_HIT_TEST_METRICS,
     DWRITE_LINE_SPACING_METHOD_UNIFORM, DWRITE_READING_DIRECTION_RIGHT_TO_LEFT,
-    DWRITE_TEXT_METRICS, DWRITE_TEXT_RANGE, DWRITE_WORD_WRAPPING_NO_WRAP, DWriteCreateFactory,
-    IDWriteFactory, IDWriteFontCollection, IDWriteTextFormat, IDWriteTextLayout,
-    IDWriteTextLayout1,
+    DWRITE_TEXT_METRICS, DWRITE_TEXT_RANGE, DWRITE_WORD_WRAPPING_EMERGENCY_BREAK,
+    DWRITE_WORD_WRAPPING_NO_WRAP, DWriteCreateFactory, IDWriteFactory, IDWriteFontCollection,
+    IDWriteTextFormat, IDWriteTextLayout, IDWriteTextLayout1,
 };
 use windows::core::{BOOL, HSTRING, IUnknown, Interface, implement, w};
 use yamdv_layout::Rect;
@@ -193,6 +193,9 @@ impl DWrite {
                 )?;
                 if spec.width.is_none() {
                     l.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)?;
+                } else {
+                    // R-REN-07 / §4.3: a too-long token breaks anywhere instead of overflowing.
+                    l.SetWordWrapping(DWRITE_WORD_WRAPPING_EMERGENCY_BREAK)?;
                 }
                 if spec.rtl {
                     // R-REN-19: RTL paragraph; with RTL reading direction the leading edge is the

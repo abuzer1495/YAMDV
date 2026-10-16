@@ -278,6 +278,23 @@ fn walk(
                 p.list_line = true;
             }
         }
+        NodeKind::TableRow { .. } => {
+            // §4.6: a table row copies as tab-separated cells, one row per line.
+            let mut cells = Vec::new();
+            for c in d.children(i) {
+                let pt = node_text(&doc.source, d, c, doc.opts.single_newline_break);
+                let a = pt.from_source(sel.start);
+                let b = pt.from_source(sel.end);
+                cells.push(pt.slice16(a, b).to_string());
+            }
+            if cells.iter().any(|c| !c.is_empty()) {
+                out.push(Piece {
+                    text: cells.join("\t"),
+                    list_line: true,
+                    group: 0,
+                });
+            }
+        }
         NodeKind::Placeholder(_) | NodeKind::Rule => {
             let t = clip(&doc.source, &n.range, sel);
             if !t.trim().is_empty() && !matches!(n.kind, NodeKind::Rule) {
@@ -437,12 +454,12 @@ mod tests {
 
     #[test]
     fn copy_rules() {
-        let src = "# Title\n\nPara *one*\nline\n\n- a\n- b\n  1. x\n  2. y\n- c\n\n5. five\n6. six\n\n```\nfn x() {\n    1\n}\n```\n\n|t|\n|-|\n\n> quote\n";
+        let src = "# Title\n\nPara *one*\nline\n\n- a\n- b\n  1. x\n  2. y\n- c\n\n5. five\n6. six\n\n```\nfn x() {\n    1\n}\n```\n\n|t|u|\n|-|-|\n|1|2|\n\n> quote\n";
         let d = doc(src);
         let t = all_text(&d);
         assert_eq!(
             t,
-            "Title\r\n\r\nPara one line\r\n\r\n• a\r\n• b\r\n  1. x\r\n  2. y\r\n• c\r\n\r\n5. five\r\n6. six\r\n\r\nfn x() {\r\n    1\r\n}\r\n\r\n|t|\r\n|-|\r\n\r\nquote"
+            "Title\r\n\r\nPara one line\r\n\r\n• a\r\n• b\r\n  1. x\r\n  2. y\r\n• c\r\n\r\n5. five\r\n6. six\r\n\r\nfn x() {\r\n    1\r\n}\r\n\r\nt\tu\r\n1\t2\r\n\r\nquote"
         );
     }
 

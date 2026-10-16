@@ -106,7 +106,7 @@ fn reference(src: &str) -> (Vec<B>, String) {
                         });
                     }
                     depth += 1;
-                    if ["html", "footnotes", "table", "front", "math"].contains(&k.as_str()) {
+                    if ["html", "footnotes", "front", "math"].contains(&k.as_str()) {
                         skip = 1;
                     }
                 } else if matches!(t, Tag::Image { .. }) {
@@ -130,6 +130,9 @@ fn reference(src: &str) -> (Vec<B>, String) {
                         | TagEnd::Superscript
                         | TagEnd::Subscript
                         | TagEnd::Link
+                        | TagEnd::TableHead
+                        | TagEnd::TableRow
+                        | TagEnd::TableCell
                 ) {
                     depth -= 1;
                 }
@@ -171,7 +174,8 @@ fn node_kind(k: &NodeKind) -> Option<&'static str> {
         NodeKind::DefList => "dl",
         NodeKind::DefTitle => "dt",
         NodeKind::DefBody => "dd",
-        NodeKind::Placeholder(Placeholder::Table) => "table",
+        NodeKind::Placeholder(Placeholder::Table) | NodeKind::Table { .. } => "table",
+        NodeKind::TableRow { .. } | NodeKind::TableCell => return None,
         NodeKind::Placeholder(Placeholder::Html) => "html",
         NodeKind::Placeholder(Placeholder::Math) => "math",
         NodeKind::Placeholder(Placeholder::Footnotes) => "footnotes",
