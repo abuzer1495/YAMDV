@@ -1,0 +1,6 @@
+[reading]
+font_size = 15
+smart_punctuation = true
+; c
+[window]
+width=800
