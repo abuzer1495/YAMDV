@@ -1,0 +1,12 @@
+
+FullName                                        Length
+--------                                        ------
+target\release\spike-a.exe     602112
+target\release\spike-b.exe     309760
+target\release\spike-c.exe     311296
+target\release\yamdv.exe       480768
+target\seg\release\spike-a.exe 602112
+target\seg\release\spike-b.exe 309760
+target\seg\release\spike-c.exe 311296
+target\seg\release\yamdv.exe   480768
+
