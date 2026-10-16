@@ -691,6 +691,33 @@ pub(crate) fn leaf_aligned(
             }
         }
     }
+    // B.6.3 `<kbd>` key cap: 1 px border with a 2 px bottom border around the code background.
+    for (s, seg) in sp.iter().zip(pt.segs.iter().filter(|g| g.style != 0)) {
+        if seg.style & st::KBD == 0 {
+            continue;
+        }
+        let em = s.style.size / 0.875;
+        for r in shaped.range_rects(s.range.clone()) {
+            let ih = s.style.size * 1.3 + 0.3 * em;
+            let iy = r.y + (r.h - ih) / 2.0;
+            let rect = Rect::new(x + r.x, y + iy, r.w, ih);
+            out.items.push(Item::Stroke {
+                rect,
+                color: ctx.pal.code_border,
+                radius: 4.0,
+            });
+            out.items.push(Item::Fill {
+                rect: Rect::new(
+                    rect.x + 2.0,
+                    rect.bottom() - 1.0,
+                    (rect.w - 4.0).max(0.0),
+                    1.0,
+                ),
+                color: ctx.pal.code_border,
+                radius: 0.0,
+            });
+        }
+    }
     // R-LINK-*: link text is activatable (one hot rect per line fragment).
     for (s, seg) in sp.iter().zip(pt.segs.iter().filter(|g| g.style != 0)) {
         if seg.link == yamdv_core::doc::detail::NO_LINK {
