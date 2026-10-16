@@ -27,3 +27,21 @@ The spec requires a pinned stable toolchain, edition 2024, the `x86_64-pc-window
 
 ## Revisit
 In Phase 013 (size tuning), or when a new stable release brings a needed feature.
+
+## Amendment (Phase 002, F-06): ProcessDynamicCodePolicy
+
+**Decision: on.** `hardening::apply` sets `ProcessDynamicCodePolicy { ProhibitDynamicCode }` (Arbitrary Code Guard, S-PROC-04) as its last step, after the image-load and strict-handle policies.
+
+Verification on CI `windows-latest` (run 38932189793 and later; the release and dev-tools builds both apply the policy before anything else):
+
+| Area | Result |
+|---|---|
+| DirectWrite text, font fallback (CJK, Arabic, Hebrew) and color emoji (`TranslateColorGlyphRun`) | works — all 32 goldens render, including `unicode-*` with emoji |
+| WIC PNG **encode** (`--render-png`) | works |
+| WIC **decode** | NOT VERIFIED — not used before Phase 003 (images); re-check then |
+| `IFileOpenDialog` open + cancel (M6) | works, process exits cleanly |
+| Dialog in a shell-extension-heavy folder | NOT VERIFIED on CI (no extensions installed) → owner kit step 2 |
+| Drag & drop (`WM_DROPFILES`) | NOT VERIFIED on CI (no input injection) → owner kit step 2 |
+| IME composition | NOT VERIFIED (no IME on the runner; the viewer has no text input yet) → owner kit step 2 |
+
+Revisit if a user reports a shell extension failing to load in the Open dialog. Extensions that JIT (rare) cannot run under ACG, which is the intended protection.

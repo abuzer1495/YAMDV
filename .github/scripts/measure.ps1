@@ -37,13 +37,15 @@ foreach ($d in @(@{n='typical'; f=$typ}, @{n='large'; f=$large})) {
   Probe "T4-$($d.n)" $dev @('--doc', $d.f, '--runs', '1', '--wait-title', 'SCROLL_DONE', '--settle-ms', '500', '--arg', '--autoscroll', '--arg', '--perf-log', '--arg', $log)
   if (Test-Path $log) {
     $p99 = [double](((Get-Content $log) | Where-Object { $_ -like 'p99_ms *' }) -split ' ')[1]
-    Write-Host "T4-$($d.n) p99 = $p99 ms"
+    $frames = [int](((Get-Content $log) | Where-Object { $_ -like 'frames *' }) -split ' ')[1]
+    Write-Host "T4-$($d.n) frames = $frames, p99 = $p99 ms"
+    if ($frames -lt 10) { $failed += "T4-$($d.n)-frames"; Write-Host "::error::T4 recorded only $frames frames" }
     if ($p99 -gt 16) { $failed += "T4-$($d.n)"; Write-Host "::error::T4 p99 $p99 ms > 16 ms" }
   } else { $failed += "T4-$($d.n)-log" }
 }
 # Subsystem breakdown (mem-stats build), informational
 foreach ($d in @(@{n='M1b'; f=$typ}, @{n='M2'; f=$large})) {
-  Probe "memstats-$($d.n)" $dev @('--doc', $d.f, '--runs', '1', '--arg', '--mem-stats', '--arg', "$m/memstats-$($d.n).json")
+  Probe "memstats-$($d.n)" $dev @('--doc', $d.f, '--runs', '1', '--arg', '--mem-stats', '--arg', "$m/memstats-$($d.n).app.json")
 }
 # 150 % scale screenshot is covered by the goldens (scale 1.5).
 Get-ChildItem $m | Format-Table Name, Length -AutoSize

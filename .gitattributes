@@ -4,3 +4,4 @@ tests/corpus/** -text
 *.ico binary
 *.res binary
 docs/prompts/** -text
+fuzz/seeds/** -text

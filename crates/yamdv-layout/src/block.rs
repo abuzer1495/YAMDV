@@ -237,6 +237,9 @@ pub fn gap_before(blocks: &[Block], i: usize, m: &Metrics) -> f32 {
     }
 }
 
+/// Width of the page-background mask right of an overflowing code card (covers any window width).
+pub const OVERFLOW_MASK_W: f32 = 16_384.0;
+
 /// Height estimate of a not-yet-laid-out block (§4.4.4, documented in ADR-0007):
 /// text blocks `max(lines, ceil(half_ems × 0.5 em / width)) × pitch`; code and placeholders
 /// `lines × code_pitch + paddings`; rules 2 px.
@@ -474,6 +477,12 @@ fn card(
         out.items.push(Item::Fill {
             rect: Rect::new(inner.right(), inner.y, CODE_PAD_X - 1.0, inner.h),
             color: ctx.pal.code_bg,
+            radius: 0.0,
+        });
+        // Text past the card's right edge is repainted with the page background.
+        out.items.push(Item::Fill {
+            rect: Rect::new(rect.right(), inner.y, OVERFLOW_MASK_W, inner.h),
+            color: ctx.pal.bg,
             radius: 0.0,
         });
         out.items.push(Item::FadeRight {

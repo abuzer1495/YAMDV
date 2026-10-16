@@ -5,15 +5,15 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 
 | ID | Phase | Status |
 |---|---|---|
-| B-SIZE | 013 | measured (001): cargo xtask size (soft gate) |
-| M0 | 013 | measured (001): memprobe on CI (skeleton) |
+| B-SIZE | 013 | measured (002): xtask size, soft 4.0 MiB |
+| M0 | 013 | measured (002): memprobe gate ≤ 4.8 MiB |
 | M1 | 013 | planned |
-| M2 | 013 | planned |
+| M2 | 013 | measured (002): large-1mb.md gate ≤ 16 MiB |
 | M3 | 013 | planned |
 | M4 | 013 | planned |
 | M5 | 013 | planned |
-| M6 | 013 | planned |
-| M7 | 013 | planned |
+| M6 | 013 | measured (002): memprobe --open-dialog gate |
+| M7 | 013 | measured (002): commit ≤ 3×PWS gate |
 | R-CODE-01 | 003 | planned |
 | R-CODE-02 | 003 | planned |
 | R-CODE-03 | 003 | planned |
@@ -66,8 +66,8 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-MATH-05 | 009 | planned |
 | R-MATH-06 | 009 | planned |
 | R-MATH-07 | 009 | planned |
-| R-MD-01 | 002/003 | planned |
-| R-MD-02 | 002/003 | planned |
+| R-MD-01 | 002/003 | implemented (002) |
+| R-MD-02 | 002/003 | partial (002): strikethrough only |
 | R-MD-03 | 002/003 | planned |
 | R-MD-04 | 002/003 | planned |
 | R-MD-05 | 002/003 | planned |
@@ -75,14 +75,14 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-MD-07 | 002/003 | planned |
 | R-MD-08 | 002/003 | planned |
 | R-MD-09 | 002/003 | planned |
-| R-MD-10 | 002/003 | planned |
+| R-MD-10 | 002/003 | implemented (002) |
 | R-MD-11 | 002/003 | planned |
 | R-MD-12 | 002/003 | planned |
 | R-MD-13 | 002/003 | planned |
 | R-MD-14 | 002/003 | planned |
-| R-MD-15 | 002/003 | planned |
-| R-MD-16 | 002/003 | planned |
-| R-MD-17 | 002/003 | planned |
+| R-MD-15 | 002/003 | implemented (002) |
+| R-MD-16 | 002/003 | implemented (002) |
+| R-MD-17 | 002/003 | implemented (002) |
 | R-MD-18 | 002/003 | planned |
 | R-MD-19 | 002/003 | planned |
 | R-MMD-01 | 010 | planned |
@@ -107,17 +107,17 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-NAV-10 | 004/005 | planned |
 | R-NAV-11 | 004/005 | planned |
 | R-OPEN-01 | 002/005 | planned |
-| R-OPEN-02 | 002/005 | planned |
-| R-OPEN-03 | 002/005 | planned |
-| R-OPEN-04 | 002/005 | planned |
+| R-OPEN-02 | 002/005 | implemented (002) (same-process windows; forwarding 005) |
+| R-OPEN-03 | 002/005 | implemented (002) |
+| R-OPEN-04 | 002/005 | implemented (002) (no edit-mode insert / folder→Files tab) |
 | R-OPEN-05 | 002/005 | planned |
-| R-OPEN-06 | 002/005 | planned |
-| R-OPEN-07 | 002/005 | planned |
-| R-OPEN-08 | 002/005 | planned |
-| R-OPEN-09 | 002/005 | planned |
-| R-OPEN-10 | 002/005 | planned |
+| R-OPEN-06 | 002/005 | implemented (002) (no Reopen-with-encoding menu) |
+| R-OPEN-07 | 002/005 | implemented (002) |
+| R-OPEN-08 | 002/005 | implemented (002) |
+| R-OPEN-09 | 002/005 | implemented (002) (toggle 004) |
+| R-OPEN-10 | 002/005 | implemented (002) (detection; edit handling 006) |
 | R-OPEN-11 | 002/005 | planned |
-| R-OPEN-12 | 002/005 | planned |
+| R-OPEN-12 | 002/005 | implemented (002) |
 | R-OPEN-13 | 002/005 | planned |
 | R-READ-01 | 005 | planned |
 | R-READ-02 | 005 | planned |
@@ -135,32 +135,32 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-REL-02 | 012 | planned |
 | R-REL-03 | 012 | planned |
 | R-REL-04 | 012 | planned |
-| R-REN-01 | 002/003 | planned |
-| R-REN-02 | 002/003 | planned |
-| R-REN-03 | 002/003 | planned |
-| R-REN-04 | 002/003 | planned |
-| R-REN-05 | 002/003 | planned |
+| R-REN-01 | 002/003 | implemented (002) |
+| R-REN-02 | 002/003 | implemented (002) |
+| R-REN-03 | 002/003 | partial (002): no highlight/sub/sup/kbd |
+| R-REN-04 | 002/003 | partial (002): no task checkboxes |
+| R-REN-05 | 002/003 | implemented (002) |
 | R-REN-06 | 002/003 | planned |
 | R-REN-07 | 002/003 | planned |
 | R-REN-08 | 002/003 | planned |
-| R-REN-09 | 002/003 | planned |
+| R-REN-09 | 002/003 | implemented (002) |
 | R-REN-10 | 002/003 | planned |
 | R-REN-11 | 002/003 | planned |
 | R-REN-12 | 002/003 | planned |
 | R-REN-13 | 002/003 | planned |
 | R-REN-14 | 002/003 | planned |
 | R-REN-15 | 002/003 | planned |
-| R-REN-16 | 002/003 | planned |
-| R-REN-17 | 002/003 | planned |
+| R-REN-16 | 002/003 | partial (002): plain text only |
+| R-REN-17 | 002/003 | implemented (002) |
 | R-REN-18 | 002/003 | planned |
-| R-REN-19 | 002/003 | planned |
-| R-REN-20 | 002/003 | planned |
-| R-REN-21 | 002/003 | planned |
+| R-REN-19 | 002/003 | implemented (002) |
+| R-REN-20 | 002/003 | implemented (002) |
+| R-REN-21 | 002/003 | implemented (002) |
 | R-SET-01 | 004 | planned |
 | R-SET-02 | 004 | planned |
 | R-SET-03 | 004 | planned |
 | R-SET-04 | 004 | planned |
-| R-SET-05 | 004 | planned |
+| R-SET-05 | 004 | partial (002): read-only |
 | R-SET-06 | 004 | planned |
 | R-SYS-01 | 005 | planned |
 | R-SYS-02 | 005 | planned |
@@ -179,8 +179,8 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-TBL-06 | 003/008 | planned |
 | R-TBL-07 | 003/008 | planned |
 | R-TBL-08 | 003/008 | planned |
-| R-THEME-01 | 004 | partial (001): follows system light/dark for window background |
-| R-THEME-02 | 004 | planned |
+| R-THEME-01 | 004 | partial (002): Follow System, Default |
+| R-THEME-02 | 004 | partial (002): data only |
 | R-THEME-03 | 004 | planned |
 | R-THEME-04 | 004 | planned |
 | R-THEME-05 | 004 | planned |
@@ -207,10 +207,10 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | S-FILE-01 | 002/005 | planned |
 | S-FILE-02 | 002/005 | planned |
 | S-FILE-03 | 002/005 | planned |
-| S-FILE-04 | 002/005 | planned |
+| S-FILE-04 | 002/005 | implemented (002) |
 | S-FILE-05 | 002/005 | planned |
 | S-FILE-06 | 002/005 | planned |
-| S-FILE-07 | 002/005 | planned |
+| S-FILE-07 | 002/005 | implemented (002) |
 | S-FILE-08 | 002/005 | planned |
 | S-FILE-09 | 002/005 | planned |
 | S-FILE-10 | 002/005 | planned |
@@ -230,14 +230,14 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | S-NET-03 | 003/012 | implemented (001): cargo xtask check-imports |
 | S-NET-04 | 003/012 | planned |
 | S-NET-05 | 003/012 | planned |
-| S-PARSE-01 | 003/012 | planned |
-| S-PARSE-02 | 003/012 | planned |
+| S-PARSE-01 | 003/012 | implemented (002) |
+| S-PARSE-02 | 003/012 | implemented (002) (applicable parts) |
 | S-PARSE-03 | 003/012 | planned |
-| S-PARSE-04 | 003/012 | planned |
+| S-PARSE-04 | 003/012 | implemented (002) |
 | S-PARSE-05 | 003/012 | planned |
 | S-PARSE-06 | 003/012 | planned |
-| S-PARSE-07 | 003/012 | planned |
-| S-PARSE-08 | 003/012 | planned |
+| S-PARSE-07 | 003/012 | implemented (002) |
+| S-PARSE-08 | 003/012 | implemented (002) |
 | S-PRIV-01 | 004 | planned |
 | S-PRIV-02 | 004 | planned |
 | S-PRIV-03 | 004 | planned |
@@ -268,7 +268,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | S-SUP-04 | 001 | implemented (001): deny.toml |
 | S-SUP-05 | 001 | implemented (001): build_support/res.rs |
 | S-SUP-06 | 001 | implemented (001): .github/workflows/ci.yml |
-| S-TEST-01 | 012 | planned |
+| S-TEST-01 | 012 | partial (002): 2 fuzz targets |
 | S-TEST-02 | 012 | planned |
 | S-TEST-03 | 012 | implemented (001): cargo xtask check-imports |
 | S-TEST-04 | 012 | partial (001): THREAT_MODEL.md skeleton |
@@ -286,9 +286,9 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | T9 | 013 | planned |
 | T10 | 013 | planned |
 | R-A11Y-01 | 012 | planned |
-| R-A11Y-02 | 012 | planned |
+| R-A11Y-02 | 012 | partial (002): reduced motion for scrolling |
 | R-A11Y-03 | 012 | planned |
-| R-A11Y-04 | 012 | planned |
+| R-A11Y-04 | 012 | implemented (002) |
 | R-F2-01 | 007 | planned |
 | R-F2-02 | 007 | planned |
 | R-F2-03 | 007 | planned |
@@ -308,7 +308,9 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-F3-05 | 006 | planned |
 | R-F3-06 | 006 | planned |
 | R-F3-07 | 006 | planned |
-| R-I18N-01 | 004 | planned |
-| R-I18N-02 | 004 | planned |
+| R-I18N-01 | 004 | partial (002): EN/TR strings of 002 |
+| R-I18N-02 | 004 | implemented (002) |
 | R-I18N-03 | 004 | planned |
-| R-I18N-04 | 004 | planned |
+| R-I18N-04 | 004 | implemented (002) |
+
+Interim scenarios (P-09): M1b, T1b, T1L measured (002) with CI soft-budget gates; T2, T4, T7 measured (002).

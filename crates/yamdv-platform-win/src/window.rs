@@ -241,6 +241,8 @@ struct Win {
     drag_dir: f64,
     perf: Vec<f64>,
     auto_phase: u8,
+    /// `UpdateWindow` requested by a handler; done by `wndproc` once the borrow is released.
+    update_pending: bool,
     auto_steps: u32,
 }
 
@@ -460,8 +462,9 @@ impl Win {
             }
         }
         self.show_scrollbar();
-        // SAFETY: valid hwnd; paints the exposed strip now.
-        let _ = unsafe { UpdateWindow(self.hwnd) };
+        // Paint the exposed strip right after the handler returns (no RefCell borrow is held
+        // then, so the synchronous WM_PAINT reaches `paint`).
+        self.update_pending = true;
     }
 
     fn scroll_by(&mut self, sh: &Shared, dy: f64, animate: bool) {
@@ -1508,8 +1511,19 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
     if let (Some(win), Some(sh)) = (win, shared()) {
         let out = match win.try_borrow_mut() {
             Ok(mut w) => Some(handle(&mut w, &sh, msg, wp, lp)),
+            // Re-entrant WM_PAINT while a handler holds the borrow: leave the region invalid so
+            // it is painted once the handler returns (DefWindowProc would validate it unpainted).
+            Err(_) if msg == WM_PAINT => return LRESULT(0),
             Err(_) => None,
         };
+        if out.is_some()
+            && win
+                .try_borrow_mut()
+                .is_ok_and(|mut w| std::mem::take(&mut w.update_pending))
+        {
+            // SAFETY: valid hwnd; no borrow is held, so the WM_PAINT it sends is handled.
+            let _ = unsafe { UpdateWindow(hwnd) };
+        }
         if let Some((r, actions)) = out {
             run_actions(hwnd, actions);
             if let Some(r) = r {
@@ -1633,6 +1647,7 @@ fn create_window(sh: &Shared, path: Option<&str>) {
         drag_dir: 0.0,
         perf: Vec::new(),
         auto_phase: 0,
+        update_pending: false,
         auto_steps: 0,
     };
     let rcw = Rc::new(RefCell::new(win));
