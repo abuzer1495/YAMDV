@@ -204,6 +204,72 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
     }
 }
 
+/// ACG matrix formats (prompt 004 §4.1 item 4): `tests/corpus/acg/<ext>.md` each shows one
+/// 64×48 (ICO 48×48) solid `#C03020` image.
+pub const ACG_FORMATS: [&str; 7] = ["png", "jpg", "gif", "bmp", "ico", "tiff", "webp"];
+
+/// `acg-matrix --exe <yamdv.exe with dev-tools> [--out <dir>]`: renders every ACG document
+/// (the process runs with ProhibitDynamicCode, S-PROC-04) and checks that the image pixels
+/// arrived (centre pixel of the image ≈ `#C03020`). Prints a Markdown table; fails on a miss.
+pub fn acg_matrix(root: &Path, args: &[String]) -> Result<(), String> {
+    let mut exe = None;
+    let mut out = root.join("target").join("acg");
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--exe" => exe = it.next().map(PathBuf::from),
+            "--out" => out = it.next().map(PathBuf::from).unwrap_or(out),
+            x => return Err(format!("acg-matrix: unknown argument {x}")),
+        }
+    }
+    let exe = exe.ok_or("acg-matrix: --exe required")?;
+    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    let mut bad = Vec::new();
+    println!("| format | decoded under ACG | centre pixel |");
+    println!("|---|---|---|");
+    for f in ACG_FORMATS {
+        let png = out.join(format!("acg-{f}.png"));
+        let input = root
+            .join("tests")
+            .join("corpus")
+            .join("acg")
+            .join(format!("{f}.md"));
+        let st = std::process::Command::new(&exe)
+            .arg("--render-png")
+            .arg(&png)
+            .args(["--width", "1000", "--scale", "1.0", "--theme", "light"])
+            .arg(&input)
+            .status()
+            .map_err(|e| e.to_string())?;
+        let px = if st.success() { load(&png).ok() } else { None };
+        // Column 650 px centred in 1000; the image is centred in the column, top at the first
+        // block (y ≈ 24…40): scan the middle column for the colour.
+        let hit = px.as_ref().and_then(|p| {
+            let x = p.width() / 2;
+            (0..p.height().min(200)).find_map(|y| {
+                let i = ((y * p.width() + x) * 4) as usize;
+                let [r, g, b]: [u8; 3] = p.data().get(i..i + 3)?.try_into().ok()?;
+                let near = |a: u8, b: u8| a.abs_diff(b) <= 24;
+                (near(r, 0xC0) && near(g, 0x30) && near(b, 0x20))
+                    .then(|| format!("#{r:02X}{g:02X}{b:02X} @y={y}"))
+            })
+        });
+        println!(
+            "| {f} | {} | {} |",
+            if hit.is_some() { "yes" } else { "NO" },
+            hit.as_deref().unwrap_or("-")
+        );
+        if hit.is_none() {
+            bad.push(f);
+        }
+    }
+    if bad.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("acg-matrix: not decoded: {}", bad.join(", ")))
+    }
+}
+
 /// Documents that also get scale-1.5 goldens (P-28).
 pub const SCALE_15_DOCS: [&str; 2] = ["typical", "unicode"];
 /// Goldens cover at most this many logical px of each document (P-28).

@@ -1901,8 +1901,12 @@ impl Win {
             .renderer
             .as_ref()
             .map_or(0, |r| crate::render::band_bytes(r.width()));
+        let (img, lru) = match &self.view {
+            View::Doc(d) => (d.images.decoded_bytes(), d.images.lru_bytes()),
+            _ => (0, 0),
+        };
         let json = format!(
-            "{{\"schema\":\"yamdv.memstats/1\",\"source_text_bytes\":{src},\"block_index_bytes\":{idx},\"detail_cache_bytes\":{cache},\"layout_cache\":{{\"layouts\":{layouts},\"paras\":{paras},\"items\":{items},\"model_bytes_estimate\":{}}},\"band_buffer_bytes\":{band},\"commit_bytes_now\":{},\"commit_bytes_at_start\":{},\"note\":\"DirectWrite and other native memory = commit growth minus the Rust-side numbers; see 002_REPORT.md\"}}\n",
+            "{{\"schema\":\"yamdv.memstats/1\",\"image_decoded_bytes\":{img},\"image_lru_bytes\":{lru},\"source_text_bytes\":{src},\"block_index_bytes\":{idx},\"detail_cache_bytes\":{cache},\"layout_cache\":{{\"layouts\":{layouts},\"paras\":{paras},\"items\":{items},\"model_bytes_estimate\":{}}},\"band_buffer_bytes\":{band},\"commit_bytes_now\":{},\"commit_bytes_at_start\":{},\"note\":\"DirectWrite and other native memory = commit growth minus the Rust-side numbers; see 002_REPORT.md\"}}\n",
             paras * 160 + items * 40,
             crate::perf::commit_bytes(),
             sh.commit_at_start

@@ -198,6 +198,7 @@ fn main() -> ExitCode {
         "memprobe" => memprobe_cmd(rest),
         "spec-check" => spec::check(&root()),
         "golden" => golden::run(&root(), rest),
+        "acg-matrix" => golden::acg_matrix(&root(), rest),
         "gen-large" => golden::gen_large(&root(), rest),
         "spec-patch" => spec::patch(&root()),
         "gen-icons" => icons::generate(&root()).map(|files| {

@@ -76,6 +76,10 @@ jobs:
         run: |
           if (Test-Path tests/golden/002) { cargo xtask golden --exe target/dev/release/yamdv.exe --out m/golden }
           else { cargo xtask golden --exe target/dev/release/yamdv.exe --out m/golden; Write-Host "::warning::no committed goldens yet"; exit 0 }
+      - name: ACG image decode matrix (prompt 004 §4.1.4)
+        if: ${{ !cancelled() && steps.devbuild.outcome == 'success' }}
+        shell: pwsh
+        run: cargo xtask acg-matrix --exe target/dev/release/yamdv.exe --out m/acg | Tee-Object m/acg-matrix.md
       - name: check-imports (S-NET-03, S-TEST-03)
         # Gates after the builds run even if an earlier gate failed, so one red gate never hides the others.
         if: ${{ !cancelled() && steps.devbuild.outcome == 'success' }}
