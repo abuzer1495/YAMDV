@@ -1,4 +1,5 @@
 # APPENDIX G — Roadmap (`docs/ROADMAP.md`)
+> **Superseded on 2026-10-17 by the owner's v1 plan:** the phases after 003b in the table below are replaced by **V1-A** (app shell & daily use), **V1-B** (editing: F3 split + block-level F2), **V1-C** (math core + Mermaid flowchart/sequence), **V1-D** (HTML export, print/PDF, packaging, v1 release) and **V1-FIX** (reserve). Security hardening (old 012) and optimization (old 013) follow after v1. Deferred features: `docs/FUTURE.md`.
 
 One prompt per phase. A phase starts only when the previous report has been reviewed. Fix requests from a review always come first in the next phase. The plan may be re-cut by the reviewer based on reports.
 

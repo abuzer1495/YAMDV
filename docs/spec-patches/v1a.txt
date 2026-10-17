@@ -1,0 +1,15 @@
+# Spec patches of prompt 005 (Phase V1-A) §2.3, extracted verbatim from docs/prompts/005_V1A_SHELL_DAILY_USE.md.
+
+=== P-30 docs/ROADMAP.md INSERT_AFTER
+--- anchor
+# APPENDIX G — Roadmap (`docs/ROADMAP.md`)
+--- new
+> **Superseded on 2026-10-17 by the owner's v1 plan:** the phases after 003b in the table below are replaced by **V1-A** (app shell & daily use), **V1-B** (editing: F3 split + block-level F2), **V1-C** (math core + Mermaid flowchart/sequence), **V1-D** (HTML export, print/PDF, packaging, v1 release) and **V1-FIX** (reserve). Security hardening (old 012) and optimization (old 013) follow after v1. Deferred features: `docs/FUTURE.md`.
+
+=== P-31 docs/SPEC.md INSERT_AFTER
+--- anchor
+- **R-REL-04 MUST** Works without admin rights, on locked-down machines, from read-only media (portable mode then falls back to `%APPDATA%`).
+--- new
+
+## A.25 v1 scope
+The owner's v1 scope decision (2026-10-17) defers the features listed in `docs/FUTURE.md` (FUT-01…FUT-50) to after v1. For v1, any requirement or part of a requirement covered by a FUT item is not required, whatever its MUST/SHOULD keyword; `docs/TRACEABILITY.md` marks it `deferred (FUT-xx)`.

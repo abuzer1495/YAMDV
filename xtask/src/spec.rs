@@ -337,7 +337,12 @@ pub fn check(root: &Path) -> Result<(), String> {
             .collect::<Vec<_>>()
             .join(", ")
     );
-    if ok && proc_ok {
+    let fut_ok = crate::future::check(root)?;
+    println!(
+        "FUTURE.md vs prompt 005 §5: {}",
+        if fut_ok { "match" } else { "MISMATCH" }
+    );
+    if ok && proc_ok && fut_ok {
         Ok(())
     } else {
         Err("spec-check failed".into())
