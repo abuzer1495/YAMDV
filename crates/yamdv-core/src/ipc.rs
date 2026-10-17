@@ -25,6 +25,8 @@ pub enum Kind {
     /// Second launch forwarding its paths to the primary instance (S-IPC-01); `nonce` carries
     /// the `--line` value (0 = none) and the payload is limited to [`FORWARD_MAX_BYTES`].
     Forward = 2,
+    /// Font dialog (`ChooseFontW`); the answer is one family name.
+    Font = 3,
 }
 
 /// S-IPC-01 payload limit for [`Kind::Forward`].
@@ -140,6 +142,7 @@ pub fn decode(b: &[u8]) -> Result<Reply, DecodeError> {
     let kind = match u16::from_le_bytes(rd(b, &mut at)?) {
         1 => Kind::Open,
         2 if b.len() <= FORWARD_MAX_BYTES => Kind::Forward,
+        3 => Kind::Font,
         2 => return Err(DecodeError::Malformed),
         _ => return Err(DecodeError::Unknown),
     };

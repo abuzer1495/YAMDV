@@ -130,6 +130,7 @@ pub fn render_png(o: &RenderPng) -> i32 {
             None,
             total + 1.0,
             Some(&images),
+            (&[], None),
         );
     });
     let mut px = px;

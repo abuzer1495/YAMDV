@@ -18,11 +18,21 @@ pub enum Command {
     },
     /// Internal: `--dialog-host open <owner-hwnd> <nonce>` (S-PROC-07; not shown in `--help`).
     DialogHost {
+        /// `open` or `font`.
+        kind: String,
         /// Owner window handle (decimal).
         owner: isize,
         /// Per-launch nonce (decimal).
         nonce: u64,
     },
+    /// `--register` (R-SYS-01; explicit action, S-REG-03).
+    Register,
+    /// `--unregister` (S-REG-02).
+    Unregister,
+    /// `--set-default` (R-SYS-02).
+    SetDefault,
+    /// `--context-menu on|off` (R-SYS-03).
+    ContextMenu(bool),
     /// Print help and exit 0.
     Help,
     /// Print version and exit 0.
@@ -50,6 +60,8 @@ pub struct Dev {
     pub mem_stats: Option<String>,
     /// `--script <file>` (in-window test driver).
     pub script: Option<String>,
+    /// `--line <n>`: scroll the (first) document to source line `n` (not a dev flag).
+    pub line: Option<u32>,
 }
 
 /// Whether developer flags are accepted (compile-time).
@@ -76,10 +88,16 @@ pub fn parse_with<I: IntoIterator<Item = String>>(args: I, dev_tools: bool) -> C
     if args.first().map(String::as_str) == Some("--dialog-host") {
         // Exactly `--dialog-host open <owner> <nonce>`; anything else is a usage error (exit 2).
         return match args.as_slice() {
-            [_, k, o, n] if k == "open" => match (o.parse::<isize>(), n.parse::<u64>()) {
-                (Ok(owner), Ok(nonce)) if owner != 0 => Command::DialogHost { owner, nonce },
-                _ => usage("--dialog-host"),
-            },
+            [_, k, o, n] if k == "open" || k == "font" => {
+                match (o.parse::<isize>(), n.parse::<u64>()) {
+                    (Ok(owner), Ok(nonce)) if owner != 0 => Command::DialogHost {
+                        kind: k.clone(),
+                        owner,
+                        nonce,
+                    },
+                    _ => usage("--dialog-host"),
+                }
+            }
             _ => usage("--dialog-host"),
         };
     }
@@ -96,6 +114,20 @@ pub fn parse_with<I: IntoIterator<Item = String>>(args: I, dev_tools: bool) -> C
             "--help" | "-h" | "/?" => return Command::Help,
             "--version" | "-V" => return Command::Version,
             "--" => only_paths = true,
+            "--register" => return Command::Register,
+            "--unregister" => return Command::Unregister,
+            "--set-default" => return Command::SetDefault,
+            "--context-menu" => {
+                return match it.next().as_deref() {
+                    Some("on") => Command::ContextMenu(true),
+                    Some("off") => Command::ContextMenu(false),
+                    _ => usage(&a),
+                };
+            }
+            "--line" => match it.next().and_then(|v| v.parse::<u32>().ok()) {
+                Some(n) if n > 0 => dev.line = Some(n),
+                _ => return usage(&a),
+            },
             "--autoscroll" if dev_tools => dev.autoscroll = true,
             "--render-png" | "--perf-log" | "--mem-stats" | "--script" | "--width" | "--scale"
             | "--theme"
@@ -141,6 +173,11 @@ pub fn help_text() -> String {
     format!(
         "YAMDV {VERSION} - Yet Another Markdown Viewer\n\n\
          Usage:\n  yamdv [<file> ...]   open each file in its own window\n  \
+         yamdv --line <n> <file>  open the file at source line n\n  \
+         yamdv --register     register YAMDV for Markdown files (current user)\n  \
+         yamdv --unregister   remove that registration\n  \
+         yamdv --set-default  register and open Windows default-app settings\n  \
+         yamdv --context-menu on|off  \"Open with YAMDV\" in Explorer\n  \
          yamdv --help         show this help\n  yamdv --version      show the version\n\n\
          Exit codes: 0 success, 1 runtime error, 2 usage error.\n"
     )
@@ -152,6 +189,25 @@ mod tests {
 
     fn p(a: &[&str]) -> Command {
         parse(a.iter().map(|s| (*s).to_string()))
+    }
+
+    #[test]
+    fn r_sys_01_registration_flags() {
+        assert_eq!(p(&["--register"]), Command::Register);
+        assert_eq!(p(&["--unregister"]), Command::Unregister);
+        assert_eq!(p(&["--set-default"]), Command::SetDefault);
+        assert_eq!(p(&["--context-menu", "on"]), Command::ContextMenu(true));
+        assert_eq!(p(&["--context-menu", "off"]), Command::ContextMenu(false));
+        assert!(matches!(p(&["--context-menu", "x"]), Command::Usage(_)));
+        match p(&["--line", "12", "a.md"]) {
+            Command::Run { paths, dev } => {
+                assert_eq!(paths, vec!["a.md"]);
+                assert_eq!(dev.line, Some(12));
+            }
+            c => panic!("{c:?}"),
+        }
+        assert!(matches!(p(&["--line", "0", "a.md"]), Command::Usage(_)));
+        assert!(help_text().contains("--register"));
     }
 
     #[test]
@@ -168,6 +224,7 @@ mod tests {
         assert_eq!(
             p(&["--dialog-host", "open", "1234", "99"]),
             Command::DialogHost {
+                kind: "open".into(),
                 owner: 1234,
                 nonce: 99
             }

@@ -173,7 +173,7 @@ pub(crate) fn send_copydata(owner: HWND, data: &[u8], timeout_ms: u32) -> bool {
 }
 
 /// Host entry point (`--dialog-host open <owner> <nonce>`); hardening was applied by `main`.
-pub fn run_host(owner: isize, nonce: u64) -> i32 {
+pub fn run_host(kind: &str, owner: isize, nonce: u64) -> i32 {
     let owner = hwnd_from(owner);
     if !owner_ok(owner) {
         return EXIT_REFUSED;
@@ -187,6 +187,23 @@ pub fn run_host(owner: isize, nonce: u64) -> i32 {
         text: tr(lang, Msg::FilterText),
         all: tr(lang, Msg::FilterAll),
     };
+    if kind == "font" {
+        let current = s.str("typography.body_font").to_string();
+        let (outcome, code) = match crate::sys::font_dialog(owner, &current) {
+            Some(Some(name)) => (Outcome::Paths(vec![name]), EXIT_OK),
+            Some(None) => (Outcome::Cancel, EXIT_OK),
+            None => (Outcome::Error, EXIT_DIALOG_FAILED),
+        };
+        send_reply(
+            owner,
+            &Reply {
+                kind: Kind::Font,
+                nonce,
+                outcome,
+            },
+        );
+        return code;
+    }
     let (outcome, code) = match crate::sys::open_dialog(owner, &f) {
         Some(p) if p.is_empty() => (Outcome::Cancel, EXIT_OK),
         Some(p) => (Outcome::Paths(p), EXIT_OK),
@@ -218,6 +235,8 @@ pub struct HostWait {
     pub started: Instant,
     /// A valid result arrived.
     pub answered: bool,
+    /// Dialog kind.
+    pub kind: Kind,
 }
 
 impl Drop for HostWait {
@@ -236,6 +255,12 @@ fn nonce() -> u64 {
 
 /// Starts the host for an open dialog owned by `owner`.
 pub fn launch(owner: HWND) -> Option<HostWait> {
+    launch_kind(owner, Kind::Open)
+}
+
+/// Starts the host for a dialog of `kind` owned by `owner`.
+pub fn launch_kind(owner: HWND, kind: Kind) -> Option<HostWait> {
+    let verb = if kind == Kind::Font { "font" } else { "open" };
     let mut buf = vec![0u16; 32_768];
     // SAFETY: valid buffer; NULL module = our own executable.
     let n = unsafe { GetModuleFileNameW(None, &mut buf) } as usize;
@@ -244,7 +269,7 @@ pub fn launch(owner: HWND) -> Option<HostWait> {
     }
     let exe = String::from_utf16_lossy(buf.get(..n).unwrap_or(&[]));
     let n = nonce();
-    let mut cmd: Vec<u16> = format!("\"{exe}\" --dialog-host open {} {n}", owner.0 as isize)
+    let mut cmd: Vec<u16> = format!("\"{exe}\" --dialog-host {verb} {} {n}", owner.0 as isize)
         .encode_utf16()
         .chain(Some(0))
         .collect();
@@ -280,6 +305,7 @@ pub fn launch(owner: HWND) -> Option<HostWait> {
         nonce: n,
         started: Instant::now(),
         answered: false,
+        kind,
     })
 }
 
@@ -311,5 +337,5 @@ pub fn accept(h: &HostWait, receiver: HWND, sender: HWND, cds: &COPYDATASTRUCT) 
     // duration of this message.
     let bytes = unsafe { std::slice::from_raw_parts(cds.lpData.cast::<u8>(), len) };
     let r = ipc::decode(bytes).ok()?;
-    (r.nonce == h.nonce && r.kind == Kind::Open).then_some(r.outcome)
+    (r.nonce == h.nonce && r.kind == h.kind).then_some(r.outcome)
 }

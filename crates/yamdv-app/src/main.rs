@@ -28,9 +28,19 @@ fn main() {
             write(Stream::Err, &msg);
             cli::EXIT_USAGE
         }
-        cli::Command::DialogHost { owner, nonce } => {
-            yamdv_platform_win::dialog_host::run_host(owner, nonce)
+        cli::Command::DialogHost { kind, owner, nonce } => {
+            yamdv_platform_win::dialog_host::run_host(&kind, owner, nonce)
         }
+        cli::Command::Register => i32::from(!yamdv_platform_win::shell::register()),
+        cli::Command::Unregister => {
+            yamdv_platform_win::shell::unregister();
+            0
+        }
+        cli::Command::SetDefault => i32::from(!yamdv_platform_win::shell::set_default_flow()),
+        cli::Command::ContextMenu(on) => i32::from(!yamdv_platform_win::shell::set_context_menu(
+            on,
+            "Open with YAMDV",
+        )),
         cli::Command::Run { paths, dev } => run(&paths, dev),
     };
     std::process::exit(code);
@@ -61,6 +71,7 @@ fn run(paths: &[String], dev: cli::Dev) -> i32 {
             mem_stats: dev.mem_stats,
             script: dev.script,
         },
+        dev.line,
     )
 }
 
