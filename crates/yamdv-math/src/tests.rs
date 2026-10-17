@@ -136,6 +136,9 @@ fn r_math_02_parse_core_constructs() {
         })
     ));
     let n = parse(r"f''(x) \ldots \cdots").unwrap();
+    // Primes follow the nucleus at full size (pre-raised glyphs).
+    assert!(matches!(&n[0], Node::Group(g) if matches!(g.get(1), Some(Node::Char { c: '″', .. }))));
+    let n = parse(r"f'^2").unwrap();
     assert!(matches!(
         &n[0],
         Node::Scripts {

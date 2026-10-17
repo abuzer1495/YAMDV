@@ -414,11 +414,18 @@ impl Parser {
                 class: Class::Ord,
                 font: Font::Roman,
             };
-            // Unicode math fonts draw primes pre-raised: they sit at the superscript position
-            // as ordinary glyphs, followed by an explicit superscript if any.
-            sup = Some(match sup {
-                None => Node::Group(vec![prime]),
-                Some(s) => Node::Group(vec![prime, s]),
+            // Unicode math fonts draw primes pre-raised (like text-font primes): they follow the
+            // nucleus at full size, and any scripts attach to nucleus + prime.
+            self.count()?;
+            let base = Node::Group(vec![base, prime]);
+            if sup.is_none() && sub.is_none() {
+                return Ok(base);
+            }
+            self.count()?;
+            return Ok(Node::Scripts {
+                base: Box::new(base),
+                sup: sup.map(Box::new),
+                sub: sub.map(Box::new),
             });
         }
         if sup.is_none() && sub.is_none() {

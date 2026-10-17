@@ -15,7 +15,7 @@ pub const MAX_DIFF_SHARE: f64 = 0.005;
 pub const TILE_ROWS: u32 = 5000;
 
 /// Golden documents (corpus file names in `tests/corpus/002/`).
-pub const DOCS: [(&str, &str); 19] = [
+pub const DOCS: [(&str, &str); 21] = [
     ("typical-basic", "typical-basic.md"),
     ("headings", "headings.md"),
     ("lists", "lists.md"),
@@ -35,6 +35,8 @@ pub const DOCS: [(&str, &str); 19] = [
     ("callouts", "callouts.md"),
     ("details", "details.md"),
     ("plaintext", "plain.txt"),
+    ("math", "math.md"),
+    ("mermaid", "mermaid.md"),
 ];
 
 /// Result of comparing two RGBA images.
@@ -155,6 +157,11 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
                             .map_err(|e| e.to_string())?;
                     }
                     println!("updated {png} ({} tiles)", tiles.len());
+                    continue;
+                }
+                if !gold.join(format!("{stem}.t0.png")).exists() {
+                    // A golden added by a phase is committed from its first CI artifact.
+                    println!("::warning::{png}: not committed yet");
                     continue;
                 }
                 let mut d = Diff {
