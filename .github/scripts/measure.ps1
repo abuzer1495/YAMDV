@@ -96,7 +96,7 @@ foreach ($r in 1..5) {
   $forwarded = $p2.HasExited
   Stop-Process -Id $p1.Id -Force -ErrorAction SilentlyContinue; $null = $p1.WaitForExit(10000)
   $env:APPDATA = $origApp; $env:LOCALAPPDATA = $origLocal
-  if ($t -ge 5000 -or -not $forwarded) { $failed += "T3-run$r"; Write-Host "::error::T3 run $r: no forwarded window" ; continue }
+  if ($t -ge 5000 -or -not $forwarded) { $failed += "T3-run$r"; Write-Host "::error::T3 run $($r): no forwarded window" ; continue }
   $t3s += [math]::Round($t, 1)
 }
 if ($t3s.Count -gt 0) {

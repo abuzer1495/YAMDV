@@ -1,6 +1,6 @@
 # Scheme and mode through the context-menu commands (prompt 005 §3.1, §3.4)
 assert menu_items > 20
-assert menu_checked contains GitHub
+assert menu_checked contains Default
 command mode dark
 wait-idle
 assert mode == dark
@@ -12,8 +12,8 @@ assert menu_checked contains Glacier
 command mode light
 wait-idle
 assert dark == 0
-command scheme github
+command scheme default
 command mode system
 wait-idle
-assert scheme == github
+assert scheme == default
 assert mode == system

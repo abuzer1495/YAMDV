@@ -23,4 +23,6 @@ Risks: window.rs is already 2.9 kLOC (split new UI into modules); T4 p99 at 14.2
 - [x] welcome page integrated (default-app status via UserChoice ProgId, no shell assoc engine)
 - [x] driver commands (command/type/side-click/write-file/open/launch/sleep/snapshot/resize) + 6 scripts; golden-shell xtask + CI step; driver profiles isolated per script
 - [x] custom-theme.ini hot reload (watcher only while custom colours on), T3 in measure.ps1, TRACEABILITY statuses
-- NEXT: PR + CI run 1, commit goldens from CI artifact (+fixes) = fix push, merge, tag, report
+- [x] PR #5, CI run 1 (39015816643): all driver asserts pass; exit 0xc0000409 at process end (watcher join in TLS dtor), measure.ps1 parse error ($r:), theme.yds default scheme assert
+- [x] fix push: explicit teardown on WM_QUIT, ps1 fix, script fix, 5 window goldens from run-1 artifact
+- NEXT: CI run 2 -> report with numbers -> merge -> tag phase-v1a

@@ -47,6 +47,11 @@ pub(super) struct App {
     theme_watch: Option<(crate::shell::Watcher, isize)>,
 }
 
+/// Stops the `custom-theme.ini` watcher (end of the message loop).
+pub(super) fn shutdown() {
+    with(|a| a.theme_watch = None);
+}
+
 /// Keeps the `custom-theme.ini` watcher alive on some open window while
 /// `appearance.use_custom_colors` is on (B.4 hot reload); stops it otherwise.
 pub(super) fn ensure_theme_watch(hint: Option<HWND>) {

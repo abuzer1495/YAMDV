@@ -19,5 +19,5 @@ key esc
 command scheme glacier
 wait-idle
 snapshot glacier-light.png
-command scheme github
+command scheme default
 command mode system

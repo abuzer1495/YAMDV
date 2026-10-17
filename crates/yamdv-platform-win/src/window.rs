@@ -3244,6 +3244,11 @@ pub fn run(paths: &[String], dev: DevOptions, line: Option<u32>) -> i32 {
         // SAFETY: standard message pump; msg is a valid out-pointer.
         while unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE) }.as_bool() {
             if msg.message == WM_QUIT {
+                // Stop watcher threads while they are alive: thread-local destructors run after
+                // ExitProcess has killed them, and joining a killed thread panics (abort).
+                app::shutdown();
+                let wins = WINDOWS.with(|m| std::mem::take(&mut *m.borrow_mut()));
+                drop(wins);
                 return i32::try_from(msg.wParam.0).unwrap_or(0);
             }
             // SAFETY: msg was filled by PeekMessageW.
