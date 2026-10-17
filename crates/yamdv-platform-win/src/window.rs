@@ -3697,7 +3697,7 @@ impl Win {
                 .export_job(sh)
                 .is_some_and(|j| crate::export::export_html(&sh.dw, &j, path)),
             ExportKind::Pdf => self.export_job(sh).is_some_and(|j| {
-                crate::print::print(&sh.dw, &j, &crate::print::pdf_target(path)).is_ok()
+                crate::print::print_in_worker(&j, &crate::print::pdf_target(path)).is_ok()
             }),
             ExportKind::Print => false,
         };
@@ -3709,7 +3709,7 @@ impl Win {
     fn run_print(&mut self, sh: &Shared, t: &crate::print::Target) {
         let ok = self
             .export_job(sh)
-            .is_some_and(|j| crate::print::print(&sh.dw, &j, t).is_ok());
+            .is_some_and(|j| crate::print::print_in_worker(&j, t).is_ok());
         self.toast(if ok { Msg::PrintSent } else { Msg::PrintFailed });
         self.invalidate();
     }

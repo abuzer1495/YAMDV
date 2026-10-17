@@ -58,6 +58,17 @@ impl Job {
             return None;
         }
         let d = yamdv_core::decode::decode(&bytes);
+        Some(Self::from_source(abs, d.text, scheme, dark))
+    }
+
+    /// Job for `source` (document at the absolute `abs`) with the settings in `settings.ini`;
+    /// `scheme`/`dark` override them.
+    pub fn from_source(
+        abs: String,
+        source: String,
+        scheme: Option<&str>,
+        dark: Option<bool>,
+    ) -> Self {
         let s = crate::window::load_settings();
         let mode = s.str("appearance.mode");
         let dark = dark.unwrap_or_else(|| match mode {
@@ -65,8 +76,8 @@ impl Job {
             "light" => false,
             _ => crate::theme::app_mode() == crate::theme::Mode::Dark,
         });
-        Some(Self {
-            source: d.text,
+        Self {
+            source,
             path: abs,
             scheme: scheme.map_or_else(|| s.str("appearance.scheme").to_string(), str::to_string),
             dark,
@@ -85,7 +96,7 @@ impl Job {
                 s.str("general.language"),
                 crate::sys::ui_language_tag(),
             ),
-        })
+        }
     }
 
     /// File stem of the document (`<doc stem>.html` / `.pdf` / `.csv`).

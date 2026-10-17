@@ -40,6 +40,17 @@ const DYNAMIC_CODE_FLAGS: u32 = 0b1;
 
 /// Apply every hardening step and return the outcomes (failures are also logged).
 pub fn apply() -> Vec<Step> {
+    apply_inner(false)
+}
+
+/// Hardening for the printing processes (`--export-pdf`, `--print-job`; ADR-0019): everything
+/// except StrictHandleCheck and ACG, because printer drivers run in-process and may touch
+/// invalid handles or generate code (V1-D CI: `--export-pdf` died with 0xC000041D).
+pub fn apply_for_print() -> Vec<Step> {
+    apply_inner(true)
+}
+
+fn apply_inner(print: bool) -> Vec<Step> {
     let mut steps = Vec::with_capacity(7);
     let mut push = |name: &'static str, r: windows::core::Result<()>| {
         let result = r.map_err(|e| e.to_string());
@@ -80,6 +91,9 @@ pub fn apply() -> Vec<Step> {
             size_of::<PROCESS_MITIGATION_IMAGE_LOAD_POLICY>(),
         )
     });
+    if print {
+        return steps;
+    }
     let strict = PROCESS_MITIGATION_STRICT_HANDLE_CHECK_POLICY {
         Anonymous: PROCESS_MITIGATION_STRICT_HANDLE_CHECK_POLICY_0 {
             Flags: STRICT_HANDLE_FLAGS,

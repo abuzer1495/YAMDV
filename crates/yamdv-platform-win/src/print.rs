@@ -515,3 +515,203 @@ pub fn cli_pdf(input: &str, out: Option<&str>, scheme: Option<&str>, dark: Optio
         Err(Error::Failed) => 1,
     }
 }
+
+/// First line of a print-job file (`--print-job`, internal).
+const JOB_MAGIC: &str = "yamdv-print-job 1";
+
+/// Serializes `job` + `t` for the print worker: `key\tvalue` header lines, an empty line, then
+/// the Markdown source.
+fn job_text(job: &Job, t: &Target) -> String {
+    let opt = |o: Option<&str>| o.filter(|v| !v.is_empty()).unwrap_or("-").to_string();
+    let range = t
+        .range
+        .map_or_else(|| "all".to_string(), |(a, b)| format!("{a}-{b}"));
+    let paper = t
+        .paper_mm
+        .map_or_else(|| "-".to_string(), |(w, h)| format!("{w}x{h}"));
+    let dm = if t.devmode.is_empty() {
+        "-".to_string()
+    } else {
+        crate::sys::hex(&t.devmode)
+    };
+    let one = |line: &str| line.replace(['\t', '\r', '\n'], " ");
+    format!(
+        "{JOB_MAGIC}\npath\t{}\nscheme\t{}\ndark\t{}\nfont_size\t{}\nline_height\t{}\npara_spacing\t{}\nzebra\t{}\nrounded\t{}\nbody_font\t{}\ncode_font\t{}\nprinter\t{}\ndevmode\t{dm}\nrange\t{range}\noutput\t{}\npdf\t{}\npaper\t{paper}\n\n{}",
+        one(&job.path),
+        one(&job.scheme),
+        u8::from(job.dark),
+        job.m.font_size,
+        job.m.line_height,
+        job.m.para_spacing,
+        u8::from(job.m.table_zebra),
+        u8::from(job.m.rounded),
+        one(&job.fonts.0),
+        one(&job.fonts.1),
+        one(&t.printer),
+        opt(t.output.as_deref().map(one).as_deref()),
+        u8::from(t.pdf),
+        job.source,
+    )
+}
+
+/// Parses a print-job file written by [`job_text`] (`None` on anything unexpected).
+fn parse_job(text: &str) -> Option<(Job, Target)> {
+    let (head, source) = text.split_once("\n\n")?;
+    let mut lines = head.lines();
+    if lines.next()? != JOB_MAGIC {
+        return None;
+    }
+    let mut kv = std::collections::HashMap::new();
+    for l in lines {
+        let (k, v) = l.split_once('\t')?;
+        kv.insert(k, v);
+    }
+    let get = |k: &str| kv.get(k).copied();
+    let flag = |k: &str| get(k) == Some("1");
+    let num = |k: &str| get(k).and_then(|v| v.parse::<f32>().ok());
+    let printer = get("printer")?.to_string();
+    if printer.is_empty() || printer.len() > 260 {
+        return None;
+    }
+    let devmode = match get("devmode")? {
+        "-" => Vec::new(),
+        h => crate::sys::unhex(h)?,
+    };
+    let range = match get("range")? {
+        "all" => None,
+        r => {
+            let (a, b) = r.split_once('-')?;
+            let (a, b) = (a.parse::<u32>().ok()?, b.parse::<u32>().ok()?);
+            if a < 1 || b < a {
+                return None;
+            }
+            Some((a, b))
+        }
+    };
+    let paper_mm = match get("paper")? {
+        "-" => None,
+        p => {
+            let (w, h) = p.split_once('x')?;
+            Some((w.parse::<f64>().ok()?, h.parse::<f64>().ok()?))
+        }
+    };
+    let output = match get("output")? {
+        "-" => None,
+        o => Some(o.to_string()),
+    };
+    let mut job = Job::from_source(
+        get("path")?.to_string(),
+        source.to_string(),
+        get("scheme"),
+        Some(flag("dark")),
+    );
+    if let (Some(fs), Some(lh), Some(ps)) =
+        (num("font_size"), num("line_height"), num("para_spacing"))
+    {
+        job.m.font_size = fs;
+        job.m.line_height = lh;
+        job.m.para_spacing = ps;
+    }
+    job.m.table_zebra = flag("zebra");
+    job.m.rounded = flag("rounded");
+    if let (Some(b), Some(c)) = (get("body_font"), get("code_font")) {
+        job.fonts = (b.to_string(), c.to_string());
+    }
+    Some((
+        job,
+        Target {
+            printer,
+            devmode,
+            range,
+            output,
+            paper_mm,
+            pdf: flag("pdf"),
+        },
+    ))
+}
+
+/// Prints in a worker process (`yamdv --print-job <file>`). Printer drivers run inside the
+/// printing process; the GUI keeps the full hardening (strict handle checks, ACG), the worker
+/// applies [`crate::hardening::apply_for_print`] (ADR-0019). Blocks until the worker exits.
+pub fn print_in_worker(job: &Job, t: &Target) -> Result<(), Error> {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+    let exe = std::env::current_exe().map_err(|_| Error::Failed)?;
+    let file = std::env::temp_dir().join(format!(
+        "yamdv-print-{}-{}.job",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::write(&file, job_text(job, t)).map_err(|_| Error::Failed)?;
+    let status = std::process::Command::new(exe)
+        .arg("--print-job")
+        .arg(&file)
+        .status();
+    let _ = std::fs::remove_file(&file);
+    match status.ok().and_then(|s| s.code()) {
+        Some(0) => Ok(()),
+        Some(3) => Err(Error::NoPrinter),
+        _ => Err(Error::Failed),
+    }
+}
+
+/// `yamdv --print-job <file>` (internal worker): exit 0 printed, 3 no printer, 1 error.
+pub fn cli_print_job(file: &str) -> i32 {
+    // SAFETY: COM for WIC on this thread.
+    let _ = unsafe {
+        windows::Win32::System::Com::CoInitializeEx(
+            None,
+            windows::Win32::System::Com::COINIT_APARTMENTTHREADED,
+        )
+    };
+    let Some((job, t)) = std::fs::read_to_string(file)
+        .ok()
+        .as_deref()
+        .and_then(parse_job)
+    else {
+        return 1;
+    };
+    let Ok(dw) = DWrite::new(&job.fonts.0, &job.fonts.1) else {
+        return 1;
+    };
+    match print(&dw, &job, &t) {
+        Ok(_) => 0,
+        Err(Error::NoPrinter) => 3,
+        Err(Error::Failed) => 1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn print_job_file_round_trips() {
+        let job = Job::from_source(
+            r"C:\docs\a.md".into(),
+            "# T\n\nbody\n\nmore".into(),
+            Some("github"),
+            Some(true),
+        );
+        let t = Target {
+            printer: PDF_PRINTER.into(),
+            devmode: vec![1, 2, 255],
+            range: Some((2, 3)),
+            output: Some(r"C:\out\a.pdf".into()),
+            paper_mm: Some((210.0, 297.0)),
+            pdf: true,
+        };
+        let (j2, t2) = parse_job(&job_text(&job, &t)).expect("parses");
+        assert_eq!(j2.source, job.source);
+        assert_eq!(j2.path, job.path);
+        assert_eq!(j2.scheme, "github");
+        assert!(j2.dark);
+        assert_eq!(t2.printer, t.printer);
+        assert_eq!(t2.devmode, t.devmode);
+        assert_eq!(t2.range, t.range);
+        assert_eq!(t2.output, t.output);
+        assert_eq!(t2.paper_mm, t.paper_mm);
+        assert!(t2.pdf);
+        assert!(parse_job("nope\n\nx").is_none());
+    }
+}

@@ -62,6 +62,8 @@ pub enum Command {
     },
     /// `--uninstall-helper <pid>` (internal: the temp copy that deletes the install folder).
     UninstallHelper(u32),
+    /// `--print-job <file>` (internal: the print worker started by Print… / Export PDF…).
+    PrintJob(String),
     /// `--register` (R-SYS-01; explicit action, S-REG-03).
     Register,
     /// `--unregister` (S-REG-02).
@@ -176,7 +178,13 @@ pub fn parse_with<I: IntoIterator<Item = String>>(args: I, dev_tools: bool) -> C
                 .parse::<u32>()
                 .map_or_else(|_| usage("--uninstall-helper"), Command::UninstallHelper);
         }
-        [f @ ("--install" | "--uninstall" | "--uninstall-helper"), ..] => return usage(f),
+        ["--print-job", f] => return Command::PrintJob((*f).to_string()),
+        [
+            f @ ("--install" | "--uninstall" | "--uninstall-helper" | "--print-job"),
+            ..,
+        ] => {
+            return usage(f);
+        }
         _ => {}
     }
     let mut paths = Vec::new();
@@ -468,6 +476,11 @@ mod tests {
         );
         assert!(matches!(p(&["--uninstall", "x.md"]), Command::Usage(_)));
         assert!(matches!(p(&["--uninstall-helper", "x"]), Command::Usage(_)));
+        assert_eq!(
+            p(&["--print-job", "C:\\t\\a.job"]),
+            Command::PrintJob("C:\\t\\a.job".into())
+        );
+        assert!(matches!(p(&["--print-job"]), Command::Usage(_)));
         assert!(help_text().contains("--export-pdf"));
     }
 
