@@ -40,8 +40,9 @@ foreach ($d in @(@{n='M3-math'; f=$mh}, @{n='M3-mermaid'; f=$mm})) {
 }
 # Prompt 007 §4: one block's display list offscreen to PNG at 2x (the V1-D export path).
 $bp = "$m/block-mermaid-2x.png"
-& $dev --render-png $bp --block 2 --width 1000 --scale 2 (Resolve-Path 'tests/corpus/002/mermaid.md').Path
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path $bp) -or (Get-Item $bp).Length -lt 1000) { $failed += 'block-png'; Write-Host "::error::block PNG snapshot failed" } else { Write-Host "block PNG: $((Get-Item $bp).Length) bytes" }
+# yamdv.exe is a GUI-subsystem exe: `&` does not wait for it, so start it and wait for the exit code.
+$bpp = Start-Process -FilePath $dev -ArgumentList @('--render-png', $bp, '--block', '2', '--width', '1000', '--scale', '2', (Resolve-Path 'tests/corpus/002/mermaid.md').Path) -Wait -PassThru -NoNewWindow
+if ($bpp.ExitCode -ne 0 -or -not (Test-Path $bp) -or (Get-Item $bp).Length -lt 1000) { $failed += 'block-png'; Write-Host "::error::block PNG snapshot failed" } else { Write-Host "block PNG: $((Get-Item $bp).Length) bytes" }
 # M6 (P-10, F-09): Ctrl+O shows the dialog in the out-of-process host; cancel, wait 2 s, no trim.
 # Budget: PWS <= M1 + 1 MiB and commit <= M1 commit + 1.5 MiB; module count unchanged; T-DLG reported.
 $m1j = (Get-Content "$m/M1.json" -Raw | ConvertFrom-Json).median
