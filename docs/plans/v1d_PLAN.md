@@ -20,5 +20,6 @@ Risks: no Windows GUI locally (xwin clippy only; behaviour via CI driver scripts
 - [x] version 1.0.0, CHANGELOG, README
 - [x] driver scripts, XSS context, unit tests
 - [x] future-issues xtask (run once 2026-10-17: 41 issues #8–#48, label `future`, milestone `post-v1`), release CI job
-- [ ] CI, report, PR, merge, tags, draft release
+- [x] A-5/A-6 recorded; gates reduced; print worker fix (ADR-0018); local gates green; draft release v1.0.0-rc1; report
+- [ ] owner RC1 QA → merge PR #49; 2026-11-01 CI → tags phase-v1d + v1.0.0 → CI draft release
 - note: welcome golden renamed `welcome-install-light.png` (install button); commit it from the CI artifact
