@@ -63,6 +63,7 @@ mod app;
 #[cfg(feature = "dev-tools")]
 mod driver;
 mod findbar;
+mod sidebar;
 use windows::Win32::UI::WindowsAndMessaging::{
     MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, QS_ALLINPUT,
     SetForegroundWindow, WM_COPYDATA, WM_MOUSEHWHEEL, WM_QUIT, WaitMessage,
@@ -141,6 +142,12 @@ struct Shared {
     fonts: (String, String),
     /// `general.restore_reading_position`.
     restore_pos: bool,
+    /// Sidebar (B.5): visible, docked right, width, TOC font size, TOC depth.
+    side_visible: bool,
+    side_right: bool,
+    side_w: f32,
+    toc_font: f32,
+    toc_depth: u8,
     lang: Lang,
     m: Metrics,
     read: ReadOpts,
@@ -350,6 +357,8 @@ struct Win {
     watcher: Option<crate::shell::Watcher>,
     /// Find bar state (B.9).
     find: Option<findbar::Find>,
+    /// Sidebar state (B.5).
+    side: sidebar::Side,
 }
 
 enum Action {
@@ -362,6 +371,8 @@ enum Action {
     Help,
     /// Body font dialog (dialog host).
     FontDialog,
+    /// Persist one setting (sidebar width after a drag).
+    SetSetting(&'static str, String),
     /// Paths forwarded by a second instance (S-IPC-03: open only), with `--line`.
     Forward(Vec<String>, u64),
     /// Validated dialog-host answer (S-IPC-05).
@@ -380,7 +391,9 @@ impl Win {
     }
 
     fn col(&self, sh: &Shared) -> (f32, f32) {
-        column(self.cw, sh.column_pct)
+        let (ax, aw) = self.doc_area(sh);
+        let (x, w) = column(aw, sh.column_pct);
+        (ax + x, w)
     }
 
     fn invalidate(&self) {
@@ -511,6 +524,9 @@ impl Win {
             dv.encoding = d.encoding;
         }
         if record {
+            self.side.collapsed =
+                app::with(|a| a.state.toc_collapsed(&full).to_vec()).unwrap_or_default();
+            self.side.scroll = 0.0;
             app::with(|a| a.state.add_history(&full, app::now_ms()));
             app::save_state();
             self.restore_position(sh);
@@ -943,7 +959,11 @@ impl Win {
         };
         let th = (vh * vh / total).max(32.0);
         let ty = d.viewer.scroll / d.viewer.max_scroll(vh).max(1.0) * (vh - th);
-        Some(Rect::new(self.cw - 2.0 - w, ty as f32, w, th as f32))
+        let right = shared().map_or(self.cw, |sh| {
+            let (ax, aw) = self.doc_area(&sh);
+            ax + aw
+        });
+        Some(Rect::new(right - 2.0 - w, ty as f32, w, th as f32))
     }
 
     // ---- selection -----------------------------------------------------------------------
@@ -1264,6 +1284,9 @@ impl Win {
                 }
             }
         }
+        if matches!(self.view, View::Doc(_)) {
+            self.draw_side(sh, b);
+        }
         self.draw_find(sh, b);
         if let Some(m) = self.toast {
             let text = format!("{}{}", tr(sh.lang, m), self.toast_arg);
@@ -1435,6 +1458,12 @@ impl Win {
     }
 
     fn mouse_down(&mut self, sh: &Shared, x: f32, y: f32, ctrl: bool) {
+        if self.dialog.is_none() && matches!(self.view, View::Doc(_)) && self.over_side(sh, x, y) {
+            if let Some(a) = self.side_down(sh, x, y) {
+                self.actions.push(a);
+            }
+            return;
+        }
         if self.find.is_some() && self.dialog.is_none() {
             let (bar, case) = findbar::bar_rects(self.cw);
             if case.contains(x, y) {
@@ -1546,6 +1575,9 @@ impl Win {
     }
 
     fn mouse_move(&mut self, sh: &Shared, x: f32, y: f32) {
+        if self.dialog.is_none() && matches!(self.view, View::Doc(_)) && self.side_move(sh, x, y) {
+            return;
+        }
         if !self.tracking {
             let mut tme = TRACKMOUSEEVENT {
                 cbSize: u32::try_from(size_of::<TRACKMOUSEEVENT>()).unwrap_or(0),
@@ -1638,6 +1670,10 @@ impl Win {
     }
 
     fn mouse_up(&mut self) {
+        if let Some(a) = self.side_up() {
+            self.actions.push(a);
+            return;
+        }
         if self.hdrag.take().is_some() {
             // SAFETY: capture release.
             let _ = unsafe { ReleaseCapture() };
@@ -2529,7 +2565,15 @@ fn handle(
                 i32::from(lp.0 as u16 as i16),
                 i32::from((lp.0 >> 16) as u16 as i16),
             );
-            if !(shift && w.hwheel(sh, -delta, sx, sy)) {
+            let mut pt = POINT { x: sx, y: sy };
+            // SAFETY: valid hwnd and point.
+            let _ = unsafe { ScreenToClient(w.hwnd, &mut pt) };
+            let (cx_, cy_) = (pt.x as f32 / w.scale, pt.y as f32 / w.scale);
+            if matches!(w.view, View::Doc(_))
+                && w.side_rect(sh).is_some_and(|r| r.contains(cx_, cy_))
+            {
+                w.side_wheel(delta);
+            } else if !(shift && w.hwheel(sh, -delta, sx, sy)) {
                 w.wheel(sh, delta);
             }
             Some(LRESULT(0))
@@ -2761,6 +2805,9 @@ fn run_actions_inner(hwnd: HWND, actions: Vec<Action>) {
                 }
             }
             Action::FontDialog => app::font_dialog(hwnd),
+            Action::SetSetting(k, v) => {
+                app::set(k, &v);
+            }
             Action::Forward(paths, line) => app::open_forwarded(hwnd, paths, line),
             Action::OpenDialog => {
                 if HOST.with(|h| h.borrow().is_some()) {
@@ -3005,6 +3052,7 @@ fn create_window(sh: &Shared, path: Option<&str>) -> Option<HWND> {
         dimmed: false,
         watcher: None,
         find: None,
+        side: sidebar::Side::default(),
     };
     let rcw = Rc::new(RefCell::new(win));
     WINDOWS.with(|m| m.borrow_mut().insert(hwnd.0 as isize, rcw.clone()));
@@ -3078,6 +3126,11 @@ fn build_shared(
         mode: s.str("appearance.mode").to_string(),
         fonts,
         restore_pos: s.bool("general.restore_reading_position"),
+        side_visible: s.bool("sidebar.visible"),
+        side_right: s.str("sidebar.position").starts_with("right"),
+        side_w: s.int("sidebar.width") as f32,
+        toc_font: s.int("sidebar.toc_font_size") as f32,
+        toc_depth: u8::try_from(s.int("sidebar.toc_max_depth").clamp(1, 6)).unwrap_or(4),
         lang: yamdv_core::i18n::resolve(s.str("general.language"), sys::ui_language_tag()),
         m,
         read: ReadOpts {

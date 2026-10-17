@@ -42,7 +42,6 @@ pub(super) struct App {
     /// Config directory (`%APPDATA%\YAMDV` or `<exe>\YAMDV-data`).
     pub dir: String,
     /// Process start (History "Current session").
-    #[allow(dead_code)] // PHASE-V1A: History grouping in the sidebar (next commit).
     pub session_start: i64,
 }
 
