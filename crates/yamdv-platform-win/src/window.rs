@@ -857,17 +857,88 @@ impl Win {
         d.viewer.scroll_to(y, vh);
         let dy = ((old * scale).round() - (y * scale).round()) as i32;
         let ch_px = (self.ch * self.scale) as i32;
-        // SAFETY: valid hwnd; scroll the client area and invalidate the exposed strip.
+        let px = |v: f32| (v * self.scale).round() as i32;
+        // Blit only the document area: the sidebar, the edge chevron and the overlay
+        // scrollbar stay put (T4: the sidebar is never repainted by a scroll step).
+        let sh = shared();
+        let (mut l, mut r) = (0.0f32, self.cw);
+        if let Some(sh) = &sh {
+            let (ax, aw) = self.doc_area(sh);
+            let chev = self.chevron(sh);
+            (l, r) = (ax, ax + aw);
+            if sh.side_right {
+                r = r.min(chev.x);
+            } else {
+                l = l.max(chev.x + chev.w);
+            }
+        }
+        let doc_rc = RECT {
+            left: px(l),
+            top: 0,
+            right: px(r - 16.0).max(px(l)),
+            bottom: ch_px,
+        };
+        // SAFETY: valid hwnd; scroll the document rect and invalidate the exposed strip.
         unsafe {
             if dy.abs() < ch_px && self.dialog.is_none() {
-                ScrollWindowEx(self.hwnd, 0, dy, None, None, None, None, SW_INVALIDATE);
-                // The overlay scrollbar moved with the bits: repaint its strip.
-                let mut rc = RECT::default();
-                let _ = GetClientRect(self.hwnd, &mut rc);
-                rc.left = rc.right - (16.0 * self.scale) as i32;
-                let _ = InvalidateRect(Some(self.hwnd), Some(&rc), false);
+                ScrollWindowEx(
+                    self.hwnd,
+                    0,
+                    dy,
+                    Some(&doc_rc),
+                    Some(&doc_rc),
+                    None,
+                    None,
+                    SW_INVALIDATE,
+                );
+                // The overlay scrollbar strip is not blitted: repaint it.
+                let sb = RECT {
+                    left: doc_rc.right,
+                    top: 0,
+                    right: px(r),
+                    bottom: ch_px,
+                };
+                let _ = InvalidateRect(Some(self.hwnd), Some(&sb), false);
+                // Fixed overlays inside the blitted rect: repaint where they were and are.
+                let ady = dy.abs();
+                if self.find.is_some() {
+                    let (bar, _) = findbar::bar_rects(self.cw);
+                    let rc = RECT {
+                        left: px(bar.x) - 4,
+                        top: px(bar.y) - ady - 4,
+                        right: px(bar.x + bar.w) + 4,
+                        bottom: px(bar.y + bar.h) + ady + 4,
+                    };
+                    let _ = InvalidateRect(Some(self.hwnd), Some(&rc), false);
+                }
+                if self.toast.is_some() {
+                    let rc = RECT {
+                        left: 0,
+                        top: px(self.ch - 120.0) - ady,
+                        right: px(self.cw),
+                        bottom: ch_px,
+                    };
+                    let _ = InvalidateRect(Some(self.hwnd), Some(&rc), false);
+                }
             } else {
                 let _ = InvalidateRect(Some(self.hwnd), None, false);
+            }
+        }
+        // Scroll spy: repaint the sidebar only when the active heading changes.
+        if let Some(sh) = &sh
+            && let Some(sr) = self.side_rect(sh)
+        {
+            let spy = self.toc_active();
+            if spy != self.side.spy {
+                self.side.spy = spy;
+                let rc = RECT {
+                    left: px(sr.x),
+                    top: 0,
+                    right: px(sr.x + sr.w),
+                    bottom: ch_px,
+                };
+                // SAFETY: valid hwnd.
+                let _ = unsafe { InvalidateRect(Some(self.hwnd), Some(&rc), false) };
             }
         }
         self.show_scrollbar();

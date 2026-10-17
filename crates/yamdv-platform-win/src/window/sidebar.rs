@@ -18,6 +18,8 @@ pub(super) struct Side {
     pub drag_w: Option<f32>,
     /// Collapsed TOC nodes (heading indexes) of the current document.
     pub collapsed: Vec<u32>,
+    /// Last scroll-spy heading painted (repaint the sidebar only when it changes).
+    pub spy: Option<usize>,
 }
 
 /// What a sidebar row does.
@@ -112,6 +114,26 @@ impl Win {
         Rect::new(x, y, CHEV.0, CHEV.1)
     }
 
+    /// Scroll-spy heading index (Contents tab only), `None` elsewhere.
+    pub(super) fn toc_active(&self) -> Option<usize> {
+        if self.tab() != 0 {
+            return None;
+        }
+        let View::Doc(d) = &self.view else {
+            return None;
+        };
+        let Content::Markdown(doc) = &d.content else {
+            return None;
+        };
+        let reading = d.viewer.scroll + 80.0;
+        // Headings are in document order: binary search on their tops.
+        let n = doc
+            .index
+            .headings
+            .partition_point(|h| d.viewer.block_top(&d.content, h.block as usize) <= reading);
+        n.checked_sub(1)
+    }
+
     fn tab(&self) -> u8 {
         app::with(|a| a.state.sidebar_tab).unwrap_or(0)
     }
@@ -157,10 +179,7 @@ impl Win {
                 // Title flattening (R-NAV-05): a single leading H1 is dropped from the tree.
                 let h1s = hs.iter().filter(|h| h.level == 1).count();
                 let flatten = h1s == 1 && hs.first().is_some_and(|h| h.level == 1);
-                let reading = d.viewer.scroll + 80.0;
-                let active = hs
-                    .iter()
-                    .rposition(|h| d.viewer.block_top(&d.content, h.block as usize) <= reading);
+                let active = self.toc_active();
                 let mut hide_below: Option<u8> = None;
                 let mut any = false;
                 for (i, h) in hs.iter().enumerate() {
