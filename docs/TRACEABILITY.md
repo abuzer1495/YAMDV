@@ -59,12 +59,12 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-LINK-07 | 003 | planned |
 | R-MAP-01 | 010 | deferred (FUT-37) |
 | R-MAP-02 | 010 | deferred (FUT-37) |
-| R-MATH-01 | 009 | planned |
-| R-MATH-02 | 009 | deferred (FUT-17) |
-| R-MATH-03 | 009 | planned |
-| R-MATH-04 | 009 | planned |
-| R-MATH-05 | 009 | planned |
-| R-MATH-06 | 009 | planned |
+| R-MATH-01 | 009 | implemented (007): yamdv-math + Cambria Math MATH table (dwrite.rs) |
+| R-MATH-02 | 009 | partial (007): core subset (parse.rs); part deferred: FUT-17 |
+| R-MATH-03 | 009 | implemented (007): error color + message line (tooltip: FUT-40) |
+| R-MATH-04 | 009 | implemented (007): copy maps to source with delimiters (detail.rs test) |
+| R-MATH-05 | 009 | implemented (007): centered, HRegion scroll (rich.rs tests) |
+| R-MATH-06 | 009 | implemented (007): theme text color; \color override |
 | R-MATH-07 | 009 | deferred (FUT-17) |
 | R-MD-01 | 002/003 | implemented (002) |
 | R-MD-02 | 002/003 | implemented (003): GFM tables, tasks, strikethrough, autolinks |
@@ -85,13 +85,13 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-MD-17 | 002/003 | implemented (002) |
 | R-MD-18 | 002/003 | implemented (003) |
 | R-MD-19 | 002/003 | deferred (FUT-08) |
-| R-MMD-01 | 010 | deferred (FUT-18) |
-| R-MMD-02 | 010 | deferred (FUT-18, FUT-36) |
-| R-MMD-03 | 010 | deferred (FUT-18) |
-| R-MMD-04 | 010 | deferred (FUT-18) |
-| R-MMD-05 | 010 | deferred (FUT-18) |
-| R-MMD-06 | 010 | deferred (FUT-18) |
-| R-MMD-07 | 010 | deferred (FUT-18) |
+| R-MMD-01 | 010 | partial (007): flowchart + sequence (yamdv-mermaid); part deferred: FUT-18 |
+| R-MMD-02 | 010 | partial (007): card B.6.12, fit-to-column; part deferred: FUT-36, FUT-18 |
+| R-MMD-03 | 010 | partial (007): B.3.6 light/dark palettes; part deferred: FUT-18 (init) |
+| R-MMD-04 | 010 | implemented (007): source card + line/column message; part deferred: FUT-18 |
+| R-MMD-05 | 010 | implemented (007): placeholder + Render anyway (mermaid.yds); part deferred: FUT-18 |
+| R-MMD-06 | 010 | partial (007): directions, core shapes/edges, subgraph, classDef/style; part deferred: FUT-18 |
+| R-MMD-07 | 010 | implemented (007): seq.rs + tests; part deferred: FUT-18 |
 | R-MMD-08 | 010 | deferred (FUT-18) |
 | R-MMD-09 | 010 | deferred (FUT-18) |
 | R-MMD-10 | 010 | deferred (FUT-18) |
@@ -232,10 +232,10 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | S-NET-05 | 003/012 | planned |
 | S-PARSE-01 | 003/012 | implemented (002) |
 | S-PARSE-02 | 003/012 | implemented (002) (applicable parts) |
-| S-PARSE-03 | 003/012 | planned |
+| S-PARSE-03 | 003/012 | partial (007): 200 ms budget for diagrams |
 | S-PARSE-04 | 003/012 | implemented (002) |
-| S-PARSE-05 | 003/012 | planned |
-| S-PARSE-06 | 003/012 | planned |
+| S-PARSE-05 | 003/012 | implemented (007): 10 000 chars, depth 64, 5 000 formulas |
+| S-PARSE-06 | 003/012 | implemented (007): 100 KB, soft 500/1 500, hard 2 000/6 000, 100 diagrams |
 | S-PARSE-07 | 003/012 | implemented (002) |
 | S-PARSE-08 | 003/012 | implemented (002) |
 | S-PRIV-01 | 004 | planned |

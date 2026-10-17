@@ -159,11 +159,10 @@ fn reference(src: &str) -> (Vec<B>, String) {
                     depth -= 1;
                 }
             }
-            Event::Text(t)
-            | Event::Code(t)
-            | Event::InlineMath(t)
-            | Event::DisplayMath(t)
-            | Event::Html(t) => text.push_str(t),
+            Event::Text(t) | Event::Code(t) | Event::Html(t) => text.push_str(t),
+            // R-MATH-04: math runs carry their source with delimiters.
+            Event::InlineMath(t) => text.push_str(&format!("${t}$")),
+            Event::DisplayMath(t) => text.push_str(&format!("$${t}$$")),
             Event::InlineHtml(t) => {
                 // Our renderer shows sanitized inline HTML (R-MD-14): text, breaks, images.
                 let mut budget = yamdv_core::html::MAX_TAGS;
@@ -285,6 +284,7 @@ fn pipeline(src: &str, check: bool) -> (usize, usize) {
         }
         let mut ctx = Ctx {
             images: &yamdv_layout::img::NO_IMAGES,
+            rich: &yamdv_layout::rich::NO_RICH,
             shaper: &mut shaper,
             m: Metrics::default(),
             pal: &pal,

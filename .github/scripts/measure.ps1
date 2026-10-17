@@ -28,6 +28,21 @@ Probe 'M0' $rel @('--runs', '5', '--budget-pws-mib', '4.8', '--budget-commit-rat
 $m1line = @('--arg', '--line', '--arg', '822')
 Probe 'M1' $rel (@('--doc', $typ, '--runs', '5') + $m1line + @('--budget-pws-mib', '8.0', '--budget-commit-ratio', '3', '--budget-first-paint-ms', '150', '--screenshot', "$m/M1.png"))
 Probe 'M2' $rel @('--doc', $large, '--runs', '5', '--budget-pws-mib', '16', '--budget-commit-ratio', '3', '--budget-first-paint-ms', '300', '--screenshot', "$m/M2.png")
+# V1-C (prompt 007 §5): M3 = PWS of math-heavy.md / mermaid-heavy.md (<= 9.6 MiB each);
+# T1M = their first paint (reported).
+$mh = (Resolve-Path 'tests/corpus/002/math-heavy.md').Path
+$mm = (Resolve-Path 'tests/corpus/002/mermaid-heavy.md').Path
+foreach ($d in @(@{n='M3-math'; f=$mh}, @{n='M3-mermaid'; f=$mm})) {
+  Probe $d.n $rel @('--doc', $d.f, '--runs', '5', '--budget-pws-mib', '9.6', '--screenshot', "$m/$($d.n).png")
+  $j = (Get-Content "$m/$($d.n).json" -Raw | ConvertFrom-Json).median
+  Write-Host "T1M $($d.n): first paint $($j.first_paint_ms) ms, PWS $($j.private_ws_mib) MiB"
+  "T1M $($d.n) first_paint_ms $($j.first_paint_ms) pws_mib $($j.private_ws_mib)" | Out-File -Append "$m/T1M.txt"
+}
+# Prompt 007 §4: one block's display list offscreen to PNG at 2x (the V1-D export path).
+$bp = "$m/block-mermaid-2x.png"
+# yamdv.exe is a GUI-subsystem exe: `&` does not wait for it, so start it and wait for the exit code.
+$bpp = Start-Process -FilePath $dev -ArgumentList @('--render-png', $bp, '--block', '2', '--width', '1000', '--scale', '2', (Resolve-Path 'tests/corpus/002/mermaid.md').Path) -Wait -PassThru -NoNewWindow
+if ($bpp.ExitCode -ne 0 -or -not (Test-Path $bp) -or (Get-Item $bp).Length -lt 1000) { $failed += 'block-png'; Write-Host "::error::block PNG snapshot failed" } else { Write-Host "block PNG: $((Get-Item $bp).Length) bytes" }
 # M6 (P-10, F-09): Ctrl+O shows the dialog in the out-of-process host; cancel, wait 2 s, no trim.
 # Budget: PWS <= M1 + 1 MiB and commit <= M1 commit + 1.5 MiB; module count unchanged; T-DLG reported.
 $m1j = (Get-Content "$m/M1.json" -Raw | ConvertFrom-Json).median
@@ -59,7 +74,7 @@ function T4Attempt([string]$n, [string]$f, [int]$a) {
   if ($p99s.Count -eq 0) { return [double]9999 }
   return [double]($p99s | Sort-Object)[[math]::Floor(($p99s.Count - 1) / 2)]
 }
-foreach ($d in @(@{n='typical'; f=$typ}, @{n='large'; f=$large})) {
+foreach ($d in @(@{n='typical'; f=$typ}, @{n='large'; f=$large}, @{n='math'; f=$mh}, @{n='mermaid'; f=$mm})) {
   $cold = T4Run $d.n $d.f 'cold'
   # T4Run's only pipeline output is the p99 (Probe output goes to the host), so the median and
   # the 16 ms gate compare numbers (in V1-A run 2 the Probe text leaked in and the gate compared strings).

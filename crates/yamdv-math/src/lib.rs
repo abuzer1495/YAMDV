@@ -1,5 +1,19 @@
-//! Native TeX math: parser, OpenType MATH table reader, math layout to display ops.
+//! Native TeX math (R-MATH-01, FUT-17 core): parser, OpenType MATH table reader, math layout to
+//! display ops.
 //!
-//! Platform-independent (pure) crate; see `docs/ARCHITECTURE.md` §E.2.
-//! PHASE-009: first real content lands in Phase 009. This crate is intentionally empty in Phase 001.
+//! Platform-independent (pure) crate; see `docs/ARCHITECTURE.md` §E.2. The platform supplies a
+//! [`font::MathFont`] (Cambria Math through DirectWrite) and draws the [`layout::Op`]s.
 #![forbid(unsafe_code)]
+
+pub mod font;
+pub mod layout;
+pub mod parse;
+pub mod symbols;
+pub mod table;
+
+#[cfg(test)]
+mod tests;
+
+pub use layout::{MathBox, Op, render};
+pub use parse::MathError;
+pub use table::MathTable;

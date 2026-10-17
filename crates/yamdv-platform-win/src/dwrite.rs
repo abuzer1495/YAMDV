@@ -12,26 +12,217 @@
 )]
 
 use std::any::Any;
-use std::cell::RefCell;
+use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
 use std::ops::Range;
 
 use windows::Win32::Graphics::DirectWrite::{
-    DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_ITALIC,
-    DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_HIT_TEST_METRICS,
-    DWRITE_LINE_SPACING_METHOD_UNIFORM, DWRITE_READING_DIRECTION_RIGHT_TO_LEFT,
-    DWRITE_TEXT_METRICS, DWRITE_TEXT_RANGE, DWRITE_WORD_WRAPPING_EMERGENCY_BREAK,
-    DWRITE_WORD_WRAPPING_NO_WRAP, DWriteCreateFactory, IDWriteFactory, IDWriteFontCollection,
-    IDWriteTextFormat, IDWriteTextLayout, IDWriteTextLayout1,
+    DWRITE_BREAK_CONDITION, DWRITE_BREAK_CONDITION_NEUTRAL, DWRITE_FACTORY_TYPE_SHARED,
+    DWRITE_FONT_METRICS, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_ITALIC,
+    DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_GLYPH_METRICS,
+    DWRITE_HIT_TEST_METRICS, DWRITE_INLINE_OBJECT_METRICS, DWRITE_LINE_SPACING_METHOD_UNIFORM,
+    DWRITE_OVERHANG_METRICS, DWRITE_READING_DIRECTION_RIGHT_TO_LEFT, DWRITE_TEXT_METRICS,
+    DWRITE_TEXT_RANGE, DWRITE_WORD_WRAPPING_EMERGENCY_BREAK, DWRITE_WORD_WRAPPING_NO_WRAP,
+    DWriteCreateFactory, IDWriteFactory, IDWriteFontCollection, IDWriteFontFace,
+    IDWriteInlineObject, IDWriteInlineObject_Impl, IDWriteTextFormat, IDWriteTextLayout,
+    IDWriteTextLayout1, IDWriteTextRenderer,
 };
-use windows::core::{BOOL, HSTRING, IUnknown, Interface, implement, w};
+use windows::core::{BOOL, HSTRING, IUnknown, Interface, Ref, implement, w};
 use yamdv_layout::Rect;
+use yamdv_layout::rich::{MathFace, RichCache, RichHost};
 use yamdv_layout::shaper::{Family, ParaSpec, Shaped, Style, TextShaper};
+use yamdv_math::font::{GlyphMetrics, MathFont};
 
 /// Marker drawing effect: makes DirectWrite split glyph runs at style boundaries so the renderer
 /// can color each run (the color itself is looked up by text position).
 #[implement()]
 struct RunBreak;
+
+/// Reserved space for an inline formula (R-MATH-04).
+#[implement(IDWriteInlineObject)]
+struct InlineBox(DWRITE_INLINE_OBJECT_METRICS);
+
+impl IDWriteInlineObject_Impl for InlineBox_Impl {
+    fn Draw(
+        &self,
+        _: *const core::ffi::c_void,
+        _: Ref<IDWriteTextRenderer>,
+        _: f32,
+        _: f32,
+        _: BOOL,
+        _: BOOL,
+        _: Ref<IUnknown>,
+    ) -> windows::core::Result<()> {
+        Ok(())
+    }
+    fn GetMetrics(&self) -> windows::core::Result<DWRITE_INLINE_OBJECT_METRICS> {
+        Ok(self.0)
+    }
+    fn GetOverhangMetrics(&self) -> windows::core::Result<DWRITE_OVERHANG_METRICS> {
+        Ok(DWRITE_OVERHANG_METRICS::default())
+    }
+    fn GetBreakConditions(
+        &self,
+        before: *mut DWRITE_BREAK_CONDITION,
+        after: *mut DWRITE_BREAK_CONDITION,
+    ) -> windows::core::Result<()> {
+        // SAFETY: DirectWrite passes valid out-pointers.
+        unsafe {
+            if let Some(b) = before.as_mut() {
+                *b = DWRITE_BREAK_CONDITION_NEUTRAL;
+            }
+            if let Some(a) = after.as_mut() {
+                *a = DWRITE_BREAK_CONDITION_NEUTRAL;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The OpenType math font (Cambria Math, R-MATH-01) behind [`MathFont`].
+pub struct DwMathFont {
+    face: IDWriteFontFace,
+    upem: f32,
+    math: Vec<u8>,
+    gids: RefCell<HashMap<char, u16>>,
+    metrics: RefCell<HashMap<u16, GlyphMetrics>>,
+}
+
+impl DwMathFont {
+    fn load(factory: &IDWriteFactory) -> Option<Self> {
+        let mut coll: Option<IDWriteFontCollection> = None;
+        // SAFETY: valid factory; out-pointers on the stack; the table pointer is copied before
+        // `ReleaseFontTable`.
+        unsafe {
+            factory.GetSystemFontCollection(&mut coll, false).ok()?;
+            let coll = coll?;
+            let (mut idx, mut exists) = (0u32, BOOL(0));
+            coll.FindFamilyName(w!("Cambria Math"), &mut idx, &mut exists)
+                .ok()?;
+            if !exists.as_bool() {
+                return None;
+            }
+            let font = coll
+                .GetFontFamily(idx)
+                .ok()?
+                .GetFirstMatchingFont(
+                    DWRITE_FONT_WEIGHT_NORMAL,
+                    DWRITE_FONT_STRETCH_NORMAL,
+                    DWRITE_FONT_STYLE_NORMAL,
+                )
+                .ok()?;
+            let face = font.CreateFontFace().ok()?;
+            let mut fm = DWRITE_FONT_METRICS::default();
+            face.GetMetrics(&mut fm);
+            let tag = u32::from_le_bytes(*b"MATH");
+            let mut data = std::ptr::null_mut();
+            let mut size = 0u32;
+            let mut ctx = std::ptr::null_mut();
+            let mut has = BOOL(0);
+            face.TryGetFontTable(tag, &mut data, &mut size, &mut ctx, &mut has)
+                .ok()?;
+            let math = if has.as_bool() && !data.is_null() {
+                let v = std::slice::from_raw_parts(data.cast::<u8>(), size as usize).to_vec();
+                face.ReleaseFontTable(ctx);
+                v
+            } else {
+                return None;
+            };
+            Some(Self {
+                face,
+                upem: f32::from(fm.designUnitsPerEm.max(1)),
+                math,
+                gids: RefCell::new(HashMap::new()),
+                metrics: RefCell::new(HashMap::new()),
+            })
+        }
+    }
+}
+
+impl MathFont for DwMathFont {
+    fn units_per_em(&self) -> f32 {
+        self.upem
+    }
+    fn glyph(&self, c: char) -> u16 {
+        if let Some(g) = self.gids.borrow().get(&c) {
+            return *g;
+        }
+        let cp = u32::from(c);
+        let mut g = 0u16;
+        // SAFETY: one code point in, one glyph index out.
+        let _ = unsafe { self.face.GetGlyphIndices(&cp, 1, &mut g) };
+        self.gids.borrow_mut().insert(c, g);
+        g
+    }
+    fn metrics(&self, g: u16) -> GlyphMetrics {
+        if let Some(m) = self.metrics.borrow().get(&g) {
+            return *m;
+        }
+        let mut d = DWRITE_GLYPH_METRICS::default();
+        // SAFETY: one glyph index in, one metrics record out.
+        let _ = unsafe { self.face.GetDesignGlyphMetrics(&g, 1, &mut d, false) };
+        let adv = d.advanceWidth as f32;
+        let vo = d.verticalOriginY as f32;
+        let m = GlyphMetrics {
+            advance: adv,
+            x_min: d.leftSideBearing as f32,
+            x_max: adv - d.rightSideBearing as f32,
+            y_max: vo - d.topSideBearing as f32,
+            y_min: vo - d.advanceHeight as f32 + d.bottomSideBearing as f32,
+        };
+        self.metrics.borrow_mut().insert(g, m);
+        m
+    }
+    fn math_table(&self) -> &[u8] {
+        &self.math
+    }
+}
+
+thread_local! {
+    /// The loaded math face for drawing (set when [`DWrite::math_face`] first loads it).
+    static MATH_DRAW: RefCell<Option<IDWriteFontFace>> = const { RefCell::new(None) };
+}
+
+/// The math font face for glyph-run drawing (`None` until loaded or when unavailable).
+pub fn math_draw_face() -> Option<IDWriteFontFace> {
+    MATH_DRAW.with(|m| m.borrow().clone())
+}
+
+/// [`RichHost`] over the shared [`DWrite`] state and a document's cache.
+#[derive(Debug)]
+pub struct Rich<'a> {
+    dw: &'a DWrite,
+    cache: &'a RichCache,
+    math: bool,
+    mermaid: bool,
+}
+
+impl<'a> Rich<'a> {
+    /// Host for one document with the `reading.render_math` / `reading.render_mermaid` flags.
+    pub fn new(dw: &'a DWrite, cache: &'a RichCache, math: bool, mermaid: bool) -> Self {
+        Self {
+            dw,
+            cache,
+            math,
+            mermaid,
+        }
+    }
+}
+
+impl RichHost for Rich<'_> {
+    fn math(&self) -> Option<&MathFace> {
+        self.dw.math_face()
+    }
+    fn render_math(&self) -> bool {
+        self.math
+    }
+    fn render_mermaid(&self) -> bool {
+        self.mermaid
+    }
+    fn cache(&self) -> Option<&RichCache> {
+        Some(self.cache)
+    }
+}
 
 /// Shared DirectWrite state.
 pub struct DWrite {
@@ -42,6 +233,7 @@ pub struct DWrite {
     formats: RefCell<HashMap<(bool, u32, u16, bool), IDWriteTextFormat>>,
     space: RefCell<HashMap<(bool, u32), f32>>,
     brk: IUnknown,
+    math: OnceCell<Option<MathFace>>,
 }
 
 impl std::fmt::Debug for DWrite {
@@ -84,7 +276,20 @@ impl DWrite {
             formats: RefCell::new(HashMap::new()),
             space: RefCell::new(HashMap::new()),
             brk: RunBreak.into(),
+            math: OnceCell::new(),
         })
+    }
+
+    /// The math font, loaded on first use (R-MATH-01; §2.1 lazy).
+    pub fn math_face(&self) -> Option<&MathFace> {
+        self.math
+            .get_or_init(|| {
+                let f = DwMathFont::load(&self.factory)?;
+                let face = f.face.clone();
+                MATH_DRAW.with(|m| *m.borrow_mut() = Some(face));
+                Some(MathFace::new(Box::new(f)))
+            })
+            .as_ref()
     }
 
     fn format(&self, s: &Style) -> windows::core::Result<IDWriteTextFormat> {
@@ -170,6 +375,7 @@ impl DWrite {
             line_pitch: (size * 1.4).round(),
             rtl: false,
             tab_spaces: None,
+            objects: Vec::new(),
         });
         (sh.width, sh.height)
     }
@@ -252,6 +458,24 @@ impl DWrite {
                     }
                     l.SetDrawingEffect(&self.brk, range)?;
                     colors.push((sp.range.clone(), *s));
+                }
+                // R-MATH-04: inline formulas are atomic, baseline-aligned inline objects; the
+                // formula itself is drawn from the display list (`Item::Math`).
+                for o in &spec.objects {
+                    let obj: IDWriteInlineObject = InlineBox(DWRITE_INLINE_OBJECT_METRICS {
+                        width: o.width,
+                        height: o.ascent + o.descent,
+                        baseline: o.ascent,
+                        supportsSideways: BOOL(0),
+                    })
+                    .into();
+                    l.SetInlineObject(
+                        &obj,
+                        DWRITE_TEXT_RANGE {
+                            startPosition: o.range.0,
+                            length: o.range.1.saturating_sub(o.range.0),
+                        },
+                    )?;
                 }
             }
             if spec.base.strike || spec.base.underline {
@@ -438,5 +662,11 @@ pub struct DwShaper<'a>(pub &'a DWrite);
 impl TextShaper for DwShaper<'_> {
     fn shape(&mut self, spec: &ParaSpec<'_>) -> Box<dyn Shaped> {
         Box::new(self.0.shape_impl(spec))
+    }
+}
+
+impl std::fmt::Debug for DwMathFont {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DwMathFont")
     }
 }

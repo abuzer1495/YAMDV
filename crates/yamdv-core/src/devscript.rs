@@ -62,6 +62,8 @@ pub enum Cmd {
     ClickText(String),
     /// Click the task checkbox of the list item containing the text.
     ClickTask(String),
+    /// Click the "Render anyway" button of the diagram block containing the text.
+    ClickRender(String),
     /// Click the first sidebar row whose text contains the string.
     SideClick(String),
     /// Write a file relative to the script folder (`\n` = LF, `\r` = CR).
@@ -179,6 +181,7 @@ pub fn parse_line(line: &str) -> Result<Option<Cmd>, String> {
         "side-click" => Cmd::SideClick(unquote(rest)),
         "click-text" if !rest.is_empty() => Cmd::ClickText(unquote(rest)),
         "click-task" if !rest.is_empty() => Cmd::ClickTask(unquote(rest)),
+        "click-render" if !rest.is_empty() => Cmd::ClickRender(unquote(rest)),
         "write-file" => {
             let (f, t) = rest.split_once(' ').ok_or_else(bad)?;
             Cmd::WriteFile(
@@ -335,6 +338,10 @@ mod tests {
         assert_eq!(
             parse_line("click-task todo").ok().flatten(),
             Some(Cmd::ClickTask("todo".into()))
+        );
+        assert_eq!(
+            parse_line("click-render graph").ok().flatten(),
+            Some(Cmd::ClickRender("graph".into()))
         );
         assert_eq!(
             parse_line("write-file a.md \"x\\r\\ny\"").ok().flatten(),

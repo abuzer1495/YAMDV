@@ -52,6 +52,21 @@ pub struct Span {
     pub style: Style,
 }
 
+/// A non-text run inside a paragraph (inline formula, R-MATH-04): the UTF-16 `range` is
+/// replaced by one unbreakable box of the given size whose baseline sits on the line baseline
+/// (`0.8 × line_pitch` below the line top). Hit testing and selection treat it as one unit.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InlineObject {
+    /// Replaced UTF-16 range.
+    pub range: (u32, u32),
+    /// Advance width.
+    pub width: f32,
+    /// Height above the baseline.
+    pub ascent: f32,
+    /// Depth below the baseline.
+    pub descent: f32,
+}
+
 /// Paragraph shaping request.
 #[derive(Debug, Clone)]
 pub struct ParaSpec<'a> {
@@ -69,6 +84,8 @@ pub struct ParaSpec<'a> {
     pub rtl: bool,
     /// Tab stops every N space advances (code: 4, R-MD-17); `None` = shaper default.
     pub tab_spaces: Option<u8>,
+    /// Inline objects (non-overlapping, sorted).
+    pub objects: Vec<InlineObject>,
 }
 
 /// One shaped paragraph.
@@ -150,6 +167,8 @@ fn advance(c: char, size: f32) -> f32 {
 impl TextShaper for MockShaper {
     fn shape(&mut self, spec: &ParaSpec<'_>) -> Box<dyn Shaped> {
         let mut units: Vec<(u32, char, f32)> = Vec::new();
+        // Units inside an inline object after its first one (no break, no width).
+        let mut glued: Vec<bool> = Vec::new();
         let mut p16 = 0u32;
         for c in spec.text.chars() {
             let size = spec
@@ -158,7 +177,24 @@ impl TextShaper for MockShaper {
                 .rev()
                 .find(|s| s.range.contains(&p16))
                 .map_or(spec.base.size, |s| s.style.size);
-            units.push((p16, c, advance(c, size)));
+            let obj = spec
+                .objects
+                .iter()
+                .find(|o| o.range.0 <= p16 && p16 < o.range.1);
+            match obj {
+                Some(o) if o.range.0 == p16 => {
+                    units.push((p16, c, o.width));
+                    glued.push(false);
+                }
+                Some(_) => {
+                    units.push((p16, c, 0.0));
+                    glued.push(true);
+                }
+                None => {
+                    units.push((p16, c, advance(c, size)));
+                    glued.push(false);
+                }
+            }
             p16 += c.len_utf16() as u32;
         }
         let total16 = p16;
@@ -200,10 +236,12 @@ impl TextShaper for MockShaper {
                 continue;
             }
             let w = if c == '\t' { tab - x % tab } else { w };
+            let inside = glued.get(i).copied().unwrap_or(false);
             if let Some(width) = spec.width
                 && x + w > width
                 && i > start
                 && c != ' '
+                && !inside
             {
                 let brk = last_space.map_or(i, |s| s + 1);
                 push(&mut lines, &units, start, brk, total16);
@@ -213,7 +251,7 @@ impl TextShaper for MockShaper {
                 last_space = None;
                 continue;
             }
-            if c == ' ' {
+            if c == ' ' && !inside && !glued.get(i + 1).copied().unwrap_or(false) {
                 last_space = Some(i);
             }
             x += w;
@@ -305,6 +343,7 @@ mod tests {
             line_pitch: 20.0,
             rtl: false,
             tab_spaces: None,
+            objects: Vec::new(),
         };
         let s = MockShaper.shape(&spec);
         assert_eq!(s.lines(), 2);

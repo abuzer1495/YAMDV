@@ -26,7 +26,16 @@ fuzz_target!(|data: &[u8]| {
     let mut shaper = MockShaper;
     let mut v = Viewer::new(&content, 600.0, m);
     let h = v.total_height() + 1.0;
-    let mut env = Env { shaper: &mut shaper, m, pal: &pal, strings: &EnStrings, single_newline_break: false };
+    let rich = yamdv_layout::rich::MockRich::default();
+    let mut env = Env {
+        shaper: &mut shaper,
+        m,
+        pal: &pal,
+        strings: &EnStrings,
+        single_newline_break: false,
+        images: &yamdv_layout::img::NO_IMAGES,
+        rich: &rich,
+    };
     v.prepare(&mut content, &mut env, h);
     let _ = v.visible(&content, h).len();
 });

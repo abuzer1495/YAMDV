@@ -17,6 +17,8 @@ mem-stats = []
 [dependencies]
 yamdv-core = { path = "../yamdv-core" }
 yamdv-layout = { path = "../yamdv-layout" }
+yamdv-math = { path = "../yamdv-math" }
+yamdv-mermaid = { path = "../yamdv-mermaid" }
 yamdv-ui = { path = "../yamdv-ui" }
 yamdv-export = { path = "../yamdv-export" }
 yamdv-editor = { path = "../yamdv-editor" }

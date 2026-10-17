@@ -248,6 +248,7 @@ pub(crate) fn verbatim_layout(
         line_pitch: ctx.m.pitch(),
         rtl: is_rtl(&pt.text),
         tab_spaces: Some(4),
+        objects: Vec::new(),
     });
     let height = shaped.height().max(ctx.m.pitch()) + 2.0 * pad;
     let mut items = Vec::new();
@@ -381,6 +382,8 @@ pub struct Env<'a> {
     pub single_newline_break: bool,
     /// Image knowledge of the platform.
     pub images: &'a dyn crate::img::ImageHost,
+    /// Math font, settings and cache (R-MATH-*, R-MMD-*).
+    pub rich: &'a dyn crate::rich::RichHost,
 }
 
 /// Virtualized view state.
@@ -677,6 +680,7 @@ impl Viewer {
                     block: i,
                     code_opts: &lookup,
                     images: env.images,
+                    rich: env.rich,
                 };
                 let bl = match (&self.source_block, &*content) {
                     (Some(sb), _) if sb.block == i => {
@@ -986,6 +990,7 @@ mod tests {
         let strings = EnStrings;
         let mut env = Env {
             images: &crate::img::NO_IMAGES,
+            rich: &crate::rich::NO_RICH,
             shaper: &mut sh,
             m: Metrics::default(),
             pal: &pal,
@@ -1075,6 +1080,7 @@ mod tests {
         let strings = EnStrings;
         let mut env = Env {
             images: &crate::img::NO_IMAGES,
+            rich: &crate::rich::NO_RICH,
             shaper: &mut sh,
             m: Metrics::default(),
             pal: &pal,
@@ -1127,6 +1133,7 @@ mod tests {
         let strings = EnStrings;
         let mut env = Env {
             images: &crate::img::NO_IMAGES,
+            rich: &crate::rich::NO_RICH,
             shaper: &mut sh,
             m: Metrics::default(),
             pal: &pal,
@@ -1153,6 +1160,7 @@ mod tests {
         let strings = EnStrings;
         let mut env = Env {
             images: &crate::img::NO_IMAGES,
+            rich: &crate::rich::NO_RICH,
             shaper: &mut sh,
             m: Metrics::default(),
             pal: &pal,
@@ -1179,6 +1187,7 @@ mod tests {
         let strings = EnStrings;
         let mut env = Env {
             images: &crate::img::NO_IMAGES,
+            rich: &crate::rich::NO_RICH,
             shaper: &mut sh,
             m: Metrics::default(),
             pal: &pal,
@@ -1204,6 +1213,7 @@ mod tests {
         let strings = EnStrings;
         let mut env = Env {
             images: &crate::img::NO_IMAGES,
+            rich: &crate::rich::NO_RICH,
             shaper: &mut sh,
             m: Metrics::default(),
             pal: &pal,

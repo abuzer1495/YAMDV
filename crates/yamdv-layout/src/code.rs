@@ -95,9 +95,33 @@ fn lines_of(text: &str) -> Vec<Line> {
     v
 }
 
-/// Lays out a code block card; returns its height.
+/// Lays out a fenced block: ```` ```math ```` (R-MATH-05), ```` ```mermaid ```` (R-MMD-01) or a
+/// code card; returns its height.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn code_block(
+    ctx: &mut Ctx<'_>,
+    node: usize,
+    info: &str,
+    pt: ParaText,
+    x: f32,
+    y: f32,
+    w: f32,
+    out: &mut Out,
+) -> f32 {
+    let fence = info.split_whitespace().next().unwrap_or("");
+    if fence.eq_ignore_ascii_case("math") && ctx.rich.render_math() && ctx.rich.math().is_some() {
+        let tex = pt.text.clone();
+        return crate::rich::display_math(ctx, &tex, pt, x, y, w, out);
+    }
+    if fence.eq_ignore_ascii_case("mermaid") && ctx.rich.render_mermaid() {
+        return crate::diagram::block(ctx, node, info, pt, x, y, w, out);
+    }
+    code_card(ctx, node, info, pt, x, y, w, out)
+}
+
+/// Code block card; returns its height.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn code_card(
     ctx: &mut Ctx<'_>,
     node: usize,
     info: &str,
@@ -135,6 +159,7 @@ pub(crate) fn code_block(
             line_pitch: pitch,
             rtl: false,
             tab_spaces: None,
+            objects: Vec::new(),
         });
         s.width() / 10.0
     };
@@ -221,6 +246,7 @@ pub(crate) fn code_block(
             line_pitch: pitch,
             rtl: false,
             tab_spaces: Some(4),
+            objects: Vec::new(),
         });
         let base_u16 = all[a].u16s.start;
         for l in &all[a..b] {
@@ -298,6 +324,7 @@ pub(crate) fn code_block(
             line_pitch: pitch,
             rtl: false,
             tab_spaces: None,
+            objects: Vec::new(),
         });
         out.para(x + CODE_PAD_X / 2.0 + 8.0, top, shaped, None, None);
     }
@@ -355,6 +382,7 @@ pub(crate) fn code_block(
             line_pitch: 11.0 * 1.4,
             rtl: false,
             tab_spaces: None,
+            objects: Vec::new(),
         });
         s.width()
     };

@@ -22,8 +22,9 @@ use tiny_skia::{
 use windows::Win32::Foundation::{COLORREF, DWRITE_E_NOCOLOR, HWND, RECT};
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_GLYPH_IMAGE_FORMATS_CFF, DWRITE_GLYPH_IMAGE_FORMATS_COLR,
-    DWRITE_GLYPH_IMAGE_FORMATS_TRUETYPE, DWRITE_GLYPH_RUN, DWRITE_GLYPH_RUN_DESCRIPTION,
-    DWRITE_MATRIX, DWRITE_MEASURING_MODE, DWRITE_STRIKETHROUGH, DWRITE_UNDERLINE,
+    DWRITE_GLYPH_IMAGE_FORMATS_TRUETYPE, DWRITE_GLYPH_OFFSET, DWRITE_GLYPH_RUN,
+    DWRITE_GLYPH_RUN_DESCRIPTION, DWRITE_MATRIX, DWRITE_MEASURING_MODE,
+    DWRITE_MEASURING_MODE_NATURAL, DWRITE_STRIKETHROUGH, DWRITE_UNDERLINE,
     IDWriteBitmapRenderTarget, IDWriteFactory4, IDWriteInlineObject, IDWritePixelSnapping_Impl,
     IDWriteRenderingParams, IDWriteTextRenderer, IDWriteTextRenderer_Impl,
 };
@@ -679,6 +680,79 @@ impl Band<'_> {
         });
     }
 
+    /// Diagram path (R-MMD-02): Bézier segments with optional fill and (dashed) stroke, offset by
+    /// `(dx, dy)`.
+    pub fn path(
+        &self,
+        segs: &[yamdv_mermaid::Seg],
+        (dx, dy): (f32, f32),
+        fill: Option<u32>,
+        stroke: Option<(u32, f32, bool)>,
+    ) {
+        use yamdv_mermaid::Seg;
+        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+        let mut grow = |x: f32, y: f32| {
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x);
+            y1 = y1.max(y);
+        };
+        for sg in segs {
+            match *sg {
+                Seg::M(a, b) | Seg::L(a, b) => grow(a, b),
+                Seg::C(a, b, c, d, e, f) => {
+                    grow(a, b);
+                    grow(c, d);
+                    grow(e, f);
+                }
+                Seg::Z => {}
+            }
+        }
+        if x0 > x1 {
+            return;
+        }
+        let sw = stroke.map_or(0.0, |s| s.1);
+        let bb = Rect::new(
+            x0 + dx - sw,
+            y0 + dy - sw,
+            x1 - x0 + 2.0 * sw,
+            y1 - y0 + 2.0 * sw,
+        );
+        if !self.visible(bb.y, bb.h) || !self.clip_allows(&bb) {
+            return;
+        }
+        self.with_clipped(|pm, t, m| {
+            let mut pb = PathBuilder::new();
+            for sg in segs {
+                match *sg {
+                    Seg::M(a, b) => pb.move_to(a + dx, b + dy),
+                    Seg::L(a, b) => pb.line_to(a + dx, b + dy),
+                    Seg::C(a, b, c, d, e, f) => {
+                        pb.cubic_to(a + dx, b + dy, c + dx, d + dy, e + dx, f + dy);
+                    }
+                    Seg::Z => pb.close(),
+                }
+            }
+            let Some(path) = pb.finish() else { return };
+            if let Some(c) = fill {
+                pm.fill_path(&path, &paint(c, 1.0), FillRule::Winding, t, m);
+            }
+            if let Some((c, w, dash)) = stroke {
+                let st = Stroke {
+                    width: w.max(0.5),
+                    line_join: tiny_skia::LineJoin::Round,
+                    dash: if dash {
+                        tiny_skia::StrokeDash::new(vec![4.0 * w.max(1.0), 3.0 * w.max(1.0)], 0.0)
+                    } else {
+                        None
+                    },
+                    ..Default::default()
+                };
+                pm.stroke_path(&path, &paint(c, 1.0), &st, t, m);
+            }
+        });
+    }
+
     /// Filled circle or ring.
     pub fn circle(&self, cx: f32, cy: f32, r: f32, color: u32, ring: Option<f32>) {
         if !self.visible(cy - r, 2.0 * r)
@@ -805,6 +879,115 @@ impl Band<'_> {
         // SAFETY: valid layout and renderer; `ctx` outlives the synchronous Draw call.
         unsafe {
             let _ = layout.Draw(Some((&raw const ctx).cast()), &self.r.text, x, y - top);
+        }
+        self.gdi_begin();
+    }
+
+    /// Draws a laid-out formula (R-MATH-01) with its baseline origin at (x, y): glyphs from the
+    /// math font as positioned glyph runs, rules (fraction bars, radical overbars) as fills.
+    pub fn math(&self, mb: &yamdv_math::MathBox, x: f32, y: f32, color: u32) {
+        // Glyph ink can exceed the box slightly (italic overhang, assembly parts).
+        let pad = 4.0;
+        let bbox = Rect::new(
+            x - pad,
+            y - mb.ascent - pad,
+            mb.width + 2.0 * pad,
+            mb.ascent + mb.descent + 2.0 * pad,
+        );
+        if !self.visible(bbox.y, bbox.h) {
+            return;
+        }
+        match self.clip() {
+            Some(c) if !c.overlaps(&bbox) => {}
+            Some(c) if !c.contains_rect(&bbox) => {
+                self.clipped_px(c, || self.math_raw(mb, x, y, color));
+            }
+            _ => self.math_raw(mb, x, y, color),
+        }
+    }
+
+    fn math_raw(&self, mb: &yamdv_math::MathBox, x: f32, y: f32, color: u32) {
+        use yamdv_math::Op;
+        for op in &mb.ops {
+            if let Op::Rule {
+                x: rx,
+                y: ry,
+                w,
+                h,
+                color: c,
+            } = op
+            {
+                self.fill(
+                    Rect::new(x + rx, y + ry, *w, *h),
+                    c.unwrap_or(color),
+                    1.0,
+                    0.0,
+                );
+            }
+        }
+        let Some(face) = crate::dwrite::math_draw_face() else {
+            return;
+        };
+        let top = self.top_px as f32 / self.scale;
+        // Consecutive glyphs of one size and color form one run (zero advances, explicit offsets).
+        let glyphs: Vec<(u16, f32, f32, f32, u32)> = mb
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                Op::Glyph {
+                    gid,
+                    x: gx,
+                    y: gy,
+                    size,
+                    color: c,
+                } => Some((*gid, *gx, *gy, *size, c.unwrap_or(color))),
+                Op::Rule { .. } => None,
+            })
+            .collect();
+        self.cpu_begin();
+        let mut i = 0;
+        while i < glyphs.len() {
+            let (_, _, _, size, col) = glyphs[i];
+            let mut j = i + 1;
+            while j < glyphs.len() && glyphs[j].3.to_bits() == size.to_bits() && glyphs[j].4 == col
+            {
+                j += 1;
+            }
+            let run = &glyphs[i..j];
+            let ids: Vec<u16> = run.iter().map(|g| g.0).collect();
+            let adv = vec![0.0f32; run.len()];
+            let offs: Vec<DWRITE_GLYPH_OFFSET> = run
+                .iter()
+                .map(|g| DWRITE_GLYPH_OFFSET {
+                    advanceOffset: g.1,
+                    ascenderOffset: -g.2,
+                })
+                .collect();
+            let mut gr = DWRITE_GLYPH_RUN {
+                fontFace: std::mem::ManuallyDrop::new(Some(face.clone())),
+                fontEmSize: size,
+                glyphCount: ids.len() as u32,
+                glyphIndices: ids.as_ptr(),
+                glyphAdvances: adv.as_ptr(),
+                glyphOffsets: offs.as_ptr(),
+                isSideways: BOOL(0),
+                bidiLevel: 0,
+            };
+            // SAFETY: the run's buffers outlive the synchronous call; the face reference taken
+            // above is released right after.
+            unsafe {
+                let _ = self.r.brt.DrawGlyphRun(
+                    x,
+                    y - top,
+                    DWRITE_MEASURING_MODE_NATURAL,
+                    &gr,
+                    &self.r.params,
+                    colorref(col),
+                    None,
+                );
+                std::mem::ManuallyDrop::drop(&mut gr.fontFace);
+            }
+            i = j;
         }
         self.gdi_begin();
     }

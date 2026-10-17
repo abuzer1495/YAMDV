@@ -36,6 +36,11 @@ messages! {
     LargeBody => "This file is larger than 20 MiB.", "Bu dosya 20 MiB'tan büyük.";
     OpenPlain => "Open as plain text (fast)", "Düz metin olarak aç (hızlı)";
     RenderAnyway => "Render anyway", "Yine de işle";
+    DiagramUnsupported => "Diagram type not supported yet", "Bu diyagram türü henüz desteklenmiyor";
+    DiagramTooLarge => "Diagram too large ({} nodes)", "Diyagram çok büyük ({} düğüm)";
+    ContentTooComplex => "Content too complex", "İçerik çok karmaşık";
+    MermaidError => "Mermaid syntax error at line {l}, column {c}: {m}", "Mermaid söz dizimi hatası, satır {l}, sütun {c}: {m}";
+    MathErrorMsg => "Math error: {}", "Matematik hatası: {}";
     Cancel => "Cancel", "İptal";
     BinaryTitle => "Binary file", "İkili dosya";
     BinaryBody => "This looks like a binary file.", "Bu bir ikili dosya gibi görünüyor.";

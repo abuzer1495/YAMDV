@@ -247,6 +247,7 @@ fn prep(
     sh: &Shared,
     pal: &Palette,
     images: &crate::images::Store,
+    rich: &yamdv_layout::rich::RichCache,
     vh: f64,
 ) {
     let strings = I18nStrings(sh.lang);
@@ -258,6 +259,7 @@ fn prep(
         strings: &strings,
         single_newline_break: sh.read.single_newline_break,
         images,
+        rich: &crate::dwrite::Rich::new(&sh.dw, rich, sh.read.render_math, sh.read.render_mermaid),
     };
     viewer.prepare(content, &mut env, vh);
 }
@@ -692,12 +694,14 @@ impl Win {
         let vh = self.view_h();
         let pal = self.pal;
         let View::Doc(d) = &mut self.view else { return };
-        let DocView { edit, images, .. } = &mut **d;
+        let DocView {
+            edit, images, rich, ..
+        } = &mut **d;
         let Some(p) = edit.as_deref_mut().and_then(|e| e.pane.as_mut()) else {
             return;
         };
         p.viewer.set_width(&p.content, g.text_w, vh);
-        prep(&mut p.viewer, &mut p.content, sh, &pal, images, vh);
+        prep(&mut p.viewer, &mut p.content, sh, &pal, images, rich, vh);
     }
 
     fn pane_chunk_of(p: &Pane, pos: usize) -> usize {

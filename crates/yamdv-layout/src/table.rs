@@ -113,6 +113,7 @@ pub(crate) fn table(
                 line_pitch: m.pitch(),
                 rtl: is_rtl(&pt.text),
                 tab_spaces: None,
+                objects: Vec::new(),
             });
             let token = pt
                 .text
@@ -127,6 +128,7 @@ pub(crate) fn table(
                 line_pitch: m.pitch(),
                 rtl: false,
                 tab_spaces: None,
+                objects: Vec::new(),
             });
             let e = &mut cols[c];
             e.0 = e.0.max(tok.width() + 2.0 * PAD);
@@ -246,6 +248,7 @@ mod tests {
         let mut sh = MockShaper;
         let mut ctx = Ctx {
             images: &crate::img::NO_IMAGES,
+            rich: &crate::rich::NO_RICH,
             shaper: &mut sh,
             m,
             pal: &pal,

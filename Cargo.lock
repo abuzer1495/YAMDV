@@ -642,6 +642,8 @@ dependencies = [
  "unicode-segmentation",
  "yamdv-core",
  "yamdv-highlight",
+ "yamdv-math",
+ "yamdv-mermaid",
 ]
 
 [[package]]
@@ -664,6 +666,8 @@ dependencies = [
  "yamdv-editor",
  "yamdv-export",
  "yamdv-layout",
+ "yamdv-math",
+ "yamdv-mermaid",
  "yamdv-ui",
 ]
 

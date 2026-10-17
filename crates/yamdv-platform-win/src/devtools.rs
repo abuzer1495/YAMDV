@@ -41,6 +41,8 @@ pub struct RenderPng {
     pub scale: f32,
     /// Dark palette.
     pub dark: bool,
+    /// Render only this top-level block through [`crate::snapshot::block_png`] (prompt 007 §4).
+    pub block: Option<usize>,
 }
 
 /// Writes BGRA pixels as PNG through WIC.
@@ -96,11 +98,14 @@ pub fn render_png(o: &RenderPng) -> i32 {
             .unwrap_or_else(|_| o.input.clone()),
     );
     let mut shaper = DwShaper(&dw);
+    let cache = yamdv_layout::rich::RichCache::default();
+    let rich = crate::dwrite::Rich::new(&dw, &cache, true, true);
     // Lay out everything (the viewport is the whole document); repeat until heights settle.
     let mut total = viewer.total_height();
     for _ in 0..16 {
         let mut env = Env {
             images: &images,
+            rich: &rich,
             shaper: &mut shaper,
             m,
             pal: &pal,
@@ -113,6 +118,14 @@ pub fn render_png(o: &RenderPng) -> i32 {
             break;
         }
         total = t;
+    }
+    if let Some(bi) = o.block {
+        let Some((_, _, png)) =
+            crate::snapshot::block_png(&dw, &viewer, bi, &pal, o.scale, Some(&images))
+        else {
+            return 1;
+        };
+        return i32::from(std::fs::write(&o.output, png).is_err());
     }
     let w_px = (o.width * o.scale).round() as i32;
     let h_px = ((total as f32) * o.scale).round().min(32_000.0) as i32;
