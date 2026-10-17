@@ -28,6 +28,8 @@ struct Script {
 
 thread_local! {
     static SCRIPT: RefCell<Option<Script>> = const { RefCell::new(None) };
+    /// The file written by the last `export-html` / `export-csv` (V1-D).
+    static LAST_OUT: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 /// Loads the script (once) and starts the step timer on `hwnd`.
@@ -238,6 +240,35 @@ fn run(w: &mut Win, sh: &Shared, cmd: &Cmd) -> String {
             }
         }
         Cmd::Snapshot(f) => snapshot(w, sh, f),
+        Cmd::ExportHtml(f) => {
+            let out = rel(f);
+            let _ = std::fs::remove_file(&out);
+            let ok = w
+                .export_job(sh)
+                .is_some_and(|j| crate::export::export_html(&sh.dw, &j, &out));
+            LAST_OUT.with(|l| *l.borrow_mut() = Some(out));
+            format!("{} export-html {f}", if ok { "ok" } else { "FAIL" })
+        }
+        Cmd::ExportCsv(f) => {
+            let out = rel(f);
+            let _ = std::fs::remove_file(&out);
+            let csv = match &w.view {
+                View::Doc(d) => match &d.content {
+                    Content::Markdown(doc) => {
+                        doc.index.blocks.iter().enumerate().find_map(|(bi, b)| {
+                            matches!(b.kind, yamdv_core::doc::index::BlockKind::Table)
+                                .then(|| crate::export::table_csv(doc, bi, b.range.start))
+                                .flatten()
+                        })
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
+            let ok = csv.is_some_and(|t| crate::shell::write_atomic(&out, &t));
+            LAST_OUT.with(|l| *l.borrow_mut() = Some(out));
+            format!("{} export-csv {f}", if ok { "ok" } else { "FAIL" })
+        }
         Cmd::Resize(cw, ch) => resize(w, *cw, *ch),
         Cmd::Sleep(ms) => {
             let until =
@@ -564,6 +595,13 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         String::from_utf16_lossy(buf.get(..usize::try_from(n).unwrap_or(0)).unwrap_or(&[]))
     };
     let (menu_items, menu_checked) = app::menu_probe(&w.menu_ctx(None));
+    let out = LAST_OUT
+        .with(|l| l.borrow().clone())
+        .and_then(|p| std::fs::read(p).ok())
+        .unwrap_or_default();
+    let out_text = String::from_utf8_lossy(&out).into_owned();
+    let lower = out_text.to_ascii_lowercase();
+    let srcs: Vec<&str> = lower.split(" src=\"").skip(1).collect();
     vec![
         ("document".into(), V::S(doc)),
         ("scroll_y".into(), V::N(w.scroll_pos())),
@@ -600,6 +638,34 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         ("preview".into(), V::S(preview)),
         ("file".into(), V::S(file)),
         ("title".into(), V::S(title)),
+        ("out_len".into(), V::N(out.len() as f64)),
+        (
+            "out_hex".into(),
+            V::S(sys::hex(out.get(..out.len().min(8)).unwrap_or(&[]))),
+        ),
+        (
+            "out_text".into(),
+            V::S(esc_text(&out_text.chars().take(600).collect::<String>())),
+        ),
+        (
+            "out_scripts".into(),
+            V::N(lower.matches("<script").count() as f64),
+        ),
+        (
+            "out_csp".into(),
+            V::N(f64::from(u8::from(
+                out_text.contains(yamdv_export::html::EXPORT_CSP),
+            ))),
+        ),
+        ("out_imgs".into(), V::N(srcs.len() as f64)),
+        (
+            "out_ext_src".into(),
+            V::N(
+                srcs.iter()
+                    .filter(|s| !s.starts_with("data:image/"))
+                    .count() as f64,
+            ),
+        ),
         ("t5_p99_ms".into(), V::N(t5.0)),
         ("t5_n".into(), V::N(t5.1 as f64)),
     ]

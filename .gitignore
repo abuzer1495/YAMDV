@@ -12,4 +12,7 @@ Thumbs.db
 # driver logs
 tests/driver/*.log
 /tests/driver/*.tmp.md
+/tests/driver/*.tmp.html
+/tests/driver/*.tmp.csv
+/tests/driver/*.tmp.pdf
 tests/golden/v1a/*.log
