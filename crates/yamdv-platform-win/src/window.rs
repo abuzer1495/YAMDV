@@ -112,6 +112,8 @@ const TIMER_DRAG: usize = 4;
 const TIMER_MEMSTATS: usize = 6;
 const TIMER_TOAST: usize = 7;
 const TIMER_RELOAD: usize = 10;
+/// `custom-theme.ini` changed: debounce, then re-apply the theme.
+const TIMER_THEME: usize = 11;
 const TIMER_COPIED: usize = 8;
 #[cfg(feature = "dev-tools")]
 const TIMER_SCRIPT: usize = 9;
@@ -370,6 +372,8 @@ enum Action {
     Command(u32),
     /// F1 help window.
     Help,
+    /// `custom-theme.ini` changed: rebuild the palette of every window (B.4).
+    ApplyTheme,
     /// Body font dialog (dialog host).
     FontDialog,
     /// Persist one setting (sidebar width after a drag).
@@ -2099,6 +2103,12 @@ impl Win {
     }
 
     fn timer(&mut self, sh: &Shared, id: usize) {
+        if id == TIMER_THEME {
+            // SAFETY: valid hwnd.
+            let _ = unsafe { KillTimer(Some(self.hwnd), TIMER_THEME) };
+            self.actions.push(Action::ApplyTheme);
+            return;
+        }
         if id == TIMER_RELOAD {
             // SAFETY: valid hwnd.
             let _ = unsafe { KillTimer(Some(self.hwnd), TIMER_RELOAD) };
@@ -2544,8 +2554,9 @@ fn handle(
         }
         crate::shell::WM_APP_FILE_CHANGED => {
             // Debounce bursts of change notifications (atomic saves); R-READ-01 ≤ 100 ms.
+            let t = if wp.0 == 1 { TIMER_THEME } else { TIMER_RELOAD };
             // SAFETY: valid hwnd.
-            unsafe { SetTimer(Some(w.hwnd), TIMER_RELOAD, 50, None) };
+            unsafe { SetTimer(Some(w.hwnd), t, if wp.0 == 1 { 100 } else { 50 }, None) };
             Some(LRESULT(0))
         }
         WM_SYSKEYDOWN if wp.0 == usize::from(VK_LEFT.0) || wp.0 == usize::from(VK_RIGHT.0) => {
@@ -2819,6 +2830,7 @@ fn run_actions_inner(hwnd: HWND, actions: Vec<Action>) {
                 let more = app::run_command(hwnd, id, None);
                 run_actions_inner(hwnd, more);
             }
+            Action::ApplyTheme => app::apply_all(),
             Action::Help => {
                 if let Some(h) = create_window(&sh, None) {
                     app::with_win(h, |w, sh| w.show_help(sh));
@@ -2907,6 +2919,9 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
             app::save_state();
         }
         WINDOWS.with(|m| m.borrow_mut().remove(&(hwnd.0 as isize)));
+        if WINDOWS.with(|m| !m.borrow().is_empty()) {
+            app::ensure_theme_watch(None);
+        }
         if WINDOWS.with(|m| m.borrow().is_empty()) {
             // SAFETY: no preconditions; closing the last window exits.
             unsafe { PostQuitMessage(0) };
@@ -3076,6 +3091,7 @@ fn create_window(sh: &Shared, path: Option<&str>) -> Option<HWND> {
     };
     let rcw = Rc::new(RefCell::new(win));
     WINDOWS.with(|m| m.borrow_mut().insert(hwnd.0 as isize, rcw.clone()));
+    app::ensure_theme_watch(Some(hwnd));
     apply_mode(hwnd, if dark { Mode::Dark } else { Mode::Light });
     // SAFETY: valid hwnd.
     unsafe { DragAcceptFiles(hwnd, true) };

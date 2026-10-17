@@ -43,6 +43,40 @@ pub(super) struct App {
     pub dir: String,
     /// Process start (History "Current session").
     pub session_start: i64,
+    /// `custom-theme.ini` watcher (only while custom colours are on) and its target window.
+    theme_watch: Option<(crate::shell::Watcher, isize)>,
+}
+
+/// Keeps the `custom-theme.ini` watcher alive on some open window while
+/// `appearance.use_custom_colors` is on (B.4 hot reload); stops it otherwise.
+pub(super) fn ensure_theme_watch(hint: Option<HWND>) {
+    let on = get("appearance.use_custom_colors") == "true";
+    let alive = |h: isize| WINDOWS.with(|m| m.borrow().contains_key(&h));
+    let need = with(|a| match &a.theme_watch {
+        Some((_, h)) if on && alive(*h) => false,
+        _ => {
+            a.theme_watch = None;
+            on
+        }
+    })
+    .unwrap_or(false);
+    if !need {
+        return;
+    }
+    let target = hint
+        .map(|h| h.0 as isize)
+        .filter(|h| alive(*h))
+        .or_else(|| WINDOWS.with(|m| m.borrow().keys().next().copied()));
+    let Some(t) = target else { return };
+    let file = format!("{}\\custom-theme.ini", config_dir());
+    let w = crate::shell::watch_tagged(
+        &file,
+        HWND(std::ptr::without_provenance_mut(t.cast_unsigned())),
+        1,
+    );
+    if let Some(w) = w {
+        with(|a| a.theme_watch = Some((w, t)));
+    }
 }
 
 thread_local! {
@@ -106,6 +140,7 @@ pub(super) fn init() -> Settings {
             state,
             dir,
             session_start: now_ms(),
+            theme_watch: None,
         });
     });
     out
@@ -252,6 +287,7 @@ pub(super) fn apply_all() {
         };
         flush_deferred(hwnd, &w);
     }
+    ensure_theme_watch(None);
 }
 
 // ---- context menu (B.7.1) -------------------------------------------------------------------

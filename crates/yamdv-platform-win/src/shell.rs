@@ -136,6 +136,11 @@ impl Drop for Watcher {
 /// Watches the directory of `file`; posts [`WM_APP_FILE_CHANGED`] to `hwnd` on any change that
 /// names the file (atomic-rename saves included).
 pub fn watch(file: &str, hwnd: HWND) -> Option<Watcher> {
+    watch_tagged(file, hwnd, 0)
+}
+
+/// [`watch`] with a tag passed as `wParam` (0 = document, 1 = `custom-theme.ini`).
+pub fn watch_tagged(file: &str, hwnd: HWND, tag: usize) -> Option<Watcher> {
     let (dir, name) = file.rsplit_once('\\')?;
     let dir = format!("{dir}\\");
     let name = name.to_lowercase();
@@ -145,7 +150,7 @@ pub fn watch(file: &str, hwnd: HWND) -> Option<Watcher> {
     let thread = std::thread::Builder::new()
         .name("yamdv-watch".into())
         .stack_size(64 * 1024)
-        .spawn(move || watch_loop(&dir, &name, target, &st))
+        .spawn(move || watch_loop(&dir, &name, target, tag, &st))
         .ok()?;
     Some(Watcher {
         stop,
@@ -153,7 +158,7 @@ pub fn watch(file: &str, hwnd: HWND) -> Option<Watcher> {
     })
 }
 
-fn watch_loop(dir: &str, name: &str, hwnd: isize, stop: &AtomicBool) {
+fn watch_loop(dir: &str, name: &str, hwnd: isize, tag: usize, stop: &AtomicBool) {
     let d = HSTRING::from(yamdv_core::path::long_form(dir));
     // SAFETY: valid path; directory handle closed at the end.
     let Ok(h) = (unsafe {
@@ -202,7 +207,7 @@ fn watch_loop(dir: &str, name: &str, hwnd: isize, stop: &AtomicBool) {
                 let _ = PostMessageW(
                     Some(HWND(std::ptr::without_provenance_mut(hwnd.cast_unsigned()))),
                     WM_APP_FILE_CHANGED,
-                    WPARAM(0),
+                    WPARAM(tag),
                     LPARAM(0),
                 );
             }

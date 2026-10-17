@@ -22,4 +22,5 @@ Risks: window.rs is already 2.9 kLOC (split new UI into modules); T4 p99 at 14.2
 
 - [x] welcome page integrated (default-app status via UserChoice ProgId, no shell assoc engine)
 - [x] driver commands (command/type/side-click/write-file/open/launch/sleep/snapshot/resize) + 6 scripts; golden-shell xtask + CI step; driver profiles isolated per script
-- NEXT: custom-theme.ini hot reload, T3 in measure.ps1, TRACEABILITY statuses, PR + CI, goldens from CI artifact, merge, tag, report
+- [x] custom-theme.ini hot reload (watcher only while custom colours on), T3 in measure.ps1, TRACEABILITY statuses
+- NEXT: PR + CI run 1, commit goldens from CI artifact (+fixes) = fix push, merge, tag, report

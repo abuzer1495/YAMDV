@@ -40,9 +40,9 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-EXP-04 | 011 | planned |
 | R-EXP-05 | 011 | planned |
 | R-EXP-06 | 011 | deferred (FUT-23) |
-| R-EXT-01 | 005 | planned |
+| R-EXT-01 | 005 | implemented (005 V1-A) |
 | R-EXT-02 | 005 | deferred (FUT-10) |
-| R-EXT-03 | 005 | planned |
+| R-EXT-03 | 005 | partial (005): template tokenizer + CreateProcessW; no settings UI |
 | R-EXT-04 | 005 | planned |
 | R-IMG-01 | 003 | partial (003): header probe for all formats; WIC decode not done; part deferred: FUT-20, FUT-48 |
 | R-IMG-02 | 003 | partial (003): yamdv_core::image::resolve (tests); not wired to a decoder |
@@ -119,17 +119,17 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-OPEN-11 | 002/005 | planned |
 | R-OPEN-12 | 002/005 | implemented (002) |
 | R-OPEN-13 | 002/005 | planned |
-| R-READ-01 | 005 | planned |
-| R-READ-02 | 005 | planned |
-| R-READ-03 | 005 | planned |
-| R-READ-04 | 005 | planned |
-| R-READ-05 | 005 | planned |
+| R-READ-01 | 005 | implemented (005 V1-A) |
+| R-READ-02 | 005 | implemented (005 V1-A) |
+| R-READ-03 | 005 | implemented (005 V1-A) |
+| R-READ-04 | 005 | implemented (005 V1-A) |
+| R-READ-05 | 005 | implemented (005 V1-A) |
 | R-READ-06 | 005 | deferred (FUT-34) |
 | R-READ-07 | 005 | deferred (FUT-35) |
 | R-READ-08 | 005 | deferred (FUT-06, FUT-36) |
 | R-READ-09 | 005 | planned |
-| R-READ-10 | 005 | planned |
-| R-READ-11 | 005 | planned |
+| R-READ-10 | 005 | implemented (005 V1-A) |
+| R-READ-11 | 005 | implemented (005 V1-A) |
 | R-READ-12 | 005 | deferred (FUT-08) |
 | R-REL-01 | 012 | planned |
 | R-REL-02 | 012 | planned |
@@ -160,14 +160,14 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-SET-02 | 004 | deferred (FUT-26, FUT-31) |
 | R-SET-03 | 004 | deferred (FUT-31) |
 | R-SET-04 | 004 | deferred (FUT-31) |
-| R-SET-05 | 004 | partial (002): read-only |
+| R-SET-05 | 004 | implemented (005 V1-A) |
 | R-SET-06 | 004 | deferred (FUT-05) |
-| R-SYS-01 | 005 | planned |
-| R-SYS-02 | 005 | planned |
-| R-SYS-03 | 005 | planned |
+| R-SYS-01 | 005 | implemented (005 V1-A) |
+| R-SYS-02 | 005 | implemented (005 V1-A) |
+| R-SYS-03 | 005 | implemented (005 V1-A) |
 | R-SYS-04 | 005 | partial (001): --help/--version/usage error |
 | R-SYS-05 | 005 | planned |
-| R-SYS-06 | 005 | planned |
+| R-SYS-06 | 005 | implemented (005 V1-A) |
 | R-SYS-07 | 005 | partial (001): app and document icons |
 | R-SYS-08 | 005 | deferred (FUT-25) |
 | R-SYS-09 | 005 | deferred (FUT-25) |
@@ -179,26 +179,26 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-TBL-06 | 003/008 | deferred (FUT-44) |
 | R-TBL-07 | 003/008 | deferred (FUT-44) |
 | R-TBL-08 | 003/008 | deferred (FUT-44) |
-| R-THEME-01 | 004 | partial (002): Follow System, Default |
+| R-THEME-01 | 004 | implemented (005 V1-A) |
 | R-THEME-02 | 004 | partial (002): data only |
 | R-THEME-03 | 004 | deferred (FUT-32) |
 | R-THEME-04 | 004 | deferred (FUT-49) |
 | R-THEME-05 | 004 | planned |
 | R-THEME-06 | 004 | deferred (FUT-04) |
-| R-THEME-07 | 004 | planned |
+| R-THEME-07 | 004 | implemented (005 V1-A) |
 | R-THEME-08 | 004 | deferred (FUT-47) |
 | R-THEME-09 | 004 | planned |
 | R-THEME-10 | 004 | planned |
-| R-WIN-01 | 005 | planned |
-| R-WIN-02 | 005 | planned |
-| R-WIN-03 | 005 | planned |
+| R-WIN-01 | 005 | implemented (005 V1-A) |
+| R-WIN-02 | 005 | implemented (005 V1-A) |
+| R-WIN-03 | 005 | implemented (005 V1-A) |
 | R-WIN-04 | 005 | partial (001): window skeleton (size/min size/centering) |
 | R-WIN-05 | 005 | deferred (FUT-30) |
 | R-WIN-06 | 005 | deferred (FUT-46) |
 | R-WIN-07 | 005 | planned |
 | S-EXEC-01 | 003/005 | planned |
 | S-EXEC-02 | 003/005 | planned |
-| S-EXEC-03 | 003/005 | planned |
+| S-EXEC-03 | 003/005 | implemented (005 V1-A) |
 | S-EXEC-04 | 003/005 | implemented (003): ShellExecuteExW, no NOZONECHECKS |
 | S-EXP-01 | 011 | planned |
 | S-EXP-02 | 011 | deferred (FUT-21) |
@@ -217,9 +217,9 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | S-HTML-01 | 003 | implemented (003): allowlist sanitizer, XSS suite |
 | S-HTML-02 | 003 | implemented (003) |
 | S-HTML-03 | 003 | implemented (003) |
-| S-IPC-01 | 005 | planned |
-| S-IPC-02 | 005 | planned |
-| S-IPC-03 | 005 | planned |
+| S-IPC-01 | 005 | implemented (005 V1-A) |
+| S-IPC-02 | 005 | implemented (005 V1-A) |
+| S-IPC-03 | 005 | implemented (005 V1-A) |
 | S-IPC-04 | 005 | planned |
 | S-LINK-01 | 003 | implemented (003) |
 | S-LINK-02 | 003 | implemented (003) |
@@ -252,10 +252,10 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | S-PROC-06 | 001 | partial (001): manifest asInvoker; elevation banner planned 004/005 |
 | S-PROC-07 | 001 | implemented (003): dialog host (ADR-0013) |
 | S-PROC-08 | 001 | planned |
-| S-REG-01 | 005 | planned |
-| S-REG-02 | 005 | planned |
-| S-REG-03 | 005 | planned |
-| S-REG-04 | 005 | planned |
+| S-REG-01 | 005 | implemented (005 V1-A) |
+| S-REG-02 | 005 | implemented (005 V1-A) |
+| S-REG-03 | 005 | implemented (005 V1-A) |
+| S-REG-04 | 005 | implemented (005 V1-A) |
 | S-RES-01 | 003 | partial (003): policy + tests, not wired |
 | S-RES-02 | 003 | partial (003): policy + mock-FS matrix (AC-6); Windows Fs impl not wired |
 | S-RES-03 | 003 | implemented (003): remote never fetched (no image I/O at all) |
@@ -277,7 +277,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | S-UI-03 | 004 | deferred (FUT-40) |
 | T1 | 013 | measured (003): typical.md, CI |
 | T2 | 013 | planned |
-| T3 | 013 | planned |
+| T3 | 013 | measured (005): CI measure.ps1, see v1a_REPORT |
 | T4 | 013 | planned |
 | T5 | 013 | planned |
 | T6 | 013 | planned |
