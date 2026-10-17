@@ -81,7 +81,7 @@ use yamdv_core::path as ypath;
 use yamdv_core::settings::Settings;
 use yamdv_core::theme::{self, Palette};
 use yamdv_layout::Rect;
-use yamdv_layout::block::{Bullet, HotKind, Item, Metrics, Strings};
+use yamdv_layout::block::{Bullet, HotKind, Item, Metrics, RichMsg, Strings};
 use yamdv_layout::shaper::{Family, ParaSpec, Style, TextShaper};
 use yamdv_layout::viewer::{self, Content, Env, FootTarget, Hit, Viewer};
 use yamdv_ui::dialog::{self as dlg, Button, ConfirmDialog, Geometry, Outcome};
@@ -212,6 +212,19 @@ impl Strings for I18nStrings {
                 Placeholder::Footnotes => Msg::LabelFootnotes,
                 Placeholder::FrontMatter => Msg::LabelFrontMatter,
                 Placeholder::Details => Msg::LabelDetails,
+            },
+        )
+    }
+    fn rich(&self, k: RichMsg) -> &str {
+        tr(
+            self.0,
+            match k {
+                RichMsg::Unsupported => Msg::DiagramUnsupported,
+                RichMsg::TooLarge => Msg::DiagramTooLarge,
+                RichMsg::TooComplex => Msg::ContentTooComplex,
+                RichMsg::MermaidError => Msg::MermaidError,
+                RichMsg::MathError => Msg::MathErrorMsg,
+                RichMsg::RenderAnyway => Msg::RenderAnyway,
             },
         )
     }
@@ -1090,6 +1103,7 @@ impl Win {
                 matches!(
                     k,
                     HotKind::Link { .. }
+                        | HotKind::RenderAnyway { .. }
                         | HotKind::FootRef { .. }
                         | HotKind::FootBack { .. }
                         | HotKind::Fold { .. }
@@ -1994,6 +2008,11 @@ impl Win {
                     self.toast(Msg::Copied);
                 }
             }
+            HotKind::RenderAnyway { hash } => {
+                // R-MMD-05 / S-PARSE-03: lay the diagram out despite the soft limit or budget.
+                d.rich.force(hash);
+                d.viewer.invalidate_block(bi);
+            }
             HotKind::CodeLines { node } => {
                 let mut o = d.viewer.code_opts(bi, node);
                 o.line_numbers = !o.line_numbers;
@@ -2504,6 +2523,13 @@ pub(crate) fn draw_doc(
                     let o = hscroll.map_or(0.0, off);
                     b.math(mb, cx + mx - o, y + my, *color);
                 }
+                Item::Path {
+                    segs,
+                    fill,
+                    stroke,
+                    width,
+                    dash,
+                } => b.path(segs, (cx, y), *fill, stroke.map(|c| (c, *width, *dash))),
                 Item::PushClip(r) => b.push_clip(r.offset(cx, y)),
                 Item::PopClip => b.pop_clip(),
                 Item::HScrollBar(ri) => {

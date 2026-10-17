@@ -171,6 +171,19 @@ pub enum Item {
     },
     /// Scrollbar of region `regions[i]` (drawn with the current offset).
     HScrollBar(usize),
+    /// Vector path of a diagram (R-MMD-02): cubic Béziers, optional fill and (dashed) stroke.
+    Path {
+        /// Segments (block coordinates).
+        segs: Vec<yamdv_mermaid::Seg>,
+        /// Fill color.
+        fill: Option<u32>,
+        /// Stroke color.
+        stroke: Option<u32>,
+        /// Stroke width.
+        width: f32,
+        /// Dashed stroke.
+        dash: bool,
+    },
     /// A laid-out formula (R-MATH-01) with its baseline origin at (x, y); glyphs without a
     /// `\color` override use `color`.
     Math {
@@ -207,6 +220,11 @@ pub enum Item {
 /// Interactive element kinds (hit testing, focus, activation).
 #[derive(Debug, Clone, PartialEq)]
 pub enum HotKind {
+    /// [Render anyway] of a diagram placeholder (R-MMD-05, S-PARSE-03).
+    RenderAnyway {
+        /// Diagram source hash.
+        hash: u64,
+    },
     /// Code block: copy.
     CodeCopy {
         /// Detail node.
@@ -349,6 +367,23 @@ pub struct BlockLayout {
     pub hot: Vec<Hot>,
 }
 
+/// Messages of math and diagram blocks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RichMsg {
+    /// Unsupported Mermaid type badge.
+    Unsupported,
+    /// "Diagram too large ({} nodes)".
+    TooLarge,
+    /// Time budget exceeded.
+    TooComplex,
+    /// Mermaid syntax error.
+    MermaidError,
+    /// Math error.
+    MathError,
+    /// [Render anyway].
+    RenderAnyway,
+}
+
 /// Localized strings layout needs.
 pub trait Strings {
     /// GFM alert title (`Note`, `Tip`, …).
@@ -362,6 +397,18 @@ pub trait Strings {
     /// Label of the [Copy URL] button.
     fn copy_url(&self) -> &str {
         "Copy URL"
+    }
+    /// Math/diagram message (R-MATH-03, R-MMD-01/04/05, S-PARSE-03); `{}`, `{l}`, `{c}`, `{m}`
+    /// are filled in by the caller.
+    fn rich(&self, k: RichMsg) -> &str {
+        match k {
+            RichMsg::Unsupported => "Diagram type not supported yet",
+            RichMsg::TooLarge => "Diagram too large ({} nodes)",
+            RichMsg::TooComplex => "Content too complex",
+            RichMsg::MermaidError => "Mermaid syntax error at line {l}, column {c}: {m}",
+            RichMsg::MathError => "Math error: {}",
+            RichMsg::RenderAnyway => "Render anyway",
+        }
     }
     /// Collapsed front matter summary (R-REN-13): "Front matter · N fields".
     fn front_matter_summary(&self, n: usize) -> String {

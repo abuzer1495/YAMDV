@@ -279,7 +279,7 @@ impl P<'_> {
             .iter()
             .collect();
         let i = self.node(&id)?;
-        const SHAPES: [(&str, &str, Shape); 13] = [
+        const SHAPES: [(&str, &str, Shape); 12] = [
             ("([", "])", Shape::Stadium),
             ("[[", "]]", Shape::Subroutine),
             ("[(", ")]", Shape::Cylinder),
@@ -288,7 +288,6 @@ impl P<'_> {
             ("{{", "}}", Shape::Rect),
             ("[/", "/]", Shape::Rect),
             ("[\\", "\\]", Shape::Rect),
-            ("[/", "\\]", Shape::Rect),
             (">", "]", Shape::Rect),
             ("[", "]", Shape::Rect),
             ("(", ")", Shape::Round),
@@ -300,9 +299,11 @@ impl P<'_> {
                 let save = self.pos;
                 let t = match self.text_until(close) {
                     Ok(t) => t,
-                    Err(e) if open == "[/" => {
+                    // Trapezoids: `[/ \]`, `[\ /]` (drawn as rect).
+                    Err(e) if open == "[/" || open == "[\\" => {
                         self.pos = save;
-                        self.text_until("\\]").map_err(|_| e)?
+                        let other = if open == "[/" { "\\]" } else { "/]" };
+                        self.text_until(other).map_err(|_| e)?
                     }
                     Err(e) => return Err(e),
                 };

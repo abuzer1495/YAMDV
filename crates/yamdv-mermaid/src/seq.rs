@@ -798,8 +798,11 @@ pub(crate) fn layout(q: &Seq, m: &mut dyn Measure, s: f32) -> Drawing {
                     color: Ink::Role(Role::Text),
                 }));
             } else {
+                // Boxes hug their text; the top row is bottom-aligned with any actor figures.
+                let h = t.2 + 16.0 * s;
+                let yy = if row == 0 { yy + ph - h } else { yy };
                 prims.push(Prim::Path(Path {
-                    segs: draw::rrect(x, yy, w, ph, 3.0 * s),
+                    segs: draw::rrect(x, yy, w, h, 3.0 * s),
                     fill: Some(Ink::Role(Role::NodeFill)),
                     stroke: Some(Ink::Role(Role::NodeStroke)),
                     width: s,
@@ -808,7 +811,7 @@ pub(crate) fn layout(q: &Seq, m: &mut dyn Measure, s: f32) -> Drawing {
                 prims.push(Prim::Text(TextPrim {
                     id: t.0,
                     x: cx[i] - t.1 / 2.0,
-                    y: yy + (ph - t.2) / 2.0,
+                    y: yy + 8.0 * s,
                     color: Ink::Role(Role::Text),
                 }));
             }

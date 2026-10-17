@@ -680,6 +680,79 @@ impl Band<'_> {
         });
     }
 
+    /// Diagram path (R-MMD-02): Bézier segments with optional fill and (dashed) stroke, offset by
+    /// `(dx, dy)`.
+    pub fn path(
+        &self,
+        segs: &[yamdv_mermaid::Seg],
+        (dx, dy): (f32, f32),
+        fill: Option<u32>,
+        stroke: Option<(u32, f32, bool)>,
+    ) {
+        use yamdv_mermaid::Seg;
+        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+        let mut grow = |x: f32, y: f32| {
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x);
+            y1 = y1.max(y);
+        };
+        for sg in segs {
+            match *sg {
+                Seg::M(a, b) | Seg::L(a, b) => grow(a, b),
+                Seg::C(a, b, c, d, e, f) => {
+                    grow(a, b);
+                    grow(c, d);
+                    grow(e, f);
+                }
+                Seg::Z => {}
+            }
+        }
+        if x0 > x1 {
+            return;
+        }
+        let sw = stroke.map_or(0.0, |s| s.1);
+        let bb = Rect::new(
+            x0 + dx - sw,
+            y0 + dy - sw,
+            x1 - x0 + 2.0 * sw,
+            y1 - y0 + 2.0 * sw,
+        );
+        if !self.visible(bb.y, bb.h) || !self.clip_allows(&bb) {
+            return;
+        }
+        self.with_clipped(|pm, t, m| {
+            let mut pb = PathBuilder::new();
+            for sg in segs {
+                match *sg {
+                    Seg::M(a, b) => pb.move_to(a + dx, b + dy),
+                    Seg::L(a, b) => pb.line_to(a + dx, b + dy),
+                    Seg::C(a, b, c, d, e, f) => {
+                        pb.cubic_to(a + dx, b + dy, c + dx, d + dy, e + dx, f + dy);
+                    }
+                    Seg::Z => pb.close(),
+                }
+            }
+            let Some(path) = pb.finish() else { return };
+            if let Some(c) = fill {
+                pm.fill_path(&path, &paint(c, 1.0), FillRule::Winding, t, m);
+            }
+            if let Some((c, w, dash)) = stroke {
+                let st = Stroke {
+                    width: w.max(0.5),
+                    line_join: tiny_skia::LineJoin::Round,
+                    dash: if dash {
+                        tiny_skia::StrokeDash::new(vec![4.0 * w.max(1.0), 3.0 * w.max(1.0)], 0.0)
+                    } else {
+                        None
+                    },
+                    ..Default::default()
+                };
+                pm.stroke_path(&path, &paint(c, 1.0), &st, t, m);
+            }
+        });
+    }
+
     /// Filled circle or ring.
     pub fn circle(&self, cx: f32, cy: f32, r: f32, color: u32, ring: Option<f32>) {
         if !self.visible(cy - r, 2.0 * r)

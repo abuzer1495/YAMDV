@@ -35,7 +35,7 @@ fn syntax(src: &str) -> crate::Error {
 #[test]
 fn flow_shapes_and_edges() {
     let f = flow(
-        "flowchart LR\n  a[Rect] --> b(Round)\n  b --- c([Stadium])\n  c -.-> d[[Sub]]\n  d ==> e[(Db)]\n  e -.- f((Circle))\n  f === g{Rhombus}\n  g --> h>Asym]\n  %% comment\n  click a callback\n",
+        "flowchart LR\n  a[Rect] --> b(Round)\n  b --- c([Stadium])\n  c -.-> d[[Sub]]\n  d ==> e[(Db)]\n  e -.- f((Circle))\n  f === g{Rhombus}\n  g --> h>Asym]\n  h --> i[/trap\\]\n  i --> j[\\alt/]\n  %% comment\n  click a callback\n",
     );
     assert_eq!(f.dir, Dir::LR);
     let shapes: Vec<Shape> = f.nodes.iter().map(|n| n.shape).collect();
@@ -49,6 +49,8 @@ fn flow_shapes_and_edges() {
             Shape::Cylinder,
             Shape::Circle,
             Shape::Rhombus,
+            Shape::Rect,
+            Shape::Rect,
             Shape::Rect
         ]
     );
@@ -63,6 +65,8 @@ fn flow_shapes_and_edges() {
             (Line::Thick, true),
             (Line::Dotted, false),
             (Line::Thick, false),
+            (Line::Solid, true),
+            (Line::Solid, true),
             (Line::Solid, true)
         ]
     );

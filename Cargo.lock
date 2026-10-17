@@ -667,6 +667,7 @@ dependencies = [
  "yamdv-export",
  "yamdv-layout",
  "yamdv-math",
+ "yamdv-mermaid",
  "yamdv-ui",
 ]
 

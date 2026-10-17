@@ -752,8 +752,9 @@ pub(crate) fn layout(f: &Flow, m: &mut dyn Measure, s: f32) -> Drawing {
             })
         };
         match nd.shape {
-            Shape::Rect => prims.push(shape(draw::rrect(x0, y0, w, h, 0.0))),
-            Shape::Round => prims.push(shape(draw::rrect(x0, y0, w, h, 6.0 * s))),
+            // B.3.6: rect nodes have radius 6; round nodes are rounder.
+            Shape::Rect => prims.push(shape(draw::rrect(x0, y0, w, h, 6.0 * s))),
+            Shape::Round => prims.push(shape(draw::rrect(x0, y0, w, h, 14.0 * s))),
             Shape::Stadium => prims.push(shape(draw::rrect(x0, y0, w, h, h / 2.0))),
             Shape::Circle => prims.push(shape(draw::ellipse(cx, cy, w / 2.0, h / 2.0))),
             Shape::Rhombus => prims.push(shape(draw::poly(

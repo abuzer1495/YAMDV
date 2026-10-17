@@ -95,7 +95,8 @@ fn lines_of(text: &str) -> Vec<Line> {
     v
 }
 
-/// Lays out a code block card; returns its height.
+/// Lays out a fenced block: ```` ```math ```` (R-MATH-05), ```` ```mermaid ```` (R-MMD-01) or a
+/// code card; returns its height.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn code_block(
     ctx: &mut Ctx<'_>,
@@ -109,10 +110,27 @@ pub(crate) fn code_block(
 ) -> f32 {
     let fence = info.split_whitespace().next().unwrap_or("");
     if fence.eq_ignore_ascii_case("math") && ctx.rich.render_math() && ctx.rich.math().is_some() {
-        // R-MATH-05: ```math is display math.
         let tex = pt.text.clone();
         return crate::rich::display_math(ctx, &tex, pt, x, y, w, out);
     }
+    if fence.eq_ignore_ascii_case("mermaid") && ctx.rich.render_mermaid() {
+        return crate::diagram::block(ctx, node, info, pt, x, y, w, out);
+    }
+    code_card(ctx, node, info, pt, x, y, w, out)
+}
+
+/// Code block card; returns its height.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn code_card(
+    ctx: &mut Ctx<'_>,
+    node: usize,
+    info: &str,
+    pt: ParaText,
+    x: f32,
+    y: f32,
+    w: f32,
+    out: &mut Out,
+) -> f32 {
     let m = ctx.m;
     let dark = is_dark(ctx.pal.bg);
     let opts = (ctx.code_opts)(ctx.block, node);

@@ -17,7 +17,7 @@ mod tests;
 pub use draw::{Drawing, Ink, Measure, Path, Prim, Role, Seg, TextPrim};
 
 /// Largest diagram source accepted (bytes, S-PARSE-06).
-pub const MAX_SRC: usize = 256 * 1024;
+pub const MAX_SRC: usize = 100 * 1024;
 /// Parser cap on nodes / participants (above the renderer's hard limit; bounds memory).
 pub const MAX_NODES: usize = 10_000;
 /// Parser cap on edges / messages / notes.
