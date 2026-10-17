@@ -147,3 +147,12 @@ A-4 Delivery mode (owner decision; from Phase V1-A until the v1 release):
 5. Report ≤ 120 lines: §0, an AC table, the measurements table, deviations, and what is left. Omit sections that have nothing to say (this overrides the template rule "never omit").
 6. Push to CI once at the end of the phase, plus at most one fix push.
 ```
+
+**A-5 (Phase V1-D, owner addendum 2026-10-17; applies until v1.0.0, overrides A-4 where different).**
+```text
+A-5 Owner addendum (V1-D until v1.0.0):
+1. Visibility: the owner made the repository PUBLIC (overrides H2's "private"). Agents never change visibility or any repository settings. Never commit secrets, tokens or personal data. CI keeps `permissions: contents: read`; only the tag/release job may use `contents: write`. Use `pull_request`, never `pull_request_target`. Releases stay drafts until the owner publishes them.
+2. Reduced testing: (a) keep every existing test, golden and driver script — delete none. (b) New tests this phase: unit tests for new pure logic only (pagination, CSV); at most 2 new driver scripts (export-html, install/uninstall); no new goldens, no fuzzing; the exported-HTML context is added to the existing XSS suite. (c) CI measurement gates: only M0, M1 and T4 typical warm remain gates, with the retry rule (F-22 applies to these three only); every other measurement is report-only. (d) A flaky existing driver script may be marked report-only with a one-line note in the report.
+3. Report ≤ 80 lines: status, AC table, measurements (M0, M1, T1, T4 typical, B-SIZE only), deviations, what is left, final owner QA list.
+4. CI: one full run at the end of the phase plus at most one fix push.
+```

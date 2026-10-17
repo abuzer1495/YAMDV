@@ -107,11 +107,11 @@ jobs:
         # Gates after the builds run even if an earlier gate failed, so one red gate never hides the others.
         if: ${{ !cancelled() && steps.devbuild.outcome == 'success' }}
         run: cargo xtask check-imports target/release/yamdv.exe
-      - name: size (B-SIZE)
-        # Gates after the builds run even if an earlier gate failed, so one red gate never hides the others.
+      - name: size (B-SIZE, report only per A-5)
         if: ${{ !cancelled() && steps.devbuild.outcome == 'success' }}
+        continue-on-error: true
         run: cargo xtask size target/release/yamdv.exe
-      - name: measurements + soft-budget gate (memprobe)
+      - name: measurements (gates M0, M1, T4 typical per A-5; rest report-only)
         # Gates after the builds run even if an earlier gate failed, so one red gate never hides the others.
         if: ${{ !cancelled() && steps.devbuild.outcome == 'success' }}
         shell: pwsh
@@ -155,9 +155,9 @@ jobs:
           retention-days: 14
 
   release:
-    # Prompt 008 §5.3: on tag v1.0.0 build the zip + SHA-256 and create a DRAFT release in this
-    # private repository. Never published from CI; the only job with write access.
-    name: draft release (private, never published)
+    # Prompt 008 §5.3 + A-5: on tag v1.0.0 build the zip + SHA-256 and create a DRAFT release.
+    # Never published from CI (the owner publishes); the only job with write access.
+    name: draft release (never published)
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: [pure, windows]
     runs-on: windows-latest
@@ -192,13 +192,13 @@ jobs:
           $notes = if ($cl -match "(?s)## \[$([regex]::Escape($v))\][^\n]*\n(.*?)(?=\n## \[|$)") { $Matches[1] } else { "YAMDV $v" }
           "$notes`n`nSHA-256: ``$h``" | Out-File -Encoding utf8 dist/notes.md
           "ZIP=dist/$name.zip" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-      - name: draft release (private repository only)
+      - name: draft release (owner publishes)
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $vis = gh repo view $env:GITHUB_REPOSITORY --json visibility -q .visibility
-          if ($vis -ne 'PRIVATE') { Write-Host "::error::repository is $vis; refusing to create a release (H2)"; exit 1 }
+          # A-5 (owner, 2026-10-17): the repository is public by owner decision; the release stays a
+          # DRAFT (visible to collaborators only) until the owner publishes it. Never --draft=false here.
           $tag = $env:GITHUB_REF_NAME
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
