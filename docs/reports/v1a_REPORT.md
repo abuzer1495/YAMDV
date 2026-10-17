@@ -73,12 +73,14 @@ T4 watch item (prompt §1):
 - **Popup menu:** uses Win32 owner-draw menus, not a custom layered window. This is the simplest option that meets item 1 (A-4 rule 1). There are no layered shadows or animation beyond what the system menu provides.
 - **Goldens:** 5 of the 6 listed (welcome light, doc + sidebar light and dark, find bar, Glacier light). There is no "menu open" golden, because the menu runs in the system modal loop as a separate window that the driver's renderer snapshot cannot capture. The menu is covered by the `theme` driver script, which asserts the item count (> 20; 59 at run time) and the checked radio state.
 - **M1 with decoded images:** not measured. The M1 corpus (`typical.md`) has no images, so the image cache shows 0 B. A-4 rule 3 forbids new measurement tooling, and changing the corpus would change M1's baseline.
+- **T4 flakiness:** the report-only push (run 39020574893, identical code) first failed T4 typical at 26.4 ms warm p99, with p50 6.5 ms against 3.9 ms on run 4, so the runner was slower. The large-document numbers also rose from 6 to 10 ms. The re-run (attempt 2) passed at 14.68 ms. Typical p99 sits about 1.5 ms under the gate on a normal runner, so the gate can flake on slow runners.
 - **T-DLG** is 583 ms, still over the 400 ms soft budget. The Open dialog runs in a separate process; the time is dominated by comdlg32/shell start-up.
 
 ## 4. Left open
 - A menu-open golden, which needs a desktop-capture snapshot (driver work).
 - M1 with images and image cache bytes, which needs an image corpus document. Suggested for V1-B if the owner wants it.
 - T-DLG over the soft budget (unchanged since 003).
+- T4 typical headroom: about 14.2–14.7 ms against the 16 ms gate. Recommend making the typical scroll path cheaper (cached scaled bitmaps, code-block raster cache) early in V1-B, before the editing chrome adds more cost.
 - Not verified on real hardware (the host is Linux): per-monitor DPI, a real `.md` default-app switch through the Settings UI, and Explorer context-menu appearance. These are covered by the QA list below.
 
 ## 5. Owner QA (Windows PC)
