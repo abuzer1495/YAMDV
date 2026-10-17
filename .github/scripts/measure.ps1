@@ -123,6 +123,37 @@ if ($t3s.Count -gt 0) {
   "T3 median_ms $t3 runs $($t3s -join ' ')" | Out-File "$m/T3.txt"
   if ($t3 -gt 80) { Write-Host "::warning::T3 $t3 ms > 80 ms (includes process start of the 2nd launch; report only)" }
 }
+# V1-B (prompt 006 §2.7): M5 = memory after 200 edits (F3 and F2, typical.md, PWS <= 9.6 MiB) and
+# T5 = key -> caret painted p99 (F3 on large-1mb.md <= 25 ms, F2 on typical.md <= 40 ms). Both run
+# the dev-tools build (the driver types one character per step) on copies, never on the corpus.
+$ed = (New-Item -ItemType Directory -Force -Path "$m/edit").FullName
+Copy-Item -Recurse -Force tests/corpus/002/* $ed
+Copy-Item -Force $large "$ed/t5-large.md"
+$perf = (Resolve-Path tests/perf).Path
+foreach ($k in 'split', 'live') {
+  Copy-Item -Force "$ed/typical.md" "$ed/m5-$k.md"
+  Probe "M5-$k" $dev @('--doc', "$ed/m5-$k.md", '--runs', '1', '--settle-ms', '16000', '--arg', '--script', '--arg', "$perf/m5-$k.yds", '--budget-pws-mib', '9.6')
+}
+function T5([string]$name, [string]$doc) {
+  $saveApp = $env:APPDATA; $saveLocal = $env:LOCALAPPDATA
+  $prof = (New-Item -ItemType Directory -Force -Path "$m/prof-$name").FullName
+  $env:APPDATA = $prof; $env:LOCALAPPDATA = $prof
+  $s = "$perf/$name.yds"
+  $p = Start-Process $dev -ArgumentList '--script', $s, $doc -PassThru
+  $null = $p.Handle
+  $done = $p.WaitForExit(180000)
+  $env:APPDATA = $saveApp; $env:LOCALAPPDATA = $saveLocal
+  if (-not $done) { $p.Kill(); $script:failed += $name; Write-Host "::error::$name timed out"; return }
+  $log = if (Test-Path "$s.log") { Get-Content "$s.log" -Raw } else { '' }
+  if (Test-Path "$s.log") { Copy-Item "$s.log" "$m/$name.log" }
+  $p99 = if ($log -match '"t5_p99_ms":([0-9.]+)') { $Matches[1] } else { 'n/a' }
+  $n = if ($log -match '"t5_n":([0-9.]+)') { $Matches[1] } else { 'n/a' }
+  Write-Host "$name p99 = $p99 ms ($n samples)"
+  "$name t5_p99_ms $p99 samples $n" | Out-File -Append "$m/T5.txt"
+  if ($p.ExitCode -ne 0) { $script:failed += $name; Write-Host "::error::$name over budget or failed (exit $($p.ExitCode))" }
+}
+T5 't5-split' "$ed/t5-large.md"
+T5 't5-live' "$ed/typical.md"
 # 150 % scale screenshot is covered by the goldens (scale 1.5).
 Get-ChildItem $m | Format-Table Name, Length -AutoSize
 if ($failed.Count -gt 0) { Write-Host "::error::gates failed: $($failed -join ', ')"; exit 1 }

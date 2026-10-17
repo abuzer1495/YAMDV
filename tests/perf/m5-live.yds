@@ -1,0 +1,7 @@
+# M5 (prompt 006 §2.7): Live Edit after 200 edits on typical.md (see m5-split.yds).
+wait-idle
+key f2
+click-text "The reader is built around"
+wait-idle
+type "lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum"
+sleep 600000

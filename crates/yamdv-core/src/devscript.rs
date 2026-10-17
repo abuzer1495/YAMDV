@@ -346,7 +346,7 @@ mod tests {
     fn committed_scripts_parse() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests");
         let mut n = 0;
-        for dir in ["driver", "golden/v1a"] {
+        for dir in ["driver", "golden/v1a", "perf"] {
             for e in std::fs::read_dir(root.join(dir))
                 .into_iter()
                 .flatten()
@@ -365,6 +365,6 @@ mod tests {
                 }
             }
         }
-        assert!(n >= 20, "found {n} scripts");
+        assert!(n >= 24, "found {n} scripts");
     }
 }
