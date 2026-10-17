@@ -32,4 +32,4 @@ Risks: window.rs is already 2.9 kLOC (split new UI into modules); T4 p99 at 14.2
 - [x] fix 3 pushed (67f99d5)
 - [x] CI run 4 (39019374434) green: T4 typical warm 14.17 ms; report written
 - [x] report push run 39020574893: attempt 1 T4 typical 26.4 ms (slow runner, same code), attempt 2 green 14.68 ms; flakiness noted in report
-- NEXT: CI on this push -> merge PR #5 -> tag phase-v1a
+- [x] CI on PR #5 green (39022792455) -> merged (5fdf661, 2026-10-17 13:06 UTC+3) -> tagged phase-v1a (CI 39023641871 green). Phase closed.
