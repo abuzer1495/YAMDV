@@ -29,4 +29,6 @@ Risks: window.rs is already 2.9 kLOC (split new UI into modules); T4 p99 at 14.2
 - [x] CI run 2 (39016409650) green, BUT T4 gate was string-compared: typical warm p99 14.36/19.19/18.58 (median 18.58 > 16). Fix push 2 (029b66e): ScrollWindowEx limited to the doc rect (sidebar/chevron/scrollbar not blitted), sidebar repainted only on spy change, overlay rects repainted, measure.ps1 numeric T4 gate. (Third CI push: A-4 rule 6 deviation, justified by AC-3 + prompt §1 watch item.)
 - NEXT: CI run 3 (39017680216) -> report -> merge -> tag phase-v1a
 - [x] CI run 3 (39017680216) FAILED: runner ~3x slower (M0 first paint 154 ms on untouched code), typical warm p99 36 ms, large T4 hit the 180 s timeout. Root cause: Renderer::paint bands over rcPaint (bounding box), so the full-height scrollbar strip (old code) and the sidebar spy column (fix 2) made every scroll step a full-window repaint. Fix 3: paint the update region's vertical spans, invalidate old/new thumb only, sidebar spy via a 120 ms one-shot timer.
-- NEXT: CI run 4 -> report -> merge -> tag
+- [x] fix 3 pushed (67f99d5)
+- [x] CI run 4 (39019374434) green: T4 typical warm 14.17 ms; report written
+- NEXT: CI on report push -> merge PR #5 -> tag phase-v1a
