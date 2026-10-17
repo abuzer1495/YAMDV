@@ -40,9 +40,12 @@ fn main() {
             theme,
             dark,
         } => yamdv_platform_win::export::cli_html(&input, out.as_deref(), theme.as_deref(), dark),
-        cli::Command::ExportPdf { input, out } => {
-            yamdv_platform_win::print::cli_pdf(&input, out.as_deref())
-        }
+        cli::Command::ExportPdf {
+            input,
+            out,
+            theme,
+            dark,
+        } => yamdv_platform_win::print::cli_pdf(&input, out.as_deref(), theme.as_deref(), dark),
         cli::Command::Install { launch } => yamdv_platform_win::install::install(launch),
         cli::Command::Uninstall { keep } => yamdv_platform_win::install::uninstall(keep),
         cli::Command::UninstallHelper(pid) => yamdv_platform_win::install::uninstall_helper(pid),

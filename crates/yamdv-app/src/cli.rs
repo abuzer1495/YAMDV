@@ -38,12 +38,17 @@ pub enum Command {
         /// `Some(true)` = dark.
         dark: Option<bool>,
     },
-    /// `--export-pdf <in.md> [-o out.pdf]` (R-EXP-05, through "Microsoft Print to PDF").
+    /// `--export-pdf <in.md> [-o out.pdf] [--theme s] [--mode m]` (R-EXP-05, through
+    /// "Microsoft Print to PDF").
     ExportPdf {
         /// Input document.
         input: String,
         /// Output file (default `<stem>.pdf` next to the input).
         out: Option<String>,
+        /// Color scheme.
+        theme: Option<String>,
+        /// `Some(true)` = dark.
+        dark: Option<bool>,
     },
     /// `--install [--no-launch]` (R-SYS-05).
     Install {
@@ -252,11 +257,11 @@ fn parse_export(args: &[String]) -> Command {
                 Some(v) => out = Some(v.clone()),
                 None => return Command::Usage(format!("yamdv: {a} needs a value\n")),
             },
-            "--theme" if html => match it.next() {
+            "--theme" => match it.next() {
                 Some(v) if yamdv_core_schemes().contains(&v.as_str()) => theme = Some(v.clone()),
                 _ => return usage(a),
             },
-            "--mode" if html => match it.next().map(String::as_str) {
+            "--mode" => match it.next().map(String::as_str) {
                 Some("light") => dark = Some(false),
                 Some("dark") => dark = Some(true),
                 _ => return usage(a),
@@ -284,7 +289,12 @@ fn parse_export(args: &[String]) -> Command {
             dark,
         }
     } else {
-        Command::ExportPdf { input, out }
+        Command::ExportPdf {
+            input,
+            out,
+            theme,
+            dark,
+        }
     }
 }
 
@@ -323,7 +333,7 @@ pub fn help_text() -> String {
          yamdv --install [--no-launch]  install for the current user (Start menu, Apps & features)\n  \
          yamdv --uninstall [--keep-settings|--remove-settings]  remove the installation\n  \
          yamdv --export-html <in.md> [-o out.html] [--theme <scheme>] [--mode light|dark]\n  \
-         yamdv --export-pdf <in.md> [-o out.pdf]  (via Microsoft Print to PDF)\n  \
+         yamdv --export-pdf <in.md> [-o out.pdf] [--theme <scheme>] [--mode light|dark]\n  \
          yamdv --help         show this help\n  yamdv --version      show the version\n\n\
          Exit codes: 0 success, 1 runtime error, 2 usage error.\n"
     )
@@ -427,14 +437,16 @@ mod tests {
             p(&["--export-pdf", "a.md"]),
             Command::ExportPdf {
                 input: "a.md".into(),
-                out: None
+                out: None,
+                theme: None,
+                dark: None,
             }
         );
         for bad in [
             &["--export-html"][..],
             &["--export-html", "a.md", "--theme", "nope"],
             &["--export-html", "a.md", "--mode", "grey"],
-            &["--export-pdf", "a.md", "--theme", "github"],
+            &["--export-pdf", "a.md", "--theme", "nope"],
             &["--export-pdf", "a.md", "b.md"],
             &["--export-pdf", "a.md", "-o"],
         ] {

@@ -477,9 +477,9 @@ pub fn pdf_target(out: &str) -> Target {
     }
 }
 
-/// `yamdv --export-pdf <in.md> [-o out.pdf]` (R-EXP-05): exit 0 success, 1 error. Writes
-/// `pages <n>` to stdout when a console is attached (T10).
-pub fn cli_pdf(input: &str, out: Option<&str>) -> i32 {
+/// `yamdv --export-pdf <in.md> [-o out.pdf] [--theme s] [--mode m]` (R-EXP-05): exit 0
+/// success, 1 error. Writes `pages <n>` to stdout when a console is attached (T10).
+pub fn cli_pdf(input: &str, out: Option<&str>, scheme: Option<&str>, dark: Option<bool>) -> i32 {
     // SAFETY: COM for WIC on this thread.
     let _ = unsafe {
         windows::Win32::System::Com::CoInitializeEx(
@@ -487,7 +487,7 @@ pub fn cli_pdf(input: &str, out: Option<&str>) -> i32 {
             windows::Win32::System::Com::COINIT_APARTMENTTHREADED,
         )
     };
-    let Some(job) = Job::from_file(input, None, None) else {
+    let Some(job) = Job::from_file(input, scheme, dark) else {
         return 1;
     };
     let out = out.map_or_else(|| crate::export::sibling(&job.path, "pdf"), str::to_string);
