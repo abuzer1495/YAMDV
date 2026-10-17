@@ -11,10 +11,16 @@ $typ = (Resolve-Path 'tests/corpus/002/typical.md').Path
 $large = "$m/large-1mb.md"
 $size = @('--size', '1000x700')
 
+# F-22 (prompt 008): every measurement gate follows the F-21 rule. A gate fails only when two
+# consecutive attempts both exceed the budget; attempt 1's JSON is kept as <label>.a1.json.
 function Probe([string]$label, [string]$exe, [string[]]$extra) {
   Write-Host "== memprobe $label"
   & cargo xtask memprobe $exe --json "$m/$label.json" --label $label @size @extra
-  if ($LASTEXITCODE -ne 0) { $script:failed += $label; Write-Host "::error::$label failed or over budget" }
+  if ($LASTEXITCODE -eq 0) { return }
+  Write-Host "::warning::$label attempt 1 failed or over budget; retrying (F-22)"
+  if (Test-Path "$m/$label.json") { Move-Item -Force "$m/$label.json" "$m/$label.a1.json" }
+  & cargo xtask memprobe $exe --json "$m/$label.json" --label $label @size @extra
+  if ($LASTEXITCODE -ne 0) { $script:failed += $label; Write-Host "::error::$label failed or over budget on two consecutive attempts" }
 }
 
 Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber | Format-List | Out-File "$m/host.txt"
@@ -150,6 +156,12 @@ foreach ($k in 'split', 'live') {
   Probe "M5-$k" $dev @('--doc', "$ed/m5-$k.md", '--runs', '1', '--settle-ms', '16000', '--arg', '--script', '--arg', "$perf/m5-$k.yds", '--budget-pws-mib', '9.6')
 }
 function T5([string]$name, [string]$doc) {
+  # F-22: one retry; fails only when both consecutive attempts fail.
+  if (T5Once $name $doc 1) { return }
+  Write-Host "::warning::$name attempt 1 over budget or failed; retrying (F-22)"
+  if (-not (T5Once $name $doc 2)) { $script:failed += $name; Write-Host "::error::$name over budget or failed on two consecutive attempts" }
+}
+function T5Once([string]$name, [string]$doc, [int]$a) {
   $saveApp = $env:APPDATA; $saveLocal = $env:LOCALAPPDATA
   $prof = (New-Item -ItemType Directory -Force -Path "$m/prof-$name").FullName
   $env:APPDATA = $prof; $env:LOCALAPPDATA = $prof
@@ -158,14 +170,14 @@ function T5([string]$name, [string]$doc) {
   $null = $p.Handle
   $done = $p.WaitForExit(180000)
   $env:APPDATA = $saveApp; $env:LOCALAPPDATA = $saveLocal
-  if (-not $done) { $p.Kill(); $script:failed += $name; Write-Host "::error::$name timed out"; return }
+  if (-not $done) { $p.Kill(); Write-Host "::warning::$name attempt $a timed out"; return $false }
   $log = if (Test-Path "$s.log") { Get-Content "$s.log" -Raw } else { '' }
   if (Test-Path "$s.log") { Copy-Item "$s.log" "$m/$name.log" }
   $p99 = if ($log -match '"t5_p99_ms":([0-9.]+)') { $Matches[1] } else { 'n/a' }
   $n = if ($log -match '"t5_n":([0-9.]+)') { $Matches[1] } else { 'n/a' }
-  Write-Host "$name p99 = $p99 ms ($n samples)"
-  "$name t5_p99_ms $p99 samples $n" | Out-File -Append "$m/T5.txt"
-  if ($p.ExitCode -ne 0) { $script:failed += $name; Write-Host "::error::$name over budget or failed (exit $($p.ExitCode))" }
+  Write-Host "$name attempt $a p99 = $p99 ms ($n samples)"
+  "$name attempt $a t5_p99_ms $p99 samples $n" | Out-File -Append "$m/T5.txt"
+  return ($p.ExitCode -eq 0)
 }
 T5 't5-split' "$ed/t5-large.md"
 T5 't5-live' "$ed/typical.md"
