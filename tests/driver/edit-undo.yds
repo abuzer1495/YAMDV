@@ -1,0 +1,15 @@
+# Undo / redo restore the exact bytes (prompt 006 §2.1)
+write-file e2.tmp.md "one two\n"
+open e2.tmp.md
+wait-idle
+key f3
+key end
+type " three"
+wait-idle
+assert buffer == "one two three\n"
+key ctrl+Z
+key ctrl+Z
+assert buffer == "one two\n"
+key ctrl+Y
+key ctrl+shift+Z
+assert buffer == "one two three\n"

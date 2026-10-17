@@ -1,0 +1,10 @@
+# Enter continues a list item (prompt 006 §2.1)
+write-file e8.tmp.md "- item\n"
+open e8.tmp.md
+wait-idle
+key f3
+key end
+key enter
+type "two"
+wait-idle
+assert buffer contains "- item\n- two"

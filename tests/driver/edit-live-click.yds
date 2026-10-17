@@ -1,0 +1,20 @@
+# F2: click a paragraph → edit its source → Esc → rendered again (prompt 006 §2.5)
+write-file e5.tmp.md "# Head\n\nfirst paragraph here\n\nsecond paragraph here\n"
+open e5.tmp.md
+wait-idle
+key f2
+wait-idle
+assert edit_mode == live
+assert title contains Live Edit
+click-text "second paragraph"
+wait-idle
+assert active_block == 2
+type "Z"
+wait-idle
+key esc
+wait-idle
+assert active_block == -1
+assert preview contains Z
+assert edit_mode == live
+key esc
+assert edit_mode == read

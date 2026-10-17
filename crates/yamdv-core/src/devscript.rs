@@ -341,4 +341,30 @@ mod tests {
             Some(Cmd::WriteFile("a.md".into(), "x\r\ny".into()))
         );
     }
+
+    #[test]
+    fn committed_scripts_parse() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests");
+        let mut n = 0;
+        for dir in ["driver", "golden/v1a"] {
+            for e in std::fs::read_dir(root.join(dir))
+                .into_iter()
+                .flatten()
+                .flatten()
+            {
+                let p = e.path();
+                if p.extension().is_some_and(|x| x == "yds") {
+                    let src = std::fs::read_to_string(&p).unwrap_or_default();
+                    assert!(
+                        parse(&src).is_ok(),
+                        "{}: {:?}",
+                        p.display(),
+                        parse(&src).err()
+                    );
+                    n += 1;
+                }
+            }
+        }
+        assert!(n >= 20, "found {n} scripts");
+    }
 }

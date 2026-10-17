@@ -1,0 +1,16 @@
+# External change while the buffer is dirty → conflict dialog (prompt 006 §2.2)
+write-file e4.tmp.md "base text\n"
+open e4.tmp.md
+wait-idle
+command autosave
+sleep 200
+key f3
+key end
+type " mine"
+wait-idle
+assert dirty == 1
+assert title contains ●
+write-file e4.tmp.md "theirs\n"
+sleep 1500
+assert popover == conflict
+assert buffer == "base text mine\n"

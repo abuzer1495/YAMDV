@@ -1,0 +1,16 @@
+# F3: typing in the editor pane updates the preview (prompt 006 §2.7, R-F3)
+write-file e1.tmp.md "# Title\n\nalpha beta\n"
+open e1.tmp.md
+wait-idle
+key f3
+wait-idle
+assert edit_mode == split
+assert title contains Split Edit
+key ctrl+end
+type "gamma"
+sleep 400
+wait-idle
+assert buffer contains "alpha beta\ngamma"
+assert preview contains gamma
+assert t5_n >= 5
+dump

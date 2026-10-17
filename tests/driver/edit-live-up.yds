@@ -1,0 +1,11 @@
+# F2: ↑ on the first line opens the previous block (prompt 006 §2.5)
+write-file e6.tmp.md "first block\n\nsecond block\n"
+open e6.tmp.md
+wait-idle
+key f2
+click-text "second block"
+wait-idle
+assert active_block == 1
+key up
+wait-idle
+assert active_block == 0
