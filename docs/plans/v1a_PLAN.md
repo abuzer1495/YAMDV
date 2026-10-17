@@ -26,3 +26,7 @@ Risks: window.rs is already 2.9 kLOC (split new UI into modules); T4 p99 at 14.2
 - [x] PR #5, CI run 1 (39015816643): all driver asserts pass; exit 0xc0000409 at process end (watcher join in TLS dtor), measure.ps1 parse error ($r:), theme.yds default scheme assert
 - [x] fix push: explicit teardown on WM_QUIT, ps1 fix, script fix, 5 window goldens from run-1 artifact
 - NEXT: CI run 2 -> report with numbers -> merge -> tag phase-v1a
+- [x] CI run 2 (39016409650) green, BUT T4 gate was string-compared: typical warm p99 14.36/19.19/18.58 (median 18.58 > 16). Fix push 2 (029b66e): ScrollWindowEx limited to the doc rect (sidebar/chevron/scrollbar not blitted), sidebar repainted only on spy change, overlay rects repainted, measure.ps1 numeric T4 gate. (Third CI push: A-4 rule 6 deviation, justified by AC-3 + prompt §1 watch item.)
+- NEXT: CI run 3 (39017680216) -> report -> merge -> tag phase-v1a
+- [x] CI run 3 (39017680216) FAILED: runner ~3x slower (M0 first paint 154 ms on untouched code), typical warm p99 36 ms, large T4 hit the 180 s timeout. Root cause: Renderer::paint bands over rcPaint (bounding box), so the full-height scrollbar strip (old code) and the sidebar spy column (fix 2) made every scroll step a full-window repaint. Fix 3: paint the update region's vertical spans, invalidate old/new thumb only, sidebar spy via a 120 ms one-shot timer.
+- NEXT: CI run 4 -> report -> merge -> tag

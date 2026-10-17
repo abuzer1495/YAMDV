@@ -21,8 +21,9 @@ use std::time::Instant;
 use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, EndPaint, GetMonitorInfoW, InvalidateRect, MONITOR_DEFAULTTONEAREST, MONITORINFO,
-    MonitorFromPoint, PAINTSTRUCT, ScreenToClient, UpdateWindow,
+    BeginPaint, CreateRectRgn, DeleteObject, EndPaint, GetMonitorInfoW, GetRegionData,
+    GetUpdateRgn, InvalidateRect, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
+    PAINTSTRUCT, RGNDATAHEADER, ScreenToClient, UpdateWindow,
 };
 use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -114,6 +115,8 @@ const TIMER_TOAST: usize = 7;
 const TIMER_RELOAD: usize = 10;
 /// `custom-theme.ini` changed: debounce, then re-apply the theme.
 const TIMER_THEME: usize = 11;
+/// One-shot: repaint the sidebar when the scroll-spy heading changed (after scrolling pauses).
+const TIMER_SPY: usize = 12;
 const TIMER_COPIED: usize = 8;
 #[cfg(feature = "dev-tools")]
 const TIMER_SCRIPT: usize = 9;
@@ -848,6 +851,7 @@ impl Win {
     fn set_scroll(&mut self, y: f64) {
         let scale = f64::from(self.scale);
         let vh = self.view_h();
+        let old_thumb = self.thumb();
         let Some(d) = self.doc() else { return };
         let old = d.viewer.scroll;
         let y = (y.clamp(0.0, d.viewer.max_scroll(vh)) * scale).round() / scale;
@@ -891,14 +895,17 @@ impl Win {
                     None,
                     SW_INVALIDATE,
                 );
-                // The overlay scrollbar strip is not blitted: repaint it.
-                let sb = RECT {
-                    left: doc_rc.right,
-                    top: 0,
-                    right: px(r),
-                    bottom: ch_px,
-                };
-                let _ = InvalidateRect(Some(self.hwnd), Some(&sb), false);
+                // The overlay scrollbar strip is not blitted: repaint the old and new thumb only
+                // (a full-height strip would make the paint span the whole window).
+                for t in [old_thumb, self.thumb()].into_iter().flatten() {
+                    let rc = RECT {
+                        left: doc_rc.right,
+                        top: px(t.y) - 2,
+                        right: px(r),
+                        bottom: px(t.y + t.h) + 2,
+                    };
+                    let _ = InvalidateRect(Some(self.hwnd), Some(&rc), false);
+                }
                 // Fixed overlays inside the blitted rect: repaint where they were and are.
                 let ady = dy.abs();
                 if self.find.is_some() {
@@ -924,22 +931,11 @@ impl Win {
                 let _ = InvalidateRect(Some(self.hwnd), None, false);
             }
         }
-        // Scroll spy: repaint the sidebar only when the active heading changes.
-        if let Some(sh) = &sh
-            && let Some(sr) = self.side_rect(sh)
-        {
-            let spy = self.toc_active();
-            if spy != self.side.spy {
-                self.side.spy = spy;
-                let rc = RECT {
-                    left: px(sr.x),
-                    top: 0,
-                    right: px(sr.x + sr.w),
-                    bottom: ch_px,
-                };
-                // SAFETY: valid hwnd.
-                let _ = unsafe { InvalidateRect(Some(self.hwnd), Some(&rc), false) };
-            }
+        // Scroll spy: the sidebar is repainted once scrolling pauses, and only when the active
+        // heading changed (a per-step full-height repaint would double the T4 frame cost).
+        if sh.as_ref().is_some_and(|sh| self.side_rect(sh).is_some()) {
+            // SAFETY: valid hwnd; one-shot timer (killed when it fires, T7).
+            unsafe { SetTimer(Some(self.hwnd), TIMER_SPY, 120, None) };
         }
         self.show_scrollbar();
         // Paint the exposed strip right after the handler returns (no RefCell borrow is held
@@ -1137,6 +1133,7 @@ impl Win {
 
     fn paint(&mut self, sh: &Shared) {
         let t0 = Instant::now();
+        let spans = update_spans(self.hwnd);
         let mut ps = PAINTSTRUCT::default();
         // SAFETY: standard BeginPaint/EndPaint pair.
         let hdc = unsafe { BeginPaint(self.hwnd, &mut ps) };
@@ -1164,9 +1161,25 @@ impl Win {
             if let View::Doc(d) = &me.view {
                 d.images.begin_frame();
             }
-            r.paint(hdc, ps.rcPaint, me.pal.text, &mut |band| {
-                me.draw(sh, band, cx, geo.as_ref())
-            });
+            // Paint the vertical spans of the update region, not its bounding box: a scroll step
+            // invalidates the exposed strip plus small thumb rects, which are far apart.
+            let rects = if spans.is_empty() {
+                vec![ps.rcPaint]
+            } else {
+                spans
+                    .iter()
+                    .map(|&(top, bottom)| RECT {
+                        top: top.max(ps.rcPaint.top),
+                        bottom: bottom.min(ps.rcPaint.bottom),
+                        ..ps.rcPaint
+                    })
+                    .collect()
+            };
+            for rc in rects {
+                r.paint(hdc, rc, me.pal.text, &mut |band| {
+                    me.draw(sh, band, cx, geo.as_ref())
+                });
+            }
             if let View::Doc(d) = &me.view {
                 // P-13: everything within the viewport + one screen keeps its pixels.
                 for (_, _, bl) in d.viewer.visible(&d.content, me.view_h() * 2.0) {
@@ -2180,6 +2193,26 @@ impl Win {
             self.actions.push(Action::ApplyTheme);
             return;
         }
+        if id == TIMER_SPY {
+            // SAFETY: valid hwnd.
+            let _ = unsafe { KillTimer(Some(self.hwnd), TIMER_SPY) };
+            let spy = self.toc_active();
+            if spy != self.side.spy {
+                self.side.spy = spy;
+                if let Some(sr) = self.side_rect(sh) {
+                    let px = |v: f32| (v * self.scale).round() as i32;
+                    let rc = RECT {
+                        left: px(sr.x),
+                        top: 0,
+                        right: px(sr.x + sr.w),
+                        bottom: px(self.ch),
+                    };
+                    // SAFETY: valid hwnd.
+                    let _ = unsafe { InvalidateRect(Some(self.hwnd), Some(&rc), false) };
+                }
+            }
+            return;
+        }
         if id == TIMER_RELOAD {
             // SAFETY: valid hwnd.
             let _ = unsafe { KillTimer(Some(self.hwnd), TIMER_RELOAD) };
@@ -2489,6 +2522,47 @@ fn lparam_xy(lp: LPARAM, scale: f32) -> (f32, f32) {
     let x = i32::from((lp.0 & 0xFFFF) as u16 as i16);
     let y = i32::from(((lp.0 >> 16) & 0xFFFF) as u16 as i16);
     (x as f32 / scale, y as f32 / scale)
+}
+
+/// Vertical spans `[top, bottom)` of the window's update region (merged, sorted). Empty when the
+/// region cannot be read or has too many pieces (the caller then paints the bounding box).
+fn update_spans(hwnd: HWND) -> Vec<(i32, i32)> {
+    // SAFETY: the region is created, read and deleted here; GetRegionData writes at most `size`
+    // bytes into a buffer of that size, aligned for RGNDATAHEADER and RECT (u32 buffer).
+    unsafe {
+        let rgn = CreateRectRgn(0, 0, 0, 0);
+        if rgn.is_invalid() {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        if GetUpdateRgn(hwnd, rgn, false).0 > 1 {
+            let size = GetRegionData(rgn, 0, None);
+            let hdr = std::mem::size_of::<RGNDATAHEADER>();
+            if size as usize >= hdr && size <= 64 * 1024 {
+                let mut buf = vec![0u32; (size as usize).div_ceil(4)];
+                let p = buf.as_mut_ptr().cast();
+                if GetRegionData(rgn, size, Some(p)) == size {
+                    let h = &*(buf.as_ptr().cast::<RGNDATAHEADER>());
+                    let n = (h.nCount as usize).min((size as usize - hdr) / 16);
+                    let rects = buf.as_ptr().cast::<u8>().add(hdr).cast::<RECT>();
+                    for i in 0..n {
+                        let r = *rects.add(i);
+                        out.push((r.top, r.bottom));
+                    }
+                }
+            }
+        }
+        let _ = DeleteObject(rgn.into());
+        out.sort_unstable();
+        let mut merged: Vec<(i32, i32)> = Vec::new();
+        for (t, b) in out {
+            match merged.last_mut() {
+                Some(last) if t <= last.1 => last.1 = last.1.max(b),
+                _ => merged.push((t, b)),
+            }
+        }
+        if merged.len() > 8 { Vec::new() } else { merged }
+    }
 }
 
 fn update_size(w: &mut Win, sh: &Shared) {
