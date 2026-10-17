@@ -378,6 +378,20 @@ impl Shaped for DwShaped {
             })
             .collect()
     }
+    fn caret(&self, idx: u32) -> Rect {
+        let Some(l) = &self.layout else {
+            return Rect::new(0.0, 0.0, 0.0, self.pitch);
+        };
+        let (mut x, mut y) = (0.0f32, 0.0f32);
+        let mut m = DWRITE_HIT_TEST_METRICS::default();
+        // SAFETY: valid layout; out-pointers on the stack. Positions past the end are clamped by
+        // DirectWrite (the caret after the last character).
+        if unsafe { l.HitTestTextPosition(idx, false, &mut x, &mut y, &mut m) }.is_err() {
+            return Rect::new(0.0, 0.0, 0.0, self.pitch);
+        }
+        let line = (m.top / self.pitch).round();
+        Rect::new(x, line * self.pitch, 0.0, self.pitch)
+    }
     fn as_any(&self) -> &dyn Any {
         self
     }

@@ -157,6 +157,10 @@ impl Editor {
         let mut p = pos.min(self.len());
         // Back to a char boundary (byte_to_char floors).
         p = self.rope.char_to_byte(self.rope.byte_to_char(p));
+        // Never between the CR and LF of a CRLF (one grapheme).
+        if p > 0 && p < self.len() && self.rope.byte(p) == b'\n' && self.rope.byte(p - 1) == b'\r' {
+            p -= 1;
+        }
         p
     }
 

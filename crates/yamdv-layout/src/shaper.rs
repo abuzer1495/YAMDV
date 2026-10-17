@@ -83,6 +83,16 @@ pub trait Shaped: std::fmt::Debug {
     fn hit(&self, x: f32, y: f32) -> u32;
     /// Line boxes covering the UTF-16 range (selection, inline-code backgrounds).
     fn range_rects(&self, range: Range<u32>) -> Vec<Rect>;
+    /// Caret box (x, line top, 0 width, line height) at UTF-16 position `idx` (editor caret).
+    fn caret(&self, idx: u32) -> Rect {
+        if let Some(r) = self.range_rects(idx..idx + 1).first() {
+            return Rect::new(r.x, r.y, 0.0, r.h);
+        }
+        match idx.checked_sub(1).and_then(|p| self.range_rects(p..idx).last().copied()) {
+            Some(r) => Rect::new(r.right(), r.y, 0.0, r.h),
+            None => Rect::new(0.0, 0.0, 0.0, self.height().max(1.0)),
+        }
+    }
     /// Downcast for the platform renderer.
     fn as_any(&self) -> &dyn Any;
 }
