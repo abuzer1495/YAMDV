@@ -628,6 +628,8 @@ name = "yamdv-export"
 version = "0.1.0"
 dependencies = [
  "yamdv-core",
+ "yamdv-highlight",
+ "yamdv-layout",
 ]
 
 [[package]]
