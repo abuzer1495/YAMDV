@@ -222,7 +222,7 @@ fn now_ms() -> u64 {
 }
 
 /// Block containing source offset `pos` (last block starting at or before it).
-fn block_of(content: &Content, pos: usize) -> usize {
+pub(super) fn block_of(content: &Content, pos: usize) -> usize {
     let n = content.len();
     let (mut lo, mut hi) = (0usize, n);
     while lo + 1 < hi {
@@ -300,7 +300,7 @@ impl Win {
     }
 
     /// Keys/chars go to the editor: F3, or F2 with an active block.
-    fn typing(&self) -> bool {
+    pub(super) fn typing(&self) -> bool {
         self.edit().is_some_and(|e| match e.mode {
             Some(Mode::Split) => true,
             Some(Mode::Live) => e.active.is_some(),
@@ -589,7 +589,7 @@ impl Win {
     }
 
     /// Current active range in buffer offsets.
-    fn active_range(&self) -> Option<Range<usize>> {
+    pub(super) fn active_range(&self) -> Option<Range<usize>> {
         let View::Doc(d) = &self.view else {
             return None;
         };
@@ -1929,7 +1929,7 @@ impl Win {
     }
 
     /// Mouse down in an edit mode; `true` = handled.
-    fn edit_mouse_down(&mut self, sh: &Shared, x: f32, y: f32, ctrl: bool) -> bool {
+    pub(super) fn edit_mouse_down(&mut self, sh: &Shared, x: f32, y: f32, ctrl: bool) -> bool {
         let Some(mode) = self.edit_mode() else {
             return false;
         };
@@ -2084,7 +2084,7 @@ impl Win {
         true
     }
 
-    fn edit_mouse_up(&mut self) -> bool {
+    pub(super) fn edit_mouse_up(&mut self) -> bool {
         let Some(drag) = self.edit().and_then(|e| e.drag) else {
             return false;
         };
