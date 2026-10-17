@@ -13,5 +13,7 @@ Risks: window.rs is already 2.9 kLOC (split new UI into modules); T4 p99 at 14.2
 - [x] §2.3 P-30, P-31 (`docs/spec-patches/v1a.txt`), spec-check green
 - [x] §2.4 TRACEABILITY deferrals by `cargo xtask future` (70 rows; 11 section refs are not rows)
 - [x] pure core: `state.rs` (state.ini, history groups, favorites, positions, geometry validation), `find.rs` (Turkish i), `cmdline.rs` (S-EXEC-03 quoting, editor templates), `reg.rs` (S-REG plan), `ipc` Forward kind (S-IPC-01), `Settings::set`
+- [x] platform services `src/shell.rs` (mutex+forward, watcher, CreateProcessW editor, HKCU reg plan writer, AssocQueryStringW, atomic write); i18n strings for menu/sidebar/find/welcome added
+- [ ] NEXT: `window/app.rs` = App thread_local (Settings+Ini+State+dirs), rebuild Shared (dw: Rc<DWrite>) on setting change and restyle/reload all windows keeping anchor; owner-draw HMENU context menu via Action::ContextMenu (WM_CONTEXTMENU, WM_MEASUREITEM/DRAWITEM/MENUCHAR; feature Win32_UI_Controls); then find bar (WM_CHAR, marks in draw_doc), zoom keys + toast, F4 editor, Ctrl+D, positions/history/geometry, WM_COPYDATA forward, watcher → reload, CLI flags, welcome page, sidebar, ChooseFontW via dialog host kind 3
 - [ ] platform: popup menu, context menu, toast/zoom, find bar, sidebar, themes live, single instance, watcher, positions, editor, registration + CLI, welcome
 - [ ] driver scripts, goldens, measurements, report, PR/merge/tag
