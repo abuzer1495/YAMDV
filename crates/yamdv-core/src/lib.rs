@@ -9,6 +9,7 @@ pub mod decode;
 pub mod devscript;
 pub mod doc;
 pub mod emoji_table;
+pub mod encode;
 pub mod find;
 pub mod html;
 pub mod i18n;

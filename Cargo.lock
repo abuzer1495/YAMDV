@@ -616,6 +616,7 @@ dependencies = [
 name = "yamdv-editor"
 version = "0.1.0"
 dependencies = [
+ "encoding_rs",
  "proptest",
  "ropey",
  "unicode-segmentation",

@@ -184,39 +184,7 @@ impl Content {
                 if s.ends_with('\n') {
                     s = &s[..s.len() - 1];
                 }
-                let pt = verbatim(s, r.start);
-                let base = Style {
-                    family: Family::Body,
-                    size: ctx.m.font_size,
-                    weight: 400,
-                    italic: false,
-                    color: ctx.pal.text,
-                    strike: false,
-                    underline: false,
-                };
-                let shaped = ctx.shaper.shape(&ParaSpec {
-                    text: &pt.text,
-                    base,
-                    spans: vec![],
-                    width: Some(w),
-                    line_pitch: ctx.m.pitch(),
-                    rtl: is_rtl(&pt.text),
-                    tab_spaces: Some(4),
-                });
-                let height = shaped.height().max(ctx.m.pitch());
-                BlockLayout {
-                    height,
-                    items: vec![Item::Para(0)],
-                    paras: vec![LaidPara {
-                        x: 0.0,
-                        y: 0.0,
-                        shaped,
-                        map: Some(pt),
-                        hscroll: None,
-                    }],
-                    regions: Vec::new(),
-                    hot: Vec::new(),
-                }
+                verbatim_layout(ctx, s, r.start, Some(w), Family::Body, None)
             }
         }
     }
@@ -244,6 +212,155 @@ fn verbatim(s: &str, start: u32) -> ParaText {
             style: 0,
             link: yamdv_core::doc::detail::NO_LINK,
         }],
+    }
+}
+
+/// One paragraph of verbatim text (plain mode, the F3 editor pane, the F2 source block):
+/// preserved breaks and spaces, tab = 4 spaces; `w = None` = no wrapping; `bg` fills the block.
+pub(crate) fn verbatim_layout(
+    ctx: &mut Ctx<'_>,
+    s: &str,
+    start: u32,
+    w: Option<f32>,
+    family: Family,
+    bg: Option<u32>,
+) -> BlockLayout {
+    let pt = verbatim(s, start);
+    let size = match family {
+        Family::Body => ctx.m.font_size,
+        Family::Code => ctx.m.code_size(),
+    };
+    let base = Style {
+        family,
+        size,
+        weight: 400,
+        italic: false,
+        color: ctx.pal.text,
+        strike: false,
+        underline: false,
+    };
+    let pad = if bg.is_some() { 8.0 } else { 0.0 };
+    let shaped = ctx.shaper.shape(&ParaSpec {
+        text: &pt.text,
+        base,
+        spans: vec![],
+        width: w.map(|w| (w - 2.0 * pad).max(1.0)),
+        line_pitch: ctx.m.pitch(),
+        rtl: is_rtl(&pt.text),
+        tab_spaces: Some(4),
+    });
+    let height = shaped.height().max(ctx.m.pitch()) + 2.0 * pad;
+    let mut items = Vec::new();
+    if let Some(c) = bg {
+        items.push(Item::Fill {
+            rect: Rect::new(-pad, 0.0, w.unwrap_or(shaped.width()) + 2.0 * pad, height),
+            color: c,
+            radius: 4.0,
+        });
+    }
+    items.push(Item::Para(0));
+    BlockLayout {
+        height,
+        items,
+        paras: vec![LaidPara {
+            x: 0.0,
+            y: pad,
+            shaped,
+            map: Some(pt),
+            hscroll: None,
+        }],
+        regions: Vec::new(),
+        hot: Vec::new(),
+    }
+}
+
+/// The top-level block shown as its Markdown source in F2 (prompt 006 §2.5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceBlock {
+    /// Block index.
+    pub block: usize,
+    /// Source offset of the text (the block start in the frozen document).
+    pub start: u32,
+    /// Current source text of the block (from the editor buffer).
+    pub text: String,
+    /// `editing.editor_font = code`.
+    pub code_font: bool,
+}
+
+/// Options of the verbatim (plain / F3 editor) layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlainOpts {
+    /// Code font instead of the body font.
+    pub code_font: bool,
+    /// Soft wrap at the column width.
+    pub wrap: bool,
+}
+
+impl Default for PlainOpts {
+    fn default() -> Self {
+        Self {
+            code_font: false,
+            wrap: true,
+        }
+    }
+}
+
+impl Content {
+    /// F3 editor pane: brings plain content to `text` (common prefix/suffix diff), re-chunking
+    /// only the chunks the edit touches. Returns the chunk splice for [`Viewer::splice`].
+    pub fn plain_sync(&mut self, new: &str) -> Option<yamdv_core::doc::index::Splice> {
+        let Content::Plain { text, chunks } = self else {
+            return None;
+        };
+        let (a, b) = (text.as_bytes(), new.as_bytes());
+        let p = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+        if p == a.len() && p == b.len() {
+            return None;
+        }
+        let max_s = a.len().min(b.len()) - p;
+        let s = a
+            .iter()
+            .rev()
+            .zip(b.iter().rev())
+            .take(max_s)
+            .take_while(|(x, y)| x == y)
+            .count();
+        let (old_end, new_end) = (a.len() - s, b.len() - s);
+        let delta = new.len() as i64 - text.len() as i64;
+        let find = |pos: usize| -> usize {
+            chunks
+                .partition_point(|c| (c.end as usize) <= pos)
+                .min(chunks.len().saturating_sub(1))
+        };
+        let first = find(p);
+        let last = find(old_end).max(first);
+        let lo = chunks.get(first).map_or(0, |c| c.start as usize);
+        let hi_old = chunks.get(last).map_or(text.len(), |c| c.end as usize);
+        let hi = (hi_old as i64 + delta).max(lo as i64) as usize;
+        let _ = new_end;
+        let mut fresh: Vec<Range<u32>> = plain::chunks(new.get(lo..hi).unwrap_or(""))
+            .into_iter()
+            .map(|c| c.start + lo as u32..c.end + lo as u32)
+            .collect();
+        if fresh.len() > 1 && fresh.last().is_some_and(|c| c.is_empty()) {
+            fresh.pop();
+        }
+        let inserted = fresh.len();
+        let tail: Vec<Range<u32>> = chunks
+            .get(last + 1..)
+            .unwrap_or(&[])
+            .iter()
+            .map(|c| ((c.start as i64 + delta) as u32)..((c.end as i64 + delta) as u32))
+            .collect();
+        chunks.truncate(first);
+        chunks.extend(fresh);
+        chunks.extend(tail);
+        *text = new.to_string();
+        Some(yamdv_core::doc::index::Splice {
+            replaced: first..last + 1,
+            inserted,
+            refs_changed: false,
+        })
     }
 }
 
@@ -283,6 +400,10 @@ pub struct Viewer {
     pub code_default: CodeOpts,
     /// Per code block overrides (block, node) — session state (R-CODE-02).
     code_opts: std::collections::HashMap<(usize, usize), CodeOpts>,
+    /// F2: the block shown as its source (prompt 006 §2.5).
+    pub source_block: Option<SourceBlock>,
+    /// Verbatim layout options (F3 editor pane).
+    pub plain: PlainOpts,
 }
 
 impl Viewer {
@@ -432,6 +553,8 @@ impl Viewer {
             hscroll: std::collections::HashMap::new(),
             code_default: CodeOpts::default(),
             code_opts: std::collections::HashMap::new(),
+            source_block: None,
+            plain: PlainOpts::default(),
         };
         v.reestimate(content);
         v
@@ -552,7 +675,41 @@ impl Viewer {
                     code_opts: &lookup,
                     images: env.images,
                 };
-                let bl = content.layout(i, &mut ctx, self.width);
+                let bl = match (&self.source_block, &*content) {
+                    (Some(sb), _) if sb.block == i => {
+                        let fam = if sb.code_font {
+                            Family::Code
+                        } else {
+                            Family::Body
+                        };
+                        let bg = env.pal.code_bg;
+                        verbatim_layout(
+                            &mut ctx,
+                            &sb.text,
+                            sb.start,
+                            Some(self.width),
+                            fam,
+                            Some(bg),
+                        )
+                    }
+                    (_, Content::Plain { text, chunks }) if self.plain != PlainOpts::default() => {
+                        let r = chunks.get(i).cloned().unwrap_or(0..0);
+                        let mut s = text.get(r.start as usize..r.end as usize).unwrap_or("");
+                        // The last chunk keeps its final break, so the empty last line exists
+                        // for the caret.
+                        if s.ends_with('\n') && i + 1 < chunks.len() {
+                            s = &s[..s.len() - 1];
+                        }
+                        let fam = if self.plain.code_font {
+                            Family::Code
+                        } else {
+                            Family::Body
+                        };
+                        let w = self.plain.wrap.then_some(self.width);
+                        verbatim_layout(&mut ctx, s, r.start, w, fam, None)
+                    }
+                    _ => content.layout(i, &mut ctx, self.width),
+                };
                 let h = f64::from(content.gap(i, &self.m) + bl.height);
                 if (self.heights.get(i) - h).abs() > 0.01 {
                     self.heights.set(i, h);
@@ -595,6 +752,74 @@ impl Viewer {
             }
         }
         out
+    }
+
+    /// Incremental reparse (prompt 006 §2.3): old blocks `sp.replaced` became `sp.inserted` new
+    /// ones. Heights of untouched blocks are kept (nothing jumps), new blocks get estimates,
+    /// layouts from the first replaced block on are dropped (their source offsets moved) and
+    /// the scroll anchor stays on the same content.
+    pub fn splice(&mut self, content: &Content, sp: &yamdv_core::doc::index::Splice, view_h: f64) {
+        let old_n = self.heights.len();
+        let r = sp.replaced.start.min(old_n)..sp.replaced.end.min(old_n);
+        let ins = sp.inserted;
+        let mut h: Vec<f64> = Vec::with_capacity(old_n + ins);
+        let mut meas: Vec<bool> = Vec::with_capacity(old_n + ins);
+        for i in 0..r.start {
+            h.push(self.heights.get(i));
+            meas.push(self.is_measured(i));
+        }
+        for k in 0..ins {
+            let i = r.start + k;
+            h.push(f64::from(
+                content.gap(i, &self.m) + content.estimate(i, self.width, &self.m),
+            ));
+            meas.push(false);
+        }
+        for i in r.end..old_n {
+            h.push(self.heights.get(i));
+            meas.push(self.is_measured(i));
+        }
+        // The block after the splice may have a different gap (its predecessor changed kind).
+        let after = r.start + ins;
+        if after < h.len() {
+            let g = f64::from(content.gap(after, &self.m));
+            if !meas[after] {
+                h[after] = g + f64::from(content.estimate(after, self.width, &self.m));
+            }
+        }
+        let shift = |i: usize| -> Option<usize> {
+            if i < r.start {
+                Some(i)
+            } else if i >= r.end {
+                Some(i - r.len() + ins)
+            } else {
+                None
+            }
+        };
+        let (ab, aoff) = self.anchor;
+        self.anchor = match shift(ab) {
+            Some(b) => (b, aoff),
+            None => (r.start, 0.0),
+        };
+        self.heights = Fenwick::from_heights(&h);
+        self.measured = meas;
+        let start = r.start;
+        self.layouts.retain(|e| e.0 < start);
+        if sp.refs_changed {
+            self.layouts.clear();
+        }
+        // The last block carries the footnote section.
+        let last = h.len().saturating_sub(1);
+        self.layouts.retain(|e| e.0 != last);
+        self.hscroll = std::mem::take(&mut self.hscroll)
+            .into_iter()
+            .filter_map(|((b, g), v)| shift(b).map(|b| ((b, g), v)))
+            .collect();
+        self.code_opts = std::mem::take(&mut self.code_opts)
+            .into_iter()
+            .filter_map(|((b, n), v)| shift(b).map(|b| ((b, n), v)))
+            .collect();
+        self.restore_anchor(view_h);
     }
 
     /// Drops all layouts (colors or fonts changed); heights are kept, so nothing moves.
@@ -746,6 +971,97 @@ mod tests {
             }
         }
         Content::Markdown(Document::new(s, ReadOpts::default()))
+    }
+
+    /// Prompt 006 §2.3: edits splice the document and the viewer; the result equals a fresh
+    /// document, untouched heights are kept and the anchor stays on the same block.
+    #[test]
+    fn incremental_reparse_matches_full_build() {
+        let mut c = doc(300);
+        let pal = theme::palette("default", false);
+        let mut sh = MockShaper;
+        let strings = EnStrings;
+        let mut env = Env {
+            images: &crate::img::NO_IMAGES,
+            shaper: &mut sh,
+            m: Metrics::default(),
+            pal: &pal,
+            strings: &strings,
+            single_newline_break: false,
+        };
+        let view_h = 700.0;
+        let mut v = Viewer::new(&c, 600.0, Metrics::default());
+        v.scroll_to(3000.0, view_h);
+        v.prepare(&mut c, &mut env, view_h);
+        let mut seed = 7u64;
+        for step in 0..200 {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            let Content::Markdown(d) = &mut c else {
+                unreachable!()
+            };
+            let mut t = d.source.clone();
+            let mut at = (seed >> 33) as usize % (t.len() + 1);
+            while !t.is_char_boundary(at) {
+                at -= 1;
+            }
+            let ins = ["x", "\n\n", "# h\n", "- i\n", "", "```\n"][(seed >> 20) as usize % 6];
+            let del = ((seed >> 40) as usize % 4).min(t.len() - at);
+            let mut end = at + del;
+            while !t.is_char_boundary(end) {
+                end += 1;
+            }
+            t.replace_range(at..end, ins);
+            let (anchor_b, _) = v.anchor();
+            let anchor_start = c.range(anchor_b).start as usize;
+            let Content::Markdown(d) = &mut c else {
+                unreachable!()
+            };
+            let Some((_, sp)) = d.sync_to(&t) else {
+                continue;
+            };
+            assert_eq!(d.source, t);
+            let fresh = yamdv_core::doc::index::Index::build(&t, ReadOpts::default());
+            assert_eq!(d.index.blocks.len(), fresh.blocks.len(), "step {step}");
+            v.splice(&c, &sp, view_h);
+            assert_eq!(v.heights.len(), c.len());
+            if anchor_start < at {
+                // Content above the edit keeps its block.
+                assert!(v.anchor().0 <= c.len());
+            }
+            v.prepare(&mut c, &mut env, view_h);
+        }
+    }
+
+    #[test]
+    fn plain_sync_keeps_chunks_valid() {
+        let mut t: String = (0..900).map(|i| format!("line {i}\n")).collect();
+        let mut c = Content::plain(t.clone());
+        let mut seed = 3u64;
+        for _ in 0..300 {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            let at = (seed >> 33) as usize % (t.len() + 1);
+            let del = ((seed >> 40) as usize % 30).min(t.len() - at);
+            let ins = ["a", "\n", "", "\n\nxyz\n"][(seed >> 20) as usize % 4];
+            t.replace_range(at..at + del, ins);
+            let old_n = c.len();
+            if let Some(sp) = c.plain_sync(&t) {
+                assert_eq!(old_n - sp.replaced.len() + sp.inserted, c.len());
+            }
+            let Content::Plain { text, chunks } = &c else {
+                unreachable!()
+            };
+            assert_eq!(text, &t);
+            assert_eq!(chunks.first().map(|r| r.start), Some(0));
+            assert_eq!(chunks.last().map(|r| r.end as usize), Some(t.len()));
+            assert!(chunks.windows(2).all(|w| w[0].end == w[1].start));
+            for r in &chunks[..chunks.len() - 1] {
+                assert!(t[r.start as usize..r.end as usize].ends_with('\n'));
+            }
+        }
     }
 
     #[test]

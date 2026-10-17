@@ -347,3 +347,54 @@ proptest! {
         }
     }
 }
+
+/// AC-3 (prompt 006 §2.2): decode → edit one word through the editor → encode. Every byte
+/// outside the edited word is identical (CRLF, BOM, windows-1254, final-newline state kept).
+#[test]
+fn byte_identity_outside_the_edit() {
+    use yamdv_core::{decode, encode};
+    let body = "# Başlık\r\n\r\nÇağrı ışığı göründü; şu öğle güneşi İzmir'de.\r\nİkinci satır: ğüşıöçİ.\r\n";
+    let (w1254, _, _) = encoding_rs::WINDOWS_1254.encode(body);
+    let mut utf8_bom = b"\xEF\xBB\xBF".to_vec();
+    utf8_bom.extend_from_slice(body.as_bytes());
+    let mut utf16 = b"\xFF\xFE".to_vec();
+    for u in body.encode_utf16() {
+        utf16.extend_from_slice(&u.to_le_bytes());
+    }
+    for (name, bytes) in [
+        ("windows-1254", w1254.into_owned()),
+        ("UTF-8", utf8_bom),
+        ("UTF-16LE", utf16),
+    ] {
+        let d = decode::decode(&bytes);
+        assert_eq!(d.encoding, name);
+        assert!(!d.lossy);
+        let mut e = Editor::new(&d.text, encode::dominant_eol(d.line_endings));
+        assert_eq!(e.eol, "\r\n");
+        let at = d.text.find("güneşi").unwrap_or(0);
+        e.move_to(at + 2, false);
+        let w = e.word_at(e.caret());
+        e.set_selection(w.start, w.end);
+        e.type_text("ayışığı", 0);
+        md::enter(&mut e); // a new line uses the dominant ending
+        let out = encode::encode(&e.text(), d.encoding, d.had_bom).unwrap();
+        let prefix = bytes.iter().zip(&out).take_while(|(a, b)| a == b).count();
+        let suffix = bytes
+            .iter()
+            .rev()
+            .zip(out.iter().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+        let orig_word = encode::encode("güneşi", d.encoding, false).unwrap();
+        // Everything before and after the edited word is byte-identical.
+        assert!(prefix + suffix + orig_word.len() >= bytes.len(), "{name}");
+        assert!(
+            out.windows(4)
+                .filter(|w| *w == b"\r\n\r\n" || *w == b"\r\0\n\0")
+                .count()
+                >= 1
+        );
+        let again = decode::decode(&out);
+        assert!(again.text.contains("ayışığı\r\n"), "{name}");
+    }
+}
