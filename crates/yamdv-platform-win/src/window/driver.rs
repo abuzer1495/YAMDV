@@ -204,8 +204,9 @@ fn run(w: &mut Win, sh: &Shared, cmd: &Cmd) -> String {
             }
             format!("ok type \"{t}\"")
         }
-        Cmd::ClickText(t) => click_text(w, sh, t, false),
-        Cmd::ClickTask(t) => click_text(w, sh, t, true),
+        Cmd::ClickText(t) => click_text(w, sh, t, Click::Text),
+        Cmd::ClickTask(t) => click_text(w, sh, t, Click::Task),
+        Cmd::ClickRender(t) => click_text(w, sh, t, Click::Render),
         Cmd::SideClick(text) => {
             let row = w
                 .side_rows(sh)
@@ -354,7 +355,15 @@ fn command_id(name: &str) -> Option<u32> {
 }
 
 /// Clicks the first rendered occurrence of `text` (or the checkbox of its task item).
-fn click_text(w: &mut Win, sh: &Shared, text: &str, task: bool) -> String {
+/// What `click_text` aims at.
+#[derive(Clone, Copy, PartialEq)]
+enum Click {
+    Text,
+    Task,
+    Render,
+}
+
+fn click_text(w: &mut Win, sh: &Shared, text: &str, what: Click) -> String {
     use yamdv_layout::block::HotKind;
     let found = match &w.view {
         View::Doc(d) => d
@@ -384,7 +393,17 @@ fn click_text(w: &mut Win, sh: &Shared, text: &str, task: bool) -> String {
         let View::Doc(d) = &w.view else { return None };
         let bl = d.viewer.layout_of(bi)?;
         let top = (d.viewer.block_top(&d.content, bi) - d.viewer.scroll) as f32;
-        if task {
+        if what == Click::Render {
+            let h = bl
+                .hot
+                .iter()
+                .find(|h| matches!(h.kind, HotKind::RenderAnyway { .. }))?;
+            return Some((
+                cx + h.rect.x + h.rect.w / 2.0,
+                top + h.rect.y + h.rect.h / 2.0,
+            ));
+        }
+        if what == Click::Task {
             let h = bl
                 .hot
                 .iter()
@@ -414,7 +433,11 @@ fn click_text(w: &mut Win, sh: &Shared, text: &str, task: bool) -> String {
     }
     format!(
         "ok click-{} \"{text}\" at {x:.0},{y:.0}",
-        if task { "task" } else { "text" }
+        match what {
+            Click::Text => "text",
+            Click::Task => "task",
+            Click::Render => "render",
+        }
     )
 }
 
@@ -498,9 +521,9 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         Some(f) => ("open", f.matches.len(), f.cur.map_or(0, |c| c + 1)),
         None => ("closed", 0, 0),
     };
-    let source_len = match &w.view {
-        View::Doc(d) => d.content.source().len(),
-        _ => 0,
+    let (source_len, (math_cached, diagrams_cached)) = match &w.view {
+        View::Doc(d) => (d.content.source().len(), d.rich.len()),
+        _ => (0, (0, 0)),
     };
     let favorites = app::with(|a| a.state.favorites.len()).unwrap_or(0);
     let edit_mode = ["read", "live", "split"][usize::from(w.edit_mode_id())];
@@ -563,6 +586,8 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         ),
         ("favorites".into(), V::N(favorites as f64)),
         ("source_len".into(), V::N(source_len as f64)),
+        ("math_cached".into(), V::N(math_cached as f64)),
+        ("diagrams_cached".into(), V::N(diagrams_cached as f64)),
         ("menu_items".into(), V::N(menu_items as f64)),
         ("menu_checked".into(), V::S(menu_checked)),
         ("edit_mode".into(), V::S(edit_mode.into())),

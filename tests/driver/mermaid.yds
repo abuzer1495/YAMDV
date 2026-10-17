@@ -1,0 +1,11 @@
+# Mermaid flowchart renders; over the soft limit a placeholder until Render anyway (prompt 007 §3)
+write-file d1.tmp.md "# D\n\n```mermaid\ngraph TD\nA[Start] --> B{Ok?}\nB -->|yes| C[Done]\n```\n\n```mermaid\npie title Pets\n```\n"
+open d1.tmp.md
+wait-idle
+assert diagrams_cached == 1
+open big-flow.md
+wait-idle
+assert diagrams_cached == 0
+click-render "graph TD"
+wait-idle
+assert diagrams_cached == 1
