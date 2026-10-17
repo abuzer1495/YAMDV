@@ -2,6 +2,7 @@
 //! Dev-only; never linked into `yamdv.exe`.
 
 mod future;
+mod future_issues;
 mod golden;
 mod icons;
 mod memprobe;
@@ -204,6 +205,7 @@ fn main() -> ExitCode {
         "gen-large" => golden::gen_large(&root(), rest),
         "spec-patch" => spec::patch(&root()),
         "future" => future::run(&root()),
+        "future-issues" => future_issues::run(&root()),
         "gen-icons" => icons::generate(&root()).map(|files| {
             for f in files {
                 println!("wrote {f}");
@@ -211,7 +213,7 @@ fn main() -> ExitCode {
         }),
         _ => {
             println!(
-                "usage: cargo xtask <ci | check-imports [<exe>] | size [<exe>] | memprobe <exe> [...] | gen-icons | spec-check | spec-patch | future | golden --exe <exe> [--update] | gen-large [<out>]>"
+                "usage: cargo xtask <ci | check-imports [<exe>] | size [<exe>] | memprobe <exe> [...] | gen-icons | spec-check | spec-patch | future | future-issues | golden --exe <exe> [--update] | gen-large [<out>]>"
             );
             Ok(())
         }

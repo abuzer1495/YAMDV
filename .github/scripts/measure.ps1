@@ -181,6 +181,19 @@ function T5Once([string]$name, [string]$doc, [int]$a) {
 }
 T5 't5-split' "$ed/t5-large.md"
 T5 't5-live' "$ed/typical.md"
+# T10 (prompt 008 §6): headless --export-pdf of large-1mb.md through "Microsoft Print to PDF",
+# time and page count (reported, no budget); skipped with a note when the printer is missing.
+$pdfPrinter = Get-CimInstance Win32_Printer -Filter "Name='Microsoft Print to PDF'" -ErrorAction SilentlyContinue
+if ($pdfPrinter) {
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  $p = Start-Process $rel -ArgumentList '--export-pdf', $large, '-o', "$m/large-1mb.pdf" -PassThru -Wait -RedirectStandardOutput "$m/T10.out"
+  $sw.Stop()
+  $pages = if ((Get-Content "$m/T10.out" -Raw) -match 'pages ([0-9]+)') { $Matches[1] } else { 'n/a' }
+  "T10 export-pdf large-1mb.md exit $($p.ExitCode) ms $($sw.ElapsedMilliseconds) pages $pages bytes $((Get-Item "$m/large-1mb.pdf" -ErrorAction SilentlyContinue).Length)" | Tee-Object -FilePath "$m/T10.txt"
+  Remove-Item -Force "$m/large-1mb.pdf" -ErrorAction SilentlyContinue
+} else {
+  'T10 skipped: Microsoft Print to PDF is not installed on this runner' | Tee-Object -FilePath "$m/T10.txt"
+}
 # 150 % scale screenshot is covered by the goldens (scale 1.5).
 Get-ChildItem $m | Format-Table Name, Length -AutoSize
 if ($failed.Count -gt 0) { Write-Host "::error::gates failed: $($failed -join ', ')"; exit 1 }

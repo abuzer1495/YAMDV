@@ -254,6 +254,13 @@ fn print_inner(dw: &DWrite, job: &Job, t: &Target) -> Result<Printed, Error> {
     let width_dips = g.width as f32 / dev_per_dip;
     let page_h = f64::from(g.height as f32 / dev_per_dip);
     let mut content = Content::Markdown(Document::new(job.source.clone(), ReadOpts::default()));
+    // S-PRIV-06: the document name is the first heading or the file name, nothing personal.
+    let title = match &content {
+        Content::Markdown(d) => d.index.headings.first().map(|h| h.text.clone()),
+        Content::Plain { .. } => None,
+    }
+    .filter(|t| !t.trim().is_empty())
+    .unwrap_or_else(|| job.stem());
     let mut viewer = Viewer::new(&content, width_dips, job.m);
     let images = crate::images::Store::synchronous(&job.path);
     let cache = yamdv_layout::rich::RichCache::default();
@@ -304,7 +311,7 @@ fn print_inner(dw: &DWrite, job: &Job, t: &Target) -> Result<Printed, Error> {
     drop(units);
     let total = pages.len();
     let (from, to) = t.range.unwrap_or((1, u32::MAX));
-    let name = HSTRING::from(job.stem());
+    let name = HSTRING::from(title.chars().take(200).collect::<String>());
     let out = t.output.as_deref().map(HSTRING::from);
     let di = DOCINFOW {
         cbSize: size_of::<DOCINFOW>() as i32,

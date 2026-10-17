@@ -12,6 +12,7 @@
 | Ana hattı göster | `Ctrl+\` |
 | Sık kullanılanlara ekle / çıkar | `Ctrl+D` |
 | Harici düzenleyicide aç | `F4`, `Ctrl+E` |
+| PDF olarak dışa aktar… / Yazdır… | `Ctrl+Shift+E` / `Ctrl+P` (HTML: bağlam menüsü ▸ Dışa aktar) |
 | Yazı boyutu | `Ctrl+tekerlek`, `Ctrl+=` / `Ctrl+-` / `Ctrl+0`, `Ctrl+↑` / `Ctrl+↓` |
 | Sütun genişliği | `Alt+tekerlek`, `Alt+↑` / `Alt+↓`, `Alt+0` |
 | Geri / ileri | `Alt+←` / `Alt+→`, fare düğmeleri 4 / 5 |
