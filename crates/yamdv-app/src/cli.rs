@@ -231,7 +231,7 @@ mod tests {
         );
         for bad in [
             &["--dialog-host"][..],
-            &["--dialog-host", "save", "1", "2"],
+            &["--dialog-host", "print", "1", "2"],
             &["--dialog-host", "open", "0", "2"],
             &["--dialog-host", "open", "x", "2"],
             &["--dialog-host", "open", "1", "2", "extra"],
