@@ -8,7 +8,7 @@ mod cli;
 #[cfg(windows)]
 fn main() {
     // S-PROC-01..04: hardening is the very first thing the process does.
-    // Printing processes (driver code runs in-process) skip StrictHandleCheck and ACG (ADR-0019).
+    // Printing processes (driver code runs in-process) skip StrictHandleCheck and ACG (ADR-0018).
     let printing = std::env::args_os()
         .nth(1)
         .is_some_and(|a| a == "--export-pdf" || a == "--print-job");

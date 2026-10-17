@@ -156,3 +156,14 @@ A-5 Owner addendum (V1-D until v1.0.0):
 3. Report ≤ 80 lines: status, AC table, measurements (M0, M1, T1, T4 typical, B-SIZE only), deviations, what is left, final owner QA list.
 4. CI: one full run at the end of the phase plus at most one fix push.
 ```
+
+**A-6 (Phase V1-D, owner addendum 2026-10-17; GitHub Actions unavailable until the minutes reset on 2026-11-01; supersedes the CI steps of A-5).**
+```text
+A-6 No-CI mode (V1-D until 2026-11-01):
+1. Push nothing that triggers CI: every commit carries `[skip ci]` (or the push is branch-only). Do not re-run or wait for CI runs.
+2. Verify locally: cargo fmt, clippy (native + cargo-xwin x86_64-pc-windows-msvc), tests of all platform-independent crates, deny, spec-check, check-imports and size on the cross-compiled exe.
+3. Windows-only tests, goldens, driver scripts and measurements are deferred and marked "NOT RUN (A-6)" in the report; never simulated.
+4. Test build: release exe built with cargo-xwin, zipped as `YAMDV-1.0.0-rc1-win-x64.zip` (yamdv.exe, README.md, CHANGELOG.md, FUTURE.md) plus its SHA-256 file, uploaded with `gh release create v1.0.0-rc1 --draft --title "YAMDV 1.0.0 RC1"`. Stays a DRAFT. Build artifacts stay out of git.
+5. PR #49 is not merged and `phase-v1d` / `v1.0.0` are not tagged: merge only after the owner confirms RC1 on a real PC; `v1.0.0` after green CI on 2026-11-01.
+6. The report (≤ 80 lines, A-5) includes a step-by-step manual QA list for RC1, replacing CI evidence.
+```

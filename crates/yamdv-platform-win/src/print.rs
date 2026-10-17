@@ -632,7 +632,7 @@ fn parse_job(text: &str) -> Option<(Job, Target)> {
 
 /// Prints in a worker process (`yamdv --print-job <file>`). Printer drivers run inside the
 /// printing process; the GUI keeps the full hardening (strict handle checks, ACG), the worker
-/// applies [`crate::hardening::apply_for_print`] (ADR-0019). Blocks until the worker exits.
+/// applies [`crate::hardening::apply_for_print`] (ADR-0018). Blocks until the worker exits.
 pub fn print_in_worker(job: &Job, t: &Target) -> Result<(), Error> {
     use std::sync::atomic::{AtomicU32, Ordering};
     static SEQ: AtomicU32 = AtomicU32::new(0);

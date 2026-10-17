@@ -43,7 +43,7 @@ pub fn apply() -> Vec<Step> {
     apply_inner(false)
 }
 
-/// Hardening for the printing processes (`--export-pdf`, `--print-job`; ADR-0019): everything
+/// Hardening for the printing processes (`--export-pdf`, `--print-job`; ADR-0018): everything
 /// except StrictHandleCheck and ACG, because printer drivers run in-process and may touch
 /// invalid handles or generate code (V1-D CI: `--export-pdf` died with 0xC000041D).
 pub fn apply_for_print() -> Vec<Step> {
