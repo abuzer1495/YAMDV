@@ -186,10 +186,14 @@ T5 't5-live' "$ed/typical.md"
 $pdfPrinter = Get-CimInstance Win32_Printer -Filter "Name='Microsoft Print to PDF'" -ErrorAction SilentlyContinue
 if ($pdfPrinter) {
   $sw = [Diagnostics.Stopwatch]::StartNew()
-  $p = Start-Process $rel -ArgumentList '--export-pdf', $large, '-o', "$m/large-1mb.pdf" -PassThru -Wait -RedirectStandardOutput "$m/T10.out"
+  $p = Start-Process $rel -ArgumentList '--export-pdf', "`"$large`"", '-o', "`"$m/large-1mb.pdf`"" -PassThru -RedirectStandardOutput "$m/T10.out"
+  $null = $p.Handle
+  $done = $p.WaitForExit(600000)
   $sw.Stop()
+  if (-not $done) { $p.Kill(); Write-Host '::warning::T10 timed out after 600 s (reported, no budget)' }
   $pages = if ((Get-Content "$m/T10.out" -Raw) -match 'pages ([0-9]+)') { $Matches[1] } else { 'n/a' }
-  "T10 export-pdf large-1mb.md exit $($p.ExitCode) ms $($sw.ElapsedMilliseconds) pages $pages bytes $((Get-Item "$m/large-1mb.pdf" -ErrorAction SilentlyContinue).Length)" | Tee-Object -FilePath "$m/T10.txt"
+  $code = if ($done) { $p.ExitCode } else { 'timeout' }
+  "T10 export-pdf large-1mb.md exit $code ms $($sw.ElapsedMilliseconds) pages $pages bytes $((Get-Item "$m/large-1mb.pdf" -ErrorAction SilentlyContinue).Length)" | Tee-Object -FilePath "$m/T10.txt"
   Remove-Item -Force "$m/large-1mb.pdf" -ErrorAction SilentlyContinue
 } else {
   'T10 skipped: Microsoft Print to PDF is not installed on this runner' | Tee-Object -FilePath "$m/T10.txt"

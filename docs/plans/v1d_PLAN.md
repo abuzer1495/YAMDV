@@ -13,11 +13,12 @@ Risks: no Windows GUI locally (xwin clippy only; behaviour via CI driver scripts
 ## CHECKPOINT
 - [x] prompt stored `docs/prompts/008_V1D_EXPORT_PACKAGING_RELEASE.md` (SHA-256 9483e4591ef463021bbe57c339aea144f1ad34f24f55995d6808d0fa1dab9662)
 - [x] F-22 in `measure.ps1`
-- [ ] export HTML (pure writer + host + menu + CLI)
-- [ ] CSV (pure + menu)
-- [ ] pagination + print + PDF (+ CLI)
-- [ ] install / uninstall / welcome button
-- [ ] version 1.0.0, CHANGELOG, README
-- [ ] driver scripts, XSS context, unit tests
-- [ ] future-issues xtask (run once), release CI job
+- [x] export HTML (pure writer + host + menu + CLI)
+- [x] CSV (pure + menu)
+- [x] pagination + print + PDF (+ CLI)
+- [x] install / uninstall / welcome button
+- [x] version 1.0.0, CHANGELOG, README
+- [x] driver scripts, XSS context, unit tests
+- [x] future-issues xtask (run once 2026-10-17: 41 issues #8–#48, label `future`, milestone `post-v1`), release CI job
 - [ ] CI, report, PR, merge, tags, draft release
+- note: welcome golden renamed `welcome-install-light.png` (install button); commit it from the CI artifact

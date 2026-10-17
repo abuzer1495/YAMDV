@@ -1,5 +1,5 @@
 # Export HTML (prompt 008 §2, §6): one self-contained file, no script, CSP, images as data: URIs
-write-file x1.tmp.md "# Export\n\n## Table\n\n| a | b |\n|---|--:|\n| 1 | 2 |\n\nLocal ![png](../corpus/acg/sample.png) and remote ![r](https://example.org/r.png).\n\nMath $e^{i\pi}+1=0$ inline.\n\n```mermaid\ngraph TD\nA-->B\n```\n\n- [x] done\n\n> [!NOTE]\n> callout\n\nNote[^1].\n\n[^1]: The note.\n\n<script>alert(1)</script>\n"
+write-file x1.tmp.md "# Export\n\n## Table\n\n| a | b |\n|---|--:|\n| 1 | 2 |\n\nLocal ![png](../corpus/002/typical-assets/one.png) and remote ![r](https://example.org/r.png).\n\nMath $e^{i\pi}+1=0$ inline.\n\n```mermaid\ngraph TD\nA-->B\n```\n\n- [x] done\n\n> [!NOTE]\n> callout\n\nNote[^1].\n\n[^1]: The note.\n\n<script>alert(1)</script>\n"
 open x1.tmp.md
 wait-idle
 assert document contains x1.tmp.md

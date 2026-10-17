@@ -8,7 +8,9 @@ $dev = (Resolve-Path 'target/dev/release/yamdv.exe').Path
 $typ = (Resolve-Path 'tests/corpus/002/typical.md').Path
 $fail = @()
 function Run([string]$exe, [string[]]$a, [string]$tag) {
-  $p = Start-Process $exe -ArgumentList $a -PassThru -Wait -RedirectStandardOutput "$out/$tag.out" -RedirectStandardError "$out/$tag.err"
+  $p = Start-Process $exe -ArgumentList $a -PassThru -RedirectStandardOutput "$out/$tag.out" -RedirectStandardError "$out/$tag.err"
+  $null = $p.Handle
+  if (-not $p.WaitForExit(300000)) { $p.Kill(); Write-Host "::error::$tag timed out"; return 99 }
   Write-Host "$tag exit $($p.ExitCode): $(Get-Content "$out/$tag.out" -Raw)$(Get-Content "$out/$tag.err" -Raw)"
   return $p.ExitCode
 }
