@@ -1,0 +1,7 @@
+# M5 (prompt 006 §2.7): Split Edit after 200 edits on typical.md; memprobe samples after
+# --settle-ms while the script sleeps (one character per 60 ms step = 12 s of typing).
+wait-idle
+key f3
+wait-idle
+type "lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum"
+sleep 600000

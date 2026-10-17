@@ -20,4 +20,16 @@ command scheme glacier
 wait-idle
 snapshot glacier-light.png
 command scheme default
+wait-idle
+# V1-B (prompt 006 §2.7): Split Edit, and Live Edit with an active source block.
+key f3
+wait-idle
+snapshot split-light.png
+key f3
+key f2
+click-text "Paragraph 2 of filler"
+wait-idle
+snapshot live-block-light.png
+key esc
+key esc
 command mode system

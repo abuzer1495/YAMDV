@@ -27,6 +27,8 @@ pub enum Kind {
     Forward = 2,
     /// Font dialog (`ChooseFontW`); the answer is one family name.
     Font = 3,
+    /// Save-as dialog (`IFileSaveDialog`); the answer is one path.
+    Save = 4,
 }
 
 /// S-IPC-01 payload limit for [`Kind::Forward`].
@@ -143,6 +145,7 @@ pub fn decode(b: &[u8]) -> Result<Reply, DecodeError> {
         1 => Kind::Open,
         2 if b.len() <= FORWARD_MAX_BYTES => Kind::Forward,
         3 => Kind::Font,
+        4 => Kind::Save,
         2 => return Err(DecodeError::Malformed),
         _ => return Err(DecodeError::Unknown),
     };

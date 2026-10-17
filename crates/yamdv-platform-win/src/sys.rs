@@ -131,6 +131,34 @@ pub fn copy_text_html(hwnd: HWND, text: &str, cf_html: Option<&str>) -> bool {
     }
 }
 
+/// Plain text from the clipboard (`CF_UNICODETEXT`), `None` when there is none (V1-B paste).
+pub fn paste_text(hwnd: HWND) -> Option<String> {
+    use windows::Win32::System::DataExchange::{GetClipboardData, IsClipboardFormatAvailable};
+    use windows::Win32::System::Memory::GlobalSize;
+    // SAFETY: standard clipboard read; the handle belongs to the clipboard and is only locked
+    // for the copy; reads stay within GlobalSize.
+    unsafe {
+        IsClipboardFormatAvailable(u32::from(CF_UNICODETEXT.0)).ok()?;
+        OpenClipboard(Some(hwnd)).ok()?;
+        let out = (|| -> Option<String> {
+            let h = GetClipboardData(u32::from(CF_UNICODETEXT.0)).ok()?;
+            let g = HGLOBAL(h.0);
+            let p = GlobalLock(g);
+            if p.is_null() {
+                return None;
+            }
+            let max = GlobalSize(g) / 2;
+            let s = std::slice::from_raw_parts(p.cast::<u16>(), max);
+            let n = s.iter().position(|&c| c == 0).unwrap_or(max);
+            let t = String::from_utf16_lossy(s.get(..n).unwrap_or(&[]));
+            let _ = GlobalUnlock(g);
+            Some(t)
+        })();
+        let _ = CloseClipboard();
+        out
+    }
+}
+
 /// Filter labels for the open dialog (R-OPEN-03).
 pub struct Filters<'a> {
     /// "Markdown".
@@ -203,6 +231,47 @@ pub fn open_dialog(owner: HWND, f: &Filters<'_>) -> Option<Vec<String>> {
             }
         }
         Some(out)
+    }
+}
+
+/// `IFileSaveDialog` (V1-B "Save … as…"). `Some(None)` = cancelled, `None` = failure.
+pub fn save_dialog(owner: HWND, f: &Filters<'_>) -> Option<Option<String>> {
+    use windows::Win32::UI::Shell::{FOS_OVERWRITEPROMPT, FileSaveDialog, IFileSaveDialog};
+    // SAFETY: as in `open_dialog`.
+    unsafe {
+        let dlg: IFileSaveDialog =
+            CoCreateInstance(&FileSaveDialog, None, CLSCTX_INPROC_SERVER).ok()?;
+        let names = [
+            HSTRING::from(f.markdown),
+            HSTRING::from(f.text),
+            HSTRING::from(f.all),
+        ];
+        let specs = [
+            HSTRING::from(MD_PATTERN),
+            HSTRING::from("*.txt"),
+            HSTRING::from("*.*"),
+        ];
+        let filters: Vec<COMDLG_FILTERSPEC> = names
+            .iter()
+            .zip(specs.iter())
+            .map(|(n, s)| COMDLG_FILTERSPEC {
+                pszName: PCWSTR(n.as_ptr()),
+                pszSpec: PCWSTR(s.as_ptr()),
+            })
+            .collect();
+        let _ = dlg.SetFileTypes(&filters);
+        let _ = dlg.SetDefaultExtension(&HSTRING::from("md"));
+        if let Ok(opts) = dlg.GetOptions() {
+            let _ = dlg.SetOptions(opts | FOS_OVERWRITEPROMPT | FOS_FORCEFILESYSTEM);
+        }
+        if let Err(e) = dlg.Show(Some(owner)) {
+            return (e.code().0 as u32 == 0x8007_04C7).then_some(None);
+        }
+        let item = dlg.GetResult().ok()?;
+        let p = item.GetDisplayName(SIGDN_FILESYSPATH).ok()?;
+        let s = p.to_string().ok();
+        CoTaskMemFree(Some(p.0 as *const core::ffi::c_void));
+        s.map(Some)
     }
 }
 

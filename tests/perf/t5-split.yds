@@ -1,0 +1,9 @@
+# T5 (prompt 006 §2.7): key -> caret painted latency, Split Edit on large-1mb.md (p99 <= 25 ms).
+wait-idle
+key f3
+wait-idle
+type "quick brown fox jumps quick brown fox jumps quick brown fox "
+wait-idle
+dump
+assert t5_n >= 50
+assert t5_p99_ms <= 25

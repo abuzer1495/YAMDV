@@ -88,7 +88,7 @@ pub fn parse_with<I: IntoIterator<Item = String>>(args: I, dev_tools: bool) -> C
     if args.first().map(String::as_str) == Some("--dialog-host") {
         // Exactly `--dialog-host open <owner> <nonce>`; anything else is a usage error (exit 2).
         return match args.as_slice() {
-            [_, k, o, n] if k == "open" || k == "font" => {
+            [_, k, o, n] if k == "open" || k == "font" || k == "save" => {
                 match (o.parse::<isize>(), n.parse::<u64>()) {
                     (Ok(owner), Ok(nonce)) if owner != 0 => Command::DialogHost {
                         kind: k.clone(),
@@ -231,7 +231,7 @@ mod tests {
         );
         for bad in [
             &["--dialog-host"][..],
-            &["--dialog-host", "save", "1", "2"],
+            &["--dialog-host", "print", "1", "2"],
             &["--dialog-host", "open", "0", "2"],
             &["--dialog-host", "open", "x", "2"],
             &["--dialog-host", "open", "1", "2", "extra"],

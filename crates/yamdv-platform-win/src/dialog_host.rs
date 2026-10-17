@@ -204,6 +204,22 @@ pub fn run_host(kind: &str, owner: isize, nonce: u64) -> i32 {
         );
         return code;
     }
+    if kind == "save" {
+        let (outcome, code) = match crate::sys::save_dialog(owner, &f) {
+            Some(Some(p)) => (Outcome::Paths(vec![p]), EXIT_OK),
+            Some(None) => (Outcome::Cancel, EXIT_OK),
+            None => (Outcome::Error, EXIT_DIALOG_FAILED),
+        };
+        send_reply(
+            owner,
+            &Reply {
+                kind: Kind::Save,
+                nonce,
+                outcome,
+            },
+        );
+        return code;
+    }
     let (outcome, code) = match crate::sys::open_dialog(owner, &f) {
         Some(p) if p.is_empty() => (Outcome::Cancel, EXIT_OK),
         Some(p) => (Outcome::Paths(p), EXIT_OK),
@@ -260,7 +276,11 @@ pub fn launch(owner: HWND) -> Option<HostWait> {
 
 /// Starts the host for a dialog of `kind` owned by `owner`.
 pub fn launch_kind(owner: HWND, kind: Kind) -> Option<HostWait> {
-    let verb = if kind == Kind::Font { "font" } else { "open" };
+    let verb = match kind {
+        Kind::Font => "font",
+        Kind::Save => "save",
+        _ => "open",
+    };
     let mut buf = vec![0u16; 32_768];
     // SAFETY: valid buffer; NULL module = our own executable.
     let n = unsafe { GetModuleFileNameW(None, &mut buf) } as usize;

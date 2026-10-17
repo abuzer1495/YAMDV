@@ -22,6 +22,8 @@ struct Script {
     fails: u32,
     /// `sleep`: resume after this instant.
     resume: Option<std::time::Instant>,
+    /// `type` in an edit mode: one character per step, so each edit is painted (T5).
+    chars: std::collections::VecDeque<char>,
 }
 
 thread_local! {
@@ -47,6 +49,7 @@ pub(super) fn start(hwnd: HWND, path: &str) {
             log,
             fails,
             resume: None,
+            chars: std::collections::VecDeque::new(),
         });
     });
     // SAFETY: valid hwnd; killed when the script ends.
@@ -62,6 +65,11 @@ pub(super) fn tick(w: &mut Win, sh: &Shared) {
             .and_then(|s| s.resume)
             .is_some_and(|r| now < r)
     }) {
+        return;
+    }
+    let next = SCRIPT.with(|s| s.borrow_mut().as_mut().and_then(|s| s.chars.pop_front()));
+    if let Some(c) = next {
+        w.edit_type(sh, &c.to_string());
         return;
     }
     loop {
@@ -183,11 +191,21 @@ fn run(w: &mut Win, sh: &Shared, cmd: &Cmd) -> String {
             None => format!("FAIL command {name}: unknown"),
         },
         Cmd::Type(t) => {
-            for c in t.chars() {
-                w.find_char(sh, c);
+            if w.find.is_none() && w.typing() {
+                SCRIPT.with(|s| {
+                    if let Some(s) = s.borrow_mut().as_mut() {
+                        s.chars.extend(t.chars());
+                    }
+                });
+            } else {
+                for c in t.chars() {
+                    w.find_char(sh, c);
+                }
             }
             format!("ok type \"{t}\"")
         }
+        Cmd::ClickText(t) => click_text(w, sh, t, false),
+        Cmd::ClickTask(t) => click_text(w, sh, t, true),
         Cmd::SideClick(text) => {
             let row = w
                 .side_rows(sh)
@@ -323,8 +341,90 @@ fn command_id(name: &str) -> Option<u32> {
         "reload" => app::RELOAD,
         "select-all" => app::SELECT_ALL,
         "restore-position" => app::RESTORE_POS,
+        "live" => app::LIVE_EDIT,
+        "split" => app::SPLIT_EDIT,
+        "swap" => app::SWAP_PANES,
+        "autosave" => app::AUTOSAVE,
+        "undo" => app::UNDO,
+        "redo" => app::REDO,
+        "line-numbers" => app::ELINES,
+        "soft-wrap" => app::EWRAP,
         _ => return None,
     })
+}
+
+/// Clicks the first rendered occurrence of `text` (or the checkbox of its task item).
+fn click_text(w: &mut Win, sh: &Shared, text: &str, task: bool) -> String {
+    use yamdv_layout::block::HotKind;
+    let found = match &w.view {
+        View::Doc(d) => d
+            .content
+            .source()
+            .find(text)
+            .map(|p| (p, super::edit::block_of(&d.content, p))),
+        _ => None,
+    };
+    let Some((pos, bi)) = found else {
+        return format!("FAIL click-text \"{text}\": not in the document");
+    };
+    let top = match &w.view {
+        View::Doc(d) => d.viewer.block_top(&d.content, bi),
+        _ => 0.0,
+    };
+    let s = w.scroll_pos();
+    if top < s + 40.0 || top > s + w.view_h() - 120.0 {
+        w.set_scroll(top - 80.0);
+    }
+    if let Some(a) = w.anim.take() {
+        w.set_scroll(a.to);
+    }
+    w.prepare_now(sh);
+    let (cx, _) = w.col(sh);
+    let pt = (|| {
+        let View::Doc(d) = &w.view else { return None };
+        let bl = d.viewer.layout_of(bi)?;
+        let top = (d.viewer.block_top(&d.content, bi) - d.viewer.scroll) as f32;
+        if task {
+            let h = bl
+                .hot
+                .iter()
+                .rfind(|h| matches!(h.kind, HotKind::Task { item } if item as usize <= pos))?;
+            return Some((
+                cx + h.rect.x + h.rect.w / 2.0,
+                top + h.rect.y + h.rect.h / 2.0,
+            ));
+        }
+        let (a, b) = (
+            u32::try_from(pos).ok()?,
+            u32::try_from(pos + text.len()).ok()?,
+        );
+        bl.paras.iter().find_map(|p| {
+            let r = *yamdv_layout::viewer::selection_rects(p, &(a..b)).first()?;
+            Some((cx + p.x + r.x + r.w / 2.0, top + p.y + r.y + r.h / 2.0))
+        })
+    })();
+    let Some((x, y)) = pt else {
+        return format!("FAIL click-text \"{text}\": not laid out");
+    };
+    if !w.edit_mouse_down(sh, x, y, false) {
+        w.mouse_down(sh, x, y, false);
+    }
+    if !w.edit_mouse_up() {
+        w.mouse_up();
+    }
+    format!(
+        "ok click-{} \"{text}\" at {x:.0},{y:.0}",
+        if task { "task" } else { "text" }
+    )
+}
+
+/// Escapes CR/LF for one-line state values (scripts compare against `\n` / `\r`).
+fn esc_text(s: &str) -> String {
+    s.chars()
+        .take(4000)
+        .collect::<String>()
+        .replace('\r', "\\r")
+        .replace('\n', "\\n")
 }
 
 /// First link whose text contains `text` (document order).
@@ -387,6 +487,10 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         Some((_, Pending::Local { .. })) => "confirm-local",
         Some((d, Pending::Reveal { .. })) if d.title == blocked => "blocked",
         Some((_, Pending::Reveal { .. })) => "folder",
+        Some((_, Pending::Edit(super::edit::Ask::Conflict))) => "conflict",
+        Some((_, Pending::Edit(super::edit::Ask::Blocked(_)))) => "edit-blocked",
+        Some((_, Pending::Edit(super::edit::Ask::Unmappable))) => "unmappable",
+        Some((_, Pending::Edit(super::edit::Ask::Unsaved))) => "unsaved",
         Some(_) => "document-guard",
     };
     let windows = WINDOWS.with(|m| m.borrow().len());
@@ -399,6 +503,43 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         _ => 0,
     };
     let favorites = app::with(|a| a.state.favorites.len()).unwrap_or(0);
+    let edit_mode = ["read", "live", "split"][usize::from(w.edit_mode_id())];
+    let (dirty, active, caret, sel_len, buffer, undo, t5) = match w.edit() {
+        Some(e) => {
+            let mut l = e.lat.clone();
+            l.sort_by(f64::total_cmp);
+            let p99 = l
+                .get(((l.len() as f64 * 0.99).ceil() as usize).saturating_sub(1))
+                .copied()
+                .unwrap_or(0.0);
+            (
+                u8::from(e.ed.is_dirty()),
+                e.active.map_or(-1.0, |a| a.block as f64),
+                e.ed.caret(),
+                e.ed.selection().len(),
+                esc_text(&e.ed.text()),
+                e.ed.history().undo_len(),
+                (p99, l.len()),
+            )
+        }
+        None => (0, -1.0, 0, 0, String::new(), 0, (0.0, 0)),
+    };
+    let (preview, file) = match &w.view {
+        View::Doc(d) if !d.virt => (
+            esc_text(d.content.source()),
+            std::fs::read(yamdv_core::path::long_form(&d.path))
+                .map(|b| esc_text(&String::from_utf8_lossy(&b)))
+                .unwrap_or_default(),
+        ),
+        _ => (String::new(), String::new()),
+    };
+    let title = {
+        use windows::Win32::UI::WindowsAndMessaging::GetWindowTextW;
+        let mut buf = [0u16; 512];
+        // SAFETY: valid hwnd and buffer.
+        let n = unsafe { GetWindowTextW(w.hwnd, &mut buf) };
+        String::from_utf16_lossy(buf.get(..usize::try_from(n).unwrap_or(0)).unwrap_or(&[]))
+    };
     let (menu_items, menu_checked) = app::menu_probe(&w.menu_ctx(None));
     vec![
         ("document".into(), V::S(doc)),
@@ -424,6 +565,18 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         ("source_len".into(), V::N(source_len as f64)),
         ("menu_items".into(), V::N(menu_items as f64)),
         ("menu_checked".into(), V::S(menu_checked)),
+        ("edit_mode".into(), V::S(edit_mode.into())),
+        ("dirty".into(), V::N(f64::from(dirty))),
+        ("active_block".into(), V::N(active)),
+        ("caret".into(), V::N(caret as f64)),
+        ("sel_len".into(), V::N(sel_len as f64)),
+        ("undo_depth".into(), V::N(undo as f64)),
+        ("buffer".into(), V::S(buffer)),
+        ("preview".into(), V::S(preview)),
+        ("file".into(), V::S(file)),
+        ("title".into(), V::S(title)),
+        ("t5_p99_ms".into(), V::N(t5.0)),
+        ("t5_n".into(), V::N(t5.1 as f64)),
     ]
 }
 

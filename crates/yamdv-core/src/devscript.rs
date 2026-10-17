@@ -55,11 +55,16 @@ pub enum Cmd {
     Dump,
     /// Run a context-menu command by name (`mode dark`, `scheme glacier`, `favorite`, …).
     Command(String),
-    /// Type text (WM_CHAR) — the find bar.
+    /// Type text (WM_CHAR): the find bar, or the editor in F2/F3 (one character per step, the
+    /// key → caret-painted latency is recorded, T5).
     Type(String),
+    /// Click the middle of the first rendered occurrence of the text (F2 block entry).
+    ClickText(String),
+    /// Click the task checkbox of the list item containing the text.
+    ClickTask(String),
     /// Click the first sidebar row whose text contains the string.
     SideClick(String),
-    /// Write a file relative to the script folder (`\n` = newline).
+    /// Write a file relative to the script folder (`\n` = LF, `\r` = CR).
     WriteFile(String, String),
     /// Open a file relative to the script folder in this window.
     Open(String),
@@ -77,6 +82,9 @@ pub enum Cmd {
 pub fn vk(name: &str) -> Option<u16> {
     let n = name.to_ascii_lowercase();
     Some(match n.as_str() {
+        "backspace" => 0x08,
+        "delete" | "del" => 0x2E,
+        "`" | "backquote" => 0xC0,
         "tab" => 0x09,
         "enter" | "return" => 0x0D,
         "esc" | "escape" => 0x1B,
@@ -89,6 +97,12 @@ pub fn vk(name: &str) -> Option<u16> {
         "up" => 0x26,
         "right" => 0x27,
         "down" => 0x28,
+        f if f.len() >= 2
+            && f.starts_with('f')
+            && f[1..].parse::<u16>().is_ok_and(|k| (1..=12).contains(&k)) =>
+        {
+            0x6F + f[1..].parse::<u16>().unwrap_or(1)
+        }
         _ => match n.as_bytes() {
             [c] if c.is_ascii_alphanumeric() => u16::from(c.to_ascii_uppercase()),
             _ => return None,
@@ -163,9 +177,14 @@ pub fn parse_line(line: &str) -> Result<Option<Cmd>, String> {
         "command" if !rest.is_empty() => Cmd::Command(rest.to_string()),
         "type" => Cmd::Type(unquote(rest)),
         "side-click" => Cmd::SideClick(unquote(rest)),
+        "click-text" if !rest.is_empty() => Cmd::ClickText(unquote(rest)),
+        "click-task" if !rest.is_empty() => Cmd::ClickTask(unquote(rest)),
         "write-file" => {
             let (f, t) = rest.split_once(' ').ok_or_else(bad)?;
-            Cmd::WriteFile(f.to_string(), unquote(t).replace("\\n", "\n"))
+            Cmd::WriteFile(
+                f.to_string(),
+                unquote(t).replace("\\n", "\n").replace("\\r", "\r"),
+            )
         }
         "open" if !rest.is_empty() => Cmd::Open(unquote(rest)),
         "launch" if !rest.is_empty() => Cmd::Launch(unquote(rest)),
@@ -301,5 +320,51 @@ mod tests {
             parse_line("snapshot a.png").unwrap(),
             Some(Cmd::Snapshot("a.png".into()))
         );
+    }
+
+    #[test]
+    fn editing_commands_parse() {
+        assert_eq!(vk("F2"), Some(0x71));
+        assert_eq!(vk("f12"), Some(0x7B));
+        assert_eq!(vk("backspace"), Some(0x08));
+        assert_eq!(vk("`"), Some(0xC0));
+        assert_eq!(
+            parse_line("click-text \"two words\"").ok().flatten(),
+            Some(Cmd::ClickText("two words".into()))
+        );
+        assert_eq!(
+            parse_line("click-task todo").ok().flatten(),
+            Some(Cmd::ClickTask("todo".into()))
+        );
+        assert_eq!(
+            parse_line("write-file a.md \"x\\r\\ny\"").ok().flatten(),
+            Some(Cmd::WriteFile("a.md".into(), "x\r\ny".into()))
+        );
+    }
+
+    #[test]
+    fn committed_scripts_parse() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests");
+        let mut n = 0;
+        for dir in ["driver", "golden/v1a", "perf"] {
+            for e in std::fs::read_dir(root.join(dir))
+                .into_iter()
+                .flatten()
+                .flatten()
+            {
+                let p = e.path();
+                if p.extension().is_some_and(|x| x == "yds") {
+                    let src = std::fs::read_to_string(&p).unwrap_or_default();
+                    assert!(
+                        parse(&src).is_ok(),
+                        "{}: {:?}",
+                        p.display(),
+                        parse(&src).err()
+                    );
+                    n += 1;
+                }
+            }
+        }
+        assert!(n >= 24, "found {n} scripts");
     }
 }

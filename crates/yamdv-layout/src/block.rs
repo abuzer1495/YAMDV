@@ -228,6 +228,12 @@ pub enum HotKind {
         /// Reference index in [`yamdv_core::doc::index::FootnoteUse::refs`].
         k: u32,
     },
+    /// Task checkbox (R-F2-07, P-16/P-17): source offset where its list item starts; the
+    /// `[ ]` / `[x]` marker is the first `[` on that line.
+    Task {
+        /// Item source start.
+        item: u32,
+    },
     /// Link text (R-LINK-*): index into the block's `Detail::links`.
     Link {
         /// Link index.
@@ -1066,13 +1072,20 @@ fn node(
                 match (task, start) {
                     (Some(done), _) => {
                         // B.6.4: vector 16 × 16 box, radius 4, 1.5 px border; checked → accent
-                        // fill with a white check. Not clickable (P-16/P-17).
+                        // fill with a white check. Clickable in F2 (and in read mode when
+                        // `reading.task_toggle_in_read_mode` is on, P-16/P-17).
                         let r = Rect::new(
                             marker_right - 16.0,
                             yy + (m.pitch() - 16.0) / 2.0,
                             16.0,
                             16.0,
                         );
+                        out.hot.push(Hot {
+                            rect: r,
+                            kind: HotKind::Task {
+                                item: d.nodes[item].range.start,
+                            },
+                        });
                         if done {
                             out.items.push(Item::Fill {
                                 rect: r,

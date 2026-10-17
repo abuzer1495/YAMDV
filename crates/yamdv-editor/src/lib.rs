@@ -1,5 +1,13 @@
-//! Editor core: buffer, selections, undo, commands, snippets, table model.
-//!
-//! Platform-independent (pure) crate; see `docs/ARCHITECTURE.md` §E.2.
-//! PHASE-006: first real content lands in Phase 006. This crate is intentionally empty in Phase 001.
+//! Editor core (prompt 006 §2.1): rope buffer, caret + selection, undo/redo, Markdown-aware
+//! keys. Platform-independent (pure) crate; see `docs/ARCHITECTURE.md` §E.2. One [`Editor`] is
+//! shared by F2 (block-level live edit) and F3 (split edit) for the same document.
 #![forbid(unsafe_code)]
+
+pub mod buffer;
+pub mod history;
+pub mod md;
+
+pub use buffer::{Editor, Motion, normalize_eol};
+
+#[cfg(test)]
+mod tests;

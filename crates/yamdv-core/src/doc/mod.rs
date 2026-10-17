@@ -91,6 +91,48 @@ impl Document {
         detail::Detail::build(&self.source, &self.index, i, self.opts)
     }
 
+    /// Incremental edit (ADR-0007 §4, prompt 006 §2.3): replaces the source bytes `edit` by
+    /// `new`, re-parses only the affected top-level blocks and returns what changed. The detail
+    /// cache is cleared (its trees hold absolute source ranges).
+    pub fn apply_edit(&mut self, edit: std::ops::Range<usize>, new: &str) -> index::Splice {
+        let edit = edit.start.min(self.source.len())..edit.end.min(self.source.len());
+        self.source.replace_range(edit.clone(), new);
+        let sp = self.index.splice(&self.source, edit, new.len(), self.opts);
+        self.cache.clear();
+        sp
+    }
+
+    /// Brings the document to `text` with one splice over the differing middle (common prefix
+    /// and suffix are kept). Returns `None` when nothing changed.
+    pub fn sync_to(&mut self, text: &str) -> Option<(std::ops::Range<usize>, index::Splice)> {
+        let (a, b) = (self.source.as_bytes(), text.as_bytes());
+        let mut p = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+        if p == a.len() && p == b.len() {
+            return None;
+        }
+        let max_s = a.len().min(b.len()) - p;
+        let mut s = a
+            .iter()
+            .rev()
+            .zip(b.iter().rev())
+            .take(max_s)
+            .take_while(|(x, y)| x == y)
+            .count();
+        // Keep the cut on char boundaries of both texts.
+        while p > 0 && !(self.source.is_char_boundary(p) && text.is_char_boundary(p)) {
+            p -= 1;
+        }
+        while s > 0
+            && !(self.source.is_char_boundary(a.len() - s) && text.is_char_boundary(b.len() - s))
+        {
+            s -= 1;
+        }
+        let old = p..a.len() - s;
+        let new = text.get(p..b.len() - s).unwrap_or("").to_string();
+        let sp = self.apply_edit(old.clone(), &new);
+        Some((p..p + new.len(), sp))
+    }
+
     /// Bytes owned by the model (source + index + cache), for `mem-stats`.
     pub fn heap_bytes(&self) -> (usize, usize, usize) {
         (

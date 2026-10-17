@@ -1,0 +1,11 @@
+# Ctrl+B on the word at the caret (prompt 006 §2.1)
+write-file e9.tmp.md "make word bold\n"
+open e9.tmp.md
+wait-idle
+key f3
+key ctrl+right
+key right
+key right
+key ctrl+B
+wait-idle
+assert buffer contains "make **word** bold"

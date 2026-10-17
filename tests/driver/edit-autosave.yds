@@ -1,0 +1,11 @@
+# Autosave writes the file; untouched bytes (CRLF) stay identical (prompt 006 §2.2)
+write-file e3.tmp.md "# Head\r\n\r\nkeep this line\r\nedit here\r\n"
+open e3.tmp.md
+wait-idle
+key f3
+key ctrl+end
+type "added"
+sleep 1500
+wait-idle
+assert dirty == 0
+assert file == "# Head\r\n\r\nkeep this line\r\nedit here\r\nadded"

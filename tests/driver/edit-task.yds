@@ -1,0 +1,11 @@
+# F2: a task checkbox click toggles it with one edit (and autosaves) (prompt 006 §2.5)
+write-file e7.tmp.md "# Tasks\n\n- [ ] todo item\n- [x] done item\n"
+open e7.tmp.md
+wait-idle
+key f2
+click-task "todo item"
+wait-idle
+assert buffer contains "- [x] todo item"
+assert undo_depth == 1
+sleep 300
+assert file contains "- [x] todo item\n- [x] done item"

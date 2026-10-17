@@ -865,12 +865,19 @@ mod win {
                 cmd.push_str(&quote(a));
             }
             let mut cmdw: Vec<u16> = cmd.encode_utf16().chain(Some(0)).collect();
+            // F-20: run "in place" — the working directory is the document's folder, as when the
+            // user double-clicks it, so relative image paths resolve from the corpus folder.
+            let cwd: Option<Vec<u16>> = opts.doc.as_deref().and_then(|d| {
+                let parent = std::path::Path::new(d).parent()?.to_str()?;
+                (!parent.is_empty()).then(|| parent.encode_utf16().chain(Some(0)).collect())
+            });
             let si = STARTUPINFOW {
                 cb: u32::try_from(size_of::<STARTUPINFOW>()).unwrap_or(0),
                 ..Default::default()
             };
             let mut info = PROCESS_INFORMATION::default();
-            // SAFETY: command line buffer is mutable and NUL-terminated; out-pointers are valid.
+            // SAFETY: command line and working-directory buffers are NUL-terminated and outlive the
+            // call; out-pointers are valid.
             unsafe {
                 CreateProcessW(
                     PCWSTR::null(),
@@ -880,7 +887,7 @@ mod win {
                     false,
                     PROCESS_CREATION_FLAGS(0),
                     None,
-                    PCWSTR::null(),
+                    cwd.as_ref().map_or(PCWSTR::null(), |c| PCWSTR(c.as_ptr())),
                     &si,
                     &mut info,
                 )

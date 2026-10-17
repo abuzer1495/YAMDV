@@ -45,15 +45,15 @@ use windows::Win32::System::Threading::INFINITE;
 use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::{VK_LEFT, VK_RIGHT};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
-    GetClientRect, GetCursorPos, GetMessageTime, GetSystemMetrics, HICON, HTCLIENT, IDC_ARROW,
-    IDC_IBEAM, IMAGE_ICON, KillTimer, LR_DEFAULTSIZE, LR_SHARED, LoadCursorW, LoadImageW,
-    MINMAXINFO, MSG, PostMessageW, PostQuitMessage, RegisterClassExW, SM_CXDOUBLECLK,
-    SM_CYDOUBLECLK, SW_INVALIDATE, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, ScrollWindowEx,
-    SetCursor, SetPropW, SetTimer, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage,
-    WINDOW_EX_STYLE, WM_APP, WM_COMMAND, WM_DESTROY, WM_DPICHANGED, WM_DROPFILES, WM_ERASEBKGND,
-    WM_GETMINMAXINFO, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL,
-    WM_PAINT, WM_SETCURSOR, WM_SETTINGCHANGE, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
+    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect,
+    GetCursorPos, GetMessageTime, GetSystemMetrics, HICON, HTCLIENT, IDC_ARROW, IDC_IBEAM,
+    IMAGE_ICON, KillTimer, LR_DEFAULTSIZE, LR_SHARED, LoadCursorW, LoadImageW, MINMAXINFO, MSG,
+    PostMessageW, PostQuitMessage, RegisterClassExW, SM_CXDOUBLECLK, SM_CYDOUBLECLK, SW_INVALIDATE,
+    SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, ScrollWindowEx, SetCursor, SetPropW, SetTimer,
+    SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WM_APP,
+    WM_COMMAND, WM_DESTROY, WM_DPICHANGED, WM_DROPFILES, WM_ERASEBKGND, WM_GETMINMAXINFO,
+    WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_SETCURSOR,
+    WM_SETTINGCHANGE, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     IDC_HAND, SW_SHOWMAXIMIZED, WM_ACTIVATEAPP, WM_CHAR, WM_CONTEXTMENU, WM_DRAWITEM, WM_MBUTTONUP,
@@ -63,6 +63,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 mod app;
 #[cfg(feature = "dev-tools")]
 mod driver;
+mod edit;
 mod findbar;
 mod sidebar;
 mod welcome;
@@ -273,6 +274,10 @@ struct DocView {
     images: crate::images::Store,
     /// Built-in document (help); no file, history, watcher or position.
     virt: bool,
+    /// File facts for saving (V1-B).
+    facts: edit::Facts,
+    /// Editor (F2/F3), kept while the buffer has unsaved changes.
+    edit: Option<Box<edit::Edit>>,
 }
 
 #[derive(Debug, Clone)]
@@ -298,6 +303,8 @@ enum Pending {
     },
     /// Information only (About).
     Info,
+    /// Editing dialogs (V1-B).
+    Edit(edit::Ask),
 }
 
 const BTN_CANCEL: u32 = 0;
@@ -387,6 +394,8 @@ enum Action {
     HostResult(yamdv_core::ipc::Kind, yamdv_core::ipc::Outcome),
     NewWindow(String),
     Close,
+    /// "Save … as…" dialog (dialog host, V1-B).
+    SaveAsDialog,
 }
 
 fn rgb_text(dark: bool) -> u32 {
@@ -448,6 +457,9 @@ impl Win {
         allow_binary: bool,
         record: bool,
     ) {
+        if record && !self.edit_release(sh) {
+            return;
+        }
         if record {
             self.save_position();
         }
@@ -518,6 +530,7 @@ impl Win {
             return;
         }
         let d = decode::decode(&bytes);
+        let stamp = yamdv_core::encode::Stamp::of(&bytes, edit::ticks(info.mtime));
         drop(bytes);
         let plain = force == Some(true) || ypath::extension(&full) == "txt";
         // S-LINK-04: the document's own Zone.Identifier stream (a path we build ourselves).
@@ -528,6 +541,12 @@ impl Win {
         self.show_text(sh, full.clone(), d.text, plain, false);
         if let View::Doc(dv) = &mut self.view {
             dv.internet = internet;
+            dv.facts.encoding = d.encoding;
+            dv.facts.bom = d.had_bom;
+            dv.facts.lossy = d.lossy;
+            dv.facts.eol = yamdv_core::encode::dominant_eol(d.line_endings);
+            dv.facts.read_only = info.read_only;
+            dv.facts.stamp = Some(stamp);
             dv.info = info;
             dv.encoding = d.encoding;
         }
@@ -575,6 +594,11 @@ impl Win {
             encoding: "UTF-8",
             images: crate::images::Store::new(&full, self.hwnd.0 as isize),
             virt,
+            facts: edit::Facts {
+                plain,
+                ..edit::Facts::default()
+            },
+            edit: None,
         }));
         if let Some(f) = &mut self.find {
             f.dirty = true;
@@ -624,6 +648,7 @@ impl Win {
             }
             (Pending::Reveal { path }, BTN_OPEN) => sys::reveal_in_explorer(&path),
             (Pending::Info, _) => {}
+            (Pending::Edit(a), id) => self.edit_dialog(sh, a, id),
             _ => {}
         }
         self.invalidate();
@@ -1137,6 +1162,7 @@ impl Win {
         let mut ps = PAINTSTRUCT::default();
         // SAFETY: standard BeginPaint/EndPaint pair.
         let hdc = unsafe { BeginPaint(self.hwnd, &mut ps) };
+        self.edit_prepare(sh);
         let vh = self.view_h();
         let (cx, cwid) = self.col(sh);
         if let View::Doc(d) = &mut self.view {
@@ -1194,6 +1220,7 @@ impl Win {
         }
         // SAFETY: matches BeginPaint.
         let _ = unsafe { EndPaint(self.hwnd, &ps) };
+        self.edit_painted();
         if let Some(r) = &self.renderer {
             let bytes = crate::render::band_bytes(r.width());
             // SAFETY: valid hwnd; the property value is a plain integer, never a handle.
@@ -1362,6 +1389,7 @@ impl Win {
                         );
                     }
                 }
+                self.draw_edit(sh, b);
                 if let Some(t) = self.thumb()
                     && self.sb.alpha > 0.0
                 {
@@ -1374,7 +1402,7 @@ impl Win {
                 }
             }
         }
-        if matches!(self.view, View::Doc(_)) {
+        if matches!(self.view, View::Doc(_)) && self.split_rects().is_none() {
             self.draw_side(sh, b);
         }
         self.draw_find(sh, b);
@@ -1500,6 +1528,9 @@ impl Win {
                 }
                 _ => {}
             }
+        }
+        if let Some(a) = self.edit_key(sh, vk, ctrl, shift) {
+            return a;
         }
         match vk {
             0x70 => return Some(Action::Help),
@@ -1930,6 +1961,7 @@ impl Win {
             return false;
         };
         match kind {
+            HotKind::Task { item } => return self.task_click(sh, item),
             HotKind::CodeCopy { node } => {
                 let raw = d
                     .viewer
@@ -2580,6 +2612,7 @@ fn update_size(w: &mut Win, sh: &Shared) {
     if let View::Doc(d) = &mut w.view {
         d.viewer.set_width(&d.content, colw, vh);
     }
+    w.edit_resize(sh);
     w.invalidate();
 }
 
@@ -2591,6 +2624,10 @@ fn handle(
     lp: LPARAM,
 ) -> (Option<LRESULT>, Vec<Action>) {
     let mut actions = Vec::new();
+    if let Some(r) = w.edit_msg(sh, msg, wp, lp) {
+        actions.append(&mut w.actions);
+        return (Some(r), actions);
+    }
     let r = match msg {
         WM_ERASEBKGND => Some(LRESULT(1)),
         WM_COPYDATA => {
@@ -2947,9 +2984,39 @@ fn run_actions_inner(hwnd: HWND, actions: Vec<Action>) {
     for a in actions {
         match a {
             Action::Close => {
-                // SAFETY: destroying our own window.
-                let _ = unsafe { DestroyWindow(hwnd) };
+                // WM_CLOSE first: unsaved edits are saved or confirmed (V1-B).
+                // SAFETY: valid hwnd.
+                let _ = unsafe { PostMessageW(Some(hwnd), 0x0010, WPARAM(0), LPARAM(0)) };
                 return;
+            }
+            Action::SaveAsDialog => {
+                if HOST.with(|h| h.borrow().is_some()) {
+                    continue;
+                }
+                match crate::dialog_host::launch_kind(hwnd, yamdv_core::ipc::Kind::Save) {
+                    Some(h) => {
+                        // SAFETY: valid hwnd; WM_ENABLE is not handled by us (no re-entry).
+                        let _ = unsafe { EnableWindow(hwnd, false) };
+                        HOST.with(|x| *x.borrow_mut() = Some(h));
+                    }
+                    None => show_toast(hwnd, Msg::DialogHostFailed),
+                }
+            }
+            Action::HostResult(yamdv_core::ipc::Kind::Save, o) => {
+                // SAFETY: valid hwnd.
+                unsafe {
+                    let _ = EnableWindow(hwnd, true);
+                    let _ = SetForegroundWindow(hwnd);
+                }
+                match o {
+                    yamdv_core::ipc::Outcome::Paths(p) => {
+                        if let Some(path) = p.into_iter().next() {
+                            app::with_win(hwnd, |w, sh| w.edit_save_as(sh, &path));
+                        }
+                    }
+                    yamdv_core::ipc::Outcome::Error => show_toast(hwnd, Msg::DialogHostFailed),
+                    yamdv_core::ipc::Outcome::Cancel => {}
+                }
             }
             Action::NewWindow(p) => {
                 create_window(&sh, Some(&p));
