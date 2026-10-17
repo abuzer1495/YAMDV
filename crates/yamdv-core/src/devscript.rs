@@ -53,6 +53,24 @@ pub enum Cmd {
     Assert(String, Op, String),
     /// Write the state dump to the log.
     Dump,
+    /// Run a context-menu command by name (`mode dark`, `scheme glacier`, `favorite`, …).
+    Command(String),
+    /// Type text (WM_CHAR) — the find bar.
+    Type(String),
+    /// Click the first sidebar row whose text contains the string.
+    SideClick(String),
+    /// Write a file relative to the script folder (`\n` = newline).
+    WriteFile(String, String),
+    /// Open a file relative to the script folder in this window.
+    Open(String),
+    /// Start a second `yamdv.exe` with a path relative to the script folder.
+    Launch(String),
+    /// Wait for the message loop (watchers, IPC) for `ms` milliseconds.
+    Sleep(u32),
+    /// Render the whole client area to a PNG (`YAMDV_SNAPSHOT_DIR` or the script folder).
+    Snapshot(String),
+    /// Resize the client area to `w × h` DIPs.
+    Resize(f32, f32),
 }
 
 /// Virtual-key code for a key name.
@@ -142,6 +160,24 @@ pub fn parse_line(line: &str) -> Result<Option<Cmd>, String> {
         "key" => Cmd::Key(chord(rest).ok_or_else(bad)?),
         "wheel" => Cmd::Wheel(rest.parse().map_err(|_| bad())?),
         "wait-idle" => Cmd::WaitIdle,
+        "command" if !rest.is_empty() => Cmd::Command(rest.to_string()),
+        "type" => Cmd::Type(unquote(rest)),
+        "side-click" => Cmd::SideClick(unquote(rest)),
+        "write-file" => {
+            let (f, t) = rest.split_once(' ').ok_or_else(bad)?;
+            Cmd::WriteFile(f.to_string(), unquote(t).replace("\\n", "\n"))
+        }
+        "open" if !rest.is_empty() => Cmd::Open(unquote(rest)),
+        "launch" if !rest.is_empty() => Cmd::Launch(unquote(rest)),
+        "snapshot" if !rest.is_empty() => Cmd::Snapshot(unquote(rest)),
+        "resize" => {
+            let mut it = rest.split_whitespace().map(str::parse::<f32>);
+            match (it.next(), it.next()) {
+                (Some(Ok(w)), Some(Ok(h))) => Cmd::Resize(w, h),
+                _ => return Err(bad()),
+            }
+        }
+        "sleep" => Cmd::Sleep(rest.parse().map_err(|_| bad())?),
         "dump" => Cmd::Dump,
         "assert" => {
             let mut it = rest.splitn(3, ' ');
@@ -238,5 +274,32 @@ mod tests {
         assert!(check("a.md", Op::Eq, "a.md"));
         assert!(check("ask-url", Op::Contains, "ask"));
         assert!(!check("x", Op::Gt, "y"));
+    }
+
+    #[test]
+    fn v1a_shell_commands_parse() {
+        assert_eq!(
+            parse_line("command scheme glacier").unwrap(),
+            Some(Cmd::Command("scheme glacier".into()))
+        );
+        assert_eq!(
+            parse_line("type \"tar get\"").unwrap(),
+            Some(Cmd::Type("tar get".into()))
+        );
+        assert_eq!(
+            parse_line("write-file live.md \"# A\\nB\"").unwrap(),
+            Some(Cmd::WriteFile("live.md".into(), "# A\nB".into()))
+        );
+        assert_eq!(parse_line("sleep 300").unwrap(), Some(Cmd::Sleep(300)));
+        assert!(parse_line("sleep x").is_err());
+        assert!(parse_line("command").is_err());
+        assert_eq!(
+            parse_line("resize 1000 700").unwrap(),
+            Some(Cmd::Resize(1000.0, 700.0))
+        );
+        assert_eq!(
+            parse_line("snapshot a.png").unwrap(),
+            Some(Cmd::Snapshot("a.png".into()))
+        );
     }
 }

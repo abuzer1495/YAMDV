@@ -9,6 +9,7 @@ use windows::Win32::UI::WindowsAndMessaging::{KillTimer, PostQuitMessage, SetTim
 use yamdv_core::devscript::{self, Cmd};
 use yamdv_core::doc::detail::NO_LINK;
 
+use super::app;
 use super::{Content, Pending, Shared, TIMER_SCRIPT, View, WINDOWS, Win, focus_rects};
 use crate::sys;
 use serde_like::Get as _;
@@ -19,6 +20,8 @@ struct Script {
     pc: usize,
     log: Vec<String>,
     fails: u32,
+    /// `sleep`: resume after this instant.
+    resume: Option<std::time::Instant>,
 }
 
 thread_local! {
@@ -43,6 +46,7 @@ pub(super) fn start(hwnd: HWND, path: &str) {
             pc: 0,
             log,
             fails,
+            resume: None,
         });
     });
     // SAFETY: valid hwnd; killed when the script ends.
@@ -51,6 +55,15 @@ pub(super) fn start(hwnd: HWND, path: &str) {
 
 /// One step: runs commands until one that needs the message loop (input events).
 pub(super) fn tick(w: &mut Win, sh: &Shared) {
+    let now = std::time::Instant::now();
+    if SCRIPT.with(|s| {
+        s.borrow()
+            .as_ref()
+            .and_then(|s| s.resume)
+            .is_some_and(|r| now < r)
+    }) {
+        return;
+    }
     loop {
         let cmd = SCRIPT.with(|s| {
             let mut s = s.borrow_mut();
@@ -162,7 +175,156 @@ fn run(w: &mut Win, sh: &Shared, cmd: &Cmd) -> String {
             )
         }
         Cmd::Dump => format!("dump {}", serde_like::to_json(&state(w, sh))),
+        Cmd::Command(name) => match command_id(name) {
+            Some(id) => {
+                w.actions.push(super::Action::Command(id));
+                format!("ok command {name}")
+            }
+            None => format!("FAIL command {name}: unknown"),
+        },
+        Cmd::Type(t) => {
+            for c in t.chars() {
+                w.find_char(sh, c);
+            }
+            format!("ok type \"{t}\"")
+        }
+        Cmd::SideClick(text) => {
+            let row = w
+                .side_rows(sh)
+                .into_iter()
+                .find(|r| r.text.contains(text.as_str()));
+            match row {
+                Some(r) => {
+                    let (x, y) = (r.rect.x + r.rect.w / 2.0, r.rect.y + r.rect.h / 2.0);
+                    w.mouse_down(sh, x, y, false);
+                    w.mouse_up();
+                    format!("ok side-click \"{text}\" at {x:.0},{y:.0}")
+                }
+                None => format!("FAIL side-click \"{text}\": no such row"),
+            }
+        }
+        Cmd::WriteFile(f, t) => match std::fs::write(rel(f), t) {
+            Ok(()) => format!("ok write-file {f}"),
+            Err(e) => format!("FAIL write-file {f}: {e}"),
+        },
+        Cmd::Open(f) => {
+            w.open(sh, &rel(f), None, false);
+            format!("ok open {f}")
+        }
+        Cmd::Launch(f) => {
+            if crate::shell::spawn_self(&[rel(f)]) {
+                format!("ok launch {f}")
+            } else {
+                format!("FAIL launch {f}")
+            }
+        }
+        Cmd::Snapshot(f) => snapshot(w, sh, f),
+        Cmd::Resize(cw, ch) => resize(w, *cw, *ch),
+        Cmd::Sleep(ms) => {
+            let until =
+                std::time::Instant::now() + std::time::Duration::from_millis(u64::from(*ms));
+            SCRIPT.with(|s| {
+                if let Some(s) = s.borrow_mut().as_mut() {
+                    s.resume = Some(until);
+                }
+            });
+            format!("ok sleep {ms}")
+        }
     }
+}
+
+fn resize(w: &mut Win, cw: f32, ch: f32) -> String {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, GetWindowRect};
+    let (mut wr, mut cr) = (RECT::default(), RECT::default());
+    // SAFETY: valid hwnd and out-structures.
+    let ok =
+        unsafe { GetWindowRect(w.hwnd, &mut wr).is_ok() && GetClientRect(w.hwnd, &mut cr).is_ok() };
+    if !ok {
+        return "FAIL resize".into();
+    }
+    let fw = (wr.right - wr.left) - (cr.right - cr.left);
+    let fh = (wr.bottom - wr.top) - (cr.bottom - cr.top);
+    let pw = (cw * w.scale).round() as i32 + fw;
+    let ph = (ch * w.scale).round() as i32 + fh;
+    w.defer(super::Deferred::SetPos(wr.left, wr.top, pw, ph));
+    format!("ok resize {cw} {ch}")
+}
+
+/// Renders the whole client area offscreen (same draw path as WM_PAINT) to a PNG.
+fn snapshot(w: &mut Win, sh: &Shared, f: &str) -> String {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
+    w.prepare_now(sh);
+    let mut cr = RECT::default();
+    // SAFETY: valid hwnd and out-structure.
+    let _ = unsafe { GetClientRect(w.hwnd, &mut cr) };
+    let (cx, _) = w.col(sh);
+    let geo = w.geometry(sh);
+    let Some(r) = &w.renderer else {
+        return "FAIL snapshot: no renderer".into();
+    };
+    let me = &*w;
+    let mut px = r.render_offscreen(cr.bottom - cr.top, me.pal.text, &mut |band| {
+        me.draw(sh, band, cx, geo.as_ref());
+    });
+    for p in px.as_chunks_mut::<4>().0 {
+        p[3] = 255;
+    }
+    let dir = std::env::var("YAMDV_SNAPSHOT_DIR").unwrap_or_default();
+    let out = if dir.is_empty() {
+        rel(f)
+    } else {
+        std::path::Path::new(&dir)
+            .join(f)
+            .to_string_lossy()
+            .into_owned()
+    };
+    let (Ok(pw), Ok(ph)) = (u32::try_from(r.width()), u32::try_from(cr.bottom - cr.top)) else {
+        return "FAIL snapshot: size".into();
+    };
+    match crate::devtools::write_png(&out, pw, ph, &px) {
+        Ok(()) => format!("ok snapshot {f} {pw}x{ph}"),
+        Err(e) => format!("FAIL snapshot {f}: {e}"),
+    }
+}
+
+/// Path relative to the script's folder.
+fn rel(f: &str) -> String {
+    let dir = SCRIPT.with(|s| {
+        s.borrow().as_ref().and_then(|s| {
+            std::path::Path::new(&s.path)
+                .parent()
+                .map(std::path::Path::to_path_buf)
+        })
+    });
+    dir.unwrap_or_default()
+        .join(f)
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Context-menu command by script name.
+fn command_id(name: &str) -> Option<u32> {
+    let (verb, arg) = name.split_once(' ').unwrap_or((name, ""));
+    let idx = |list: &[&str]| {
+        list.iter()
+            .position(|v| *v == arg)
+            .and_then(|i| u32::try_from(i).ok())
+    };
+    Some(match verb {
+        "mode" => app::MODE0 + idx(&["system", "light", "dark"])?,
+        "scheme" => {
+            let names: Vec<&str> = app::SCHEMES.iter().map(|s| s.0).collect();
+            app::SCHEME0 + idx(&names)?
+        }
+        "favorite" => app::FAVORITE,
+        "outline" => app::OUTLINE,
+        "reload" => app::RELOAD,
+        "select-all" => app::SELECT_ALL,
+        "restore-position" => app::RESTORE_POS,
+        _ => return None,
+    })
 }
 
 /// First link whose text contains `text` (document order).
@@ -228,6 +390,16 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         Some(_) => "document-guard",
     };
     let windows = WINDOWS.with(|m| m.borrow().len());
+    let (find, find_count, find_index) = match &w.find {
+        Some(f) => ("open", f.matches.len(), f.cur.map_or(0, |c| c + 1)),
+        None => ("closed", 0, 0),
+    };
+    let source_len = match &w.view {
+        View::Doc(d) => d.content.source().len(),
+        _ => 0,
+    };
+    let favorites = app::with(|a| a.state.favorites.len()).unwrap_or(0);
+    let (menu_items, menu_checked) = app::menu_probe(&w.menu_ctx(None));
     vec![
         ("document".into(), V::S(doc)),
         ("scroll_y".into(), V::N(w.scroll_pos())),
@@ -238,6 +410,20 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         ("nav_pos".into(), V::N(w.hist_pos as f64)),
         ("windows".into(), V::N(windows as f64)),
         ("launched".into(), V::N(f64::from(sys::launches()))),
+        ("find".into(), V::S(find.into())),
+        ("find_count".into(), V::N(find_count as f64)),
+        ("find_index".into(), V::N(find_index as f64)),
+        ("scheme".into(), V::S(sh.scheme.clone())),
+        ("mode".into(), V::S(sh.mode.clone())),
+        ("dark".into(), V::N(f64::from(u8::from(w.dark)))),
+        (
+            "sidebar".into(),
+            V::S(if sh.side_visible { "visible" } else { "hidden" }.into()),
+        ),
+        ("favorites".into(), V::N(favorites as f64)),
+        ("source_len".into(), V::N(source_len as f64)),
+        ("menu_items".into(), V::N(menu_items as f64)),
+        ("menu_checked".into(), V::S(menu_checked)),
     ]
 }
 

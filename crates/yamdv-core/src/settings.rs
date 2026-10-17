@@ -143,6 +143,24 @@ impl Settings {
         }
     }
 
+    /// Sets `key` from its textual form (coerced and clamped like a file value); `false` when the
+    /// key is unknown or the value invalid.
+    pub fn set(&mut self, key: &str, raw: &str) -> bool {
+        let Some(i) = DEFS.iter().position(|d| d.key == key) else {
+            return false;
+        };
+        let (Some(d), Some(slot)) = (DEFS.get(i), self.values.get_mut(i)) else {
+            return false;
+        };
+        match coerce(d, raw) {
+            Some(v) => {
+                *slot = v;
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Writes every value into `ini` (round-trip safe; used from Phase 004).
     pub fn write_into(&self, ini: &mut Ini) {
         for (d, v) in DEFS.iter().zip(&self.values) {

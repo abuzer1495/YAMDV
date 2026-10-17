@@ -40,19 +40,21 @@ Probe 'T7-doc' $rel @('--doc', $typ, '--runs', '1', '--cpu-ms', '30000', '--budg
 # (reported against <= 33 ms), runs 2-4 are "warm" (gate: median p99 <= 16 ms).
 function T4Run([string]$n, [string]$f, [string]$tag) {
   $log = "$m/T4-$n-$tag.log"
-  Probe "T4-$n-$tag" $dev @('--doc', $f, '--runs', '1', '--wait-title', 'SCROLL_DONE', '--settle-ms', '500', '--arg', '--autoscroll', '--arg', '--perf-log', '--arg', $log)
+  Probe "T4-$n-$tag" $dev @('--doc', $f, '--runs', '1', '--wait-title', 'SCROLL_DONE', '--settle-ms', '500', '--arg', '--autoscroll', '--arg', '--perf-log', '--arg', $log) | Out-Host
   if (-not (Test-Path $log)) { $script:failed += "T4-$n-$tag-log"; return $null }
   $p99 = [double](((Get-Content $log) | Where-Object { $_ -like 'p99_ms *' }) -split ' ')[1]
   $frames = [int](((Get-Content $log) | Where-Object { $_ -like 'frames *' }) -split ' ')[1]
   Write-Host "T4-$n-$tag frames = $frames, p99 = $p99 ms"
   if ($frames -lt 10) { $script:failed += "T4-$n-$tag-frames" }
-  return $p99
+  return [double]$p99
 }
 foreach ($d in @(@{n='typical'; f=$typ}, @{n='large'; f=$large})) {
   $cold = T4Run $d.n $d.f 'cold'
-  $p99s = @()
-  foreach ($r in 1..3) { $v = T4Run $d.n $d.f "warm$r"; if ($null -ne $v) { $p99s += $v } }
-  $med = ($p99s | Sort-Object)[[math]::Floor(($p99s.Count - 1) / 2)]
+  # T4Run's only pipeline output is the p99 (Probe output goes to the host), so the median and
+  # the 16 ms gate compare numbers (in V1-A run 2 the Probe text leaked in and the gate compared strings).
+  [double[]]$p99s = @()
+  foreach ($r in 1..3) { $v = T4Run $d.n $d.f "warm$r"; if ($null -ne $v) { $p99s += [double]$v } }
+  $med = [double]($p99s | Sort-Object)[[math]::Floor(($p99s.Count - 1) / 2)]
   Write-Host "T4-$($d.n) cold p99 = $cold ms; warm median p99 = $med ms (runs: $($p99s -join ', '))"
   "T4-$($d.n) cold_p99_ms $cold warm_median_p99_ms $med runs $($p99s -join ' ')" | Out-File -Append "$m/T4-summary.txt"
   if ($cold -gt 33) { Write-Host "::warning::T4 cold p99 $cold ms > 33 ms target (report only)" }
@@ -61,6 +63,49 @@ foreach ($d in @(@{n='typical'; f=$typ}, @{n='large'; f=$large})) {
 # Subsystem breakdown (mem-stats build), informational
 foreach ($d in @(@{n='M1'; f=$typ}, @{n='M2'; f=$large})) {
   Probe "memstats-$($d.n)" $dev @('--doc', $d.f, '--runs', '1', '--arg', '--mem-stats', '--arg', "$m/memstats-$($d.n).app.json")
+}
+# T3 (prompt 005 §4): second launch -> file visible in the existing instance (target <= 50 ms,
+# max <= 80 ms; reported, warning only). Clock: Start-Process of the 2nd exe until a window whose
+# title names the forwarded file exists (polled every 2 ms).
+Add-Type -TypeDefinition @"
+using System; using System.Text; using System.Runtime.InteropServices;
+public static class T3W {
+  delegate bool EnumProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc f, IntPtr l);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowTextW(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  public static bool Has(string needle) {
+    bool found = false;
+    EnumWindows((h, l) => { var sb = new StringBuilder(512); GetWindowTextW(h, sb, 512);
+      if (IsWindowVisible(h) && sb.ToString().Contains(needle)) { found = true; return false; } return true; }, IntPtr.Zero);
+    return found;
+  }
+}
+"@
+$second = (Resolve-Path 'tests/driver/b.md').Path
+$t3s = @()
+$origApp = $env:APPDATA; $origLocal = $env:LOCALAPPDATA
+foreach ($r in 1..5) {
+  $prof = (New-Item -ItemType Directory -Force -Path "$m/t3-profile").FullName
+  $env:APPDATA = $prof; $env:LOCALAPPDATA = $prof
+  $p1 = Start-Process $rel -ArgumentList $typ -PassThru
+  $null = $p1.WaitForInputIdle(10000); Start-Sleep -Milliseconds 1500
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  $p2 = Start-Process $rel -ArgumentList $second -PassThru
+  while (-not [T3W]::Has('b.md') -and $sw.ElapsedMilliseconds -lt 5000) { Start-Sleep -Milliseconds 2 }
+  $t = $sw.Elapsed.TotalMilliseconds
+  $null = $p2.WaitForExit(5000)
+  $forwarded = $p2.HasExited
+  Stop-Process -Id $p1.Id -Force -ErrorAction SilentlyContinue; $null = $p1.WaitForExit(10000)
+  $env:APPDATA = $origApp; $env:LOCALAPPDATA = $origLocal
+  if ($t -ge 5000 -or -not $forwarded) { $failed += "T3-run$r"; Write-Host "::error::T3 run $($r): no forwarded window" ; continue }
+  $t3s += [math]::Round($t, 1)
+}
+if ($t3s.Count -gt 0) {
+  $t3 = ($t3s | Sort-Object)[[math]::Floor(($t3s.Count - 1) / 2)]
+  Write-Host "T3 median = $t3 ms (runs: $($t3s -join ', '))"
+  "T3 median_ms $t3 runs $($t3s -join ' ')" | Out-File "$m/T3.txt"
+  if ($t3 -gt 80) { Write-Host "::warning::T3 $t3 ms > 80 ms (includes process start of the 2nd launch; report only)" }
 }
 # 150 % scale screenshot is covered by the goldens (scale 1.5).
 Get-ChildItem $m | Format-Table Name, Length -AutoSize

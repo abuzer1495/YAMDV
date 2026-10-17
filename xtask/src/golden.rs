@@ -204,6 +204,97 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
     }
 }
 
+/// Window-level goldens of prompt 005 (welcome, sidebar, find bar, scheme), produced by the
+/// driver script `tests/golden/v1a/shots.yds` through the same draw path as `WM_PAINT`.
+pub const SHELL_SHOTS: [&str; 5] = [
+    "welcome-light.png",
+    "doc-sidebar-light.png",
+    "doc-sidebar-dark.png",
+    "find-light.png",
+    "glacier-light.png",
+];
+
+/// `golden-shell --exe <yamdv.exe (dev-tools)> [--out dir] [--update]`: runs the shot script with
+/// a fresh, empty profile (APPDATA / LOCALAPPDATA in the output folder) and compares the PNGs
+/// with `tests/golden/v1a/` (same thresholds as `golden`). No committed shots yet: warns only.
+pub fn shell(root: &Path, args: &[String]) -> Result<(), String> {
+    let mut exe = None;
+    let mut out = root.join("target").join("golden-shell");
+    let mut update = false;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--exe" => exe = it.next().map(PathBuf::from),
+            "--out" => out = it.next().map(PathBuf::from).ok_or("--out needs a value")?,
+            "--update" => update = true,
+            s => return Err(format!("unknown option {s}")),
+        }
+    }
+    let exe = exe.ok_or("usage: golden-shell --exe <yamdv.exe> [--out dir] [--update]")?;
+    let profile = out.join("profile");
+    let _ = std::fs::remove_dir_all(&profile);
+    std::fs::create_dir_all(&profile).map_err(|e| e.to_string())?;
+    let dir = root.join("tests").join("golden").join("v1a");
+    let status = std::process::Command::new(&exe)
+        .env("APPDATA", &profile)
+        .env("LOCALAPPDATA", &profile)
+        .env("YAMDV_SNAPSHOT_DIR", &out)
+        .arg("--script")
+        .arg(dir.join("shots.yds"))
+        .status()
+        .map_err(|e| format!("{}: {e}", exe.display()))?;
+    if let Ok(log) = std::fs::read_to_string(dir.join("shots.yds.log")) {
+        println!("{log}");
+    }
+    if !status.success() {
+        return Err(format!("shot script failed ({status})"));
+    }
+    let committed = SHELL_SHOTS.iter().any(|n| dir.join(n).exists());
+    let mut failures = Vec::new();
+    for name in SHELL_SHOTS {
+        let got = load(&out.join(name))?;
+        if update {
+            got.save_png(dir.join(name)).map_err(|e| e.to_string())?;
+            println!("updated {name}");
+            continue;
+        }
+        if !committed {
+            continue;
+        }
+        let g = dir.join(name);
+        let d = if g.exists() {
+            let b = load(&g)?;
+            compare(
+                (got.width(), got.height(), got.data()),
+                (b.width(), b.height(), b.data()),
+            )
+        } else {
+            Diff {
+                differing: 1,
+                total: 1,
+                same_size: false,
+            }
+        };
+        println!(
+            "{name}: {} / {} px differ — {}",
+            d.differing,
+            d.total,
+            if d.ok() { "OK" } else { "FAIL" }
+        );
+        if !d.ok() {
+            failures.push(name);
+        }
+    }
+    if !committed && !update {
+        println!("::warning::no committed shell goldens yet (tests/golden/v1a)");
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("shell golden failures: {}", failures.join(", ")))
+    }
+}
+
 /// ACG matrix formats (prompt 004 §4.1 item 4): `tests/corpus/acg/<ext>.md` each shows one
 /// 64×48 (ICO 48×48) solid `#C03020` image.
 pub const ACG_FORMATS: [&str; 7] = ["png", "jpg", "gif", "bmp", "ico", "tiff", "webp"];

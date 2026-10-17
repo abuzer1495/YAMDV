@@ -82,6 +82,14 @@ fn owner_ok(owner: HWND) -> bool {
     let mut pid = 0u32;
     // SAFETY: valid hwnd; out-pointer on the stack.
     unsafe { GetWindowThreadProcessId(owner, Some(&mut pid)) };
+    same_user_pid(pid)
+}
+
+/// S-IPC-02: `pid` runs as the same user as this process (token SID comparison).
+pub(crate) fn same_user_pid(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
     // SAFETY: plain open for query; closed below.
     let Ok(h) = (unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }) else {
         return false;
@@ -110,7 +118,12 @@ extern "system" fn host_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRES
 }
 
 fn send_reply(owner: HWND, reply: &Reply) {
-    let data = ipc::encode(reply);
+    send_copydata(owner, &ipc::encode(reply), 10_000);
+}
+
+/// Sends `data` as `WM_COPYDATA` (`dwData` = magic) from a temporary message-only window, so the
+/// receiver can identify the sending process (S-IPC-02). `true` when the receiver accepted it.
+pub(crate) fn send_copydata(owner: HWND, data: &[u8], timeout_ms: u32) -> bool {
     // SAFETY: registering and creating a message-only window of our own class.
     let me = unsafe {
         let inst = GetModuleHandleW(None).unwrap_or_default();
@@ -136,29 +149,31 @@ fn send_reply(owner: HWND, reply: &Reply) {
             None,
         )
     };
-    let Ok(me) = me else { return };
+    let Ok(me) = me else { return false };
     let cds = COPYDATASTRUCT {
         dwData: ipc::MAGIC as usize,
         cbData: data.len() as u32,
         lpData: data.as_ptr() as *mut _,
     };
+    let mut res = 0usize;
     // SAFETY: cds and data outlive the synchronous call; the receiver copies the data.
     unsafe {
-        let _ = SendMessageTimeoutW(
+        let r = SendMessageTimeoutW(
             owner,
             WM_COPYDATA,
             WPARAM(me.0 as usize),
             LPARAM(&raw const cds as isize),
             SMTO_ABORTIFHUNG,
-            10_000,
-            None,
+            timeout_ms,
+            Some(&mut res),
         );
         let _ = DestroyWindow(me);
+        r.0 != 0 && res != 0
     }
 }
 
 /// Host entry point (`--dialog-host open <owner> <nonce>`); hardening was applied by `main`.
-pub fn run_host(owner: isize, nonce: u64) -> i32 {
+pub fn run_host(kind: &str, owner: isize, nonce: u64) -> i32 {
     let owner = hwnd_from(owner);
     if !owner_ok(owner) {
         return EXIT_REFUSED;
@@ -172,6 +187,23 @@ pub fn run_host(owner: isize, nonce: u64) -> i32 {
         text: tr(lang, Msg::FilterText),
         all: tr(lang, Msg::FilterAll),
     };
+    if kind == "font" {
+        let current = s.str("typography.body_font").to_string();
+        let (outcome, code) = match crate::sys::font_dialog(owner, &current) {
+            Some(Some(name)) => (Outcome::Paths(vec![name]), EXIT_OK),
+            Some(None) => (Outcome::Cancel, EXIT_OK),
+            None => (Outcome::Error, EXIT_DIALOG_FAILED),
+        };
+        send_reply(
+            owner,
+            &Reply {
+                kind: Kind::Font,
+                nonce,
+                outcome,
+            },
+        );
+        return code;
+    }
     let (outcome, code) = match crate::sys::open_dialog(owner, &f) {
         Some(p) if p.is_empty() => (Outcome::Cancel, EXIT_OK),
         Some(p) => (Outcome::Paths(p), EXIT_OK),
@@ -203,6 +235,8 @@ pub struct HostWait {
     pub started: Instant,
     /// A valid result arrived.
     pub answered: bool,
+    /// Dialog kind.
+    pub kind: Kind,
 }
 
 impl Drop for HostWait {
@@ -221,6 +255,12 @@ fn nonce() -> u64 {
 
 /// Starts the host for an open dialog owned by `owner`.
 pub fn launch(owner: HWND) -> Option<HostWait> {
+    launch_kind(owner, Kind::Open)
+}
+
+/// Starts the host for a dialog of `kind` owned by `owner`.
+pub fn launch_kind(owner: HWND, kind: Kind) -> Option<HostWait> {
+    let verb = if kind == Kind::Font { "font" } else { "open" };
     let mut buf = vec![0u16; 32_768];
     // SAFETY: valid buffer; NULL module = our own executable.
     let n = unsafe { GetModuleFileNameW(None, &mut buf) } as usize;
@@ -229,7 +269,7 @@ pub fn launch(owner: HWND) -> Option<HostWait> {
     }
     let exe = String::from_utf16_lossy(buf.get(..n).unwrap_or(&[]));
     let n = nonce();
-    let mut cmd: Vec<u16> = format!("\"{exe}\" --dialog-host open {} {n}", owner.0 as isize)
+    let mut cmd: Vec<u16> = format!("\"{exe}\" --dialog-host {verb} {} {n}", owner.0 as isize)
         .encode_utf16()
         .chain(Some(0))
         .collect();
@@ -265,6 +305,7 @@ pub fn launch(owner: HWND) -> Option<HostWait> {
         nonce: n,
         started: Instant::now(),
         answered: false,
+        kind,
     })
 }
 
@@ -296,5 +337,5 @@ pub fn accept(h: &HostWait, receiver: HWND, sender: HWND, cds: &COPYDATASTRUCT) 
     // duration of this message.
     let bytes = unsafe { std::slice::from_raw_parts(cds.lpData.cast::<u8>(), len) };
     let r = ipc::decode(bytes).ok()?;
-    (r.nonce == h.nonce && r.kind == Kind::Open).then_some(r.outcome)
+    (r.nonce == h.nonce && r.kind == h.kind).then_some(r.outcome)
 }

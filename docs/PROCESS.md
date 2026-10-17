@@ -136,3 +136,14 @@ A-3 Token economy (from Phase 003b on):
 8. If something is ambiguous, choose the simplest option that meets the spec and note it in one line in the report.
 9. If the phase cannot be finished, stop at a green, merged state and list exactly what is left (as in Phase 003) — never leave main red.
 ```
+
+**A-4 (Phase V1-A, prompt 005 §2.1).**
+```text
+A-4 Delivery mode (owner decision; from Phase V1-A until the v1 release):
+1. The priority is a complete, working v1 within the remaining budget. Choose the simplest implementation that meets the phase's acceptance criteria.
+2. Tests: unit tests for new pure logic and one driver script per user-visible feature. No new fuzz targets except for new parsers (run them 5 minutes in the background). Goldens only where the prompt lists them.
+3. Measurements: run the existing automated table only; build no new measurement tooling.
+4. Docs: update TRACEABILITY by script. ADRs only for new dependencies or irreversible design choices, ≤ 15 lines each.
+5. Report ≤ 120 lines: §0, an AC table, the measurements table, deviations, and what is left. Omit sections that have nothing to say (this overrides the template rule "never omit").
+6. Push to CI once at the end of the phase, plus at most one fix push.
+```

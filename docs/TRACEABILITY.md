@@ -1,7 +1,7 @@
 # Traceability
 
 Every requirement ID in the spec appendices, with its planned phase (Appendix G) and current status.
-Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`. A requirement is only `implemented` when code and a test or check exist.
+Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`, `deferred (FUT-xx)` (v1 scope, `docs/FUTURE.md`; applied by `cargo xtask future`). A requirement is only `implemented` when code and a test or check exist.
 
 | ID | Phase | Status |
 |---|---|---|
@@ -14,7 +14,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | M5 | 013 | planned |
 | M6 | 013 | measured (002): memprobe --open-dialog gate |
 | M7 | 013 | measured (002): commit ≤ 3×PWS gate |
-| R-CODE-01 | 003 | implemented (003) |
+| R-CODE-01 | 003 | implemented (003); part deferred: FUT-01 |
 | R-CODE-02 | 003 | implemented (003) |
 | R-CODE-03 | 003 | implemented (003) |
 | R-CODE-04 | 003 | implemented (003) |
@@ -24,31 +24,31 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-EDIT-02 | 006 | planned |
 | R-EDIT-03 | 006 | planned |
 | R-EDIT-04 | 006 | planned |
-| R-EDIT-05 | 006 | planned |
-| R-EDIT-06 | 006 | planned |
-| R-EDIT-07 | 006 | planned |
-| R-EDIT-08 | 006 | planned |
+| R-EDIT-05 | 006 | deferred (FUT-15) |
+| R-EDIT-06 | 006 | deferred (FUT-45) |
+| R-EDIT-07 | 006 | deferred (FUT-12) |
+| R-EDIT-08 | 006 | deferred (FUT-45) |
 | R-EDIT-09 | 006 | planned |
-| R-EDIT-10 | 006 | planned |
+| R-EDIT-10 | 006 | deferred (FUT-45) |
 | R-EDIT-11 | 006 | planned |
 | R-EDIT-12 | 006 | planned |
-| R-EDIT-13 | 006 | planned |
+| R-EDIT-13 | 006 | deferred (FUT-45) |
 | R-EDIT-14 | 006 | planned |
-| R-EXP-01 | 011 | planned |
-| R-EXP-02 | 011 | planned |
+| R-EXP-01 | 011 | deferred (FUT-39) |
+| R-EXP-02 | 011 | deferred (FUT-21) |
 | R-EXP-03 | 011 | planned |
 | R-EXP-04 | 011 | planned |
 | R-EXP-05 | 011 | planned |
-| R-EXP-06 | 011 | planned |
-| R-EXT-01 | 005 | planned |
-| R-EXT-02 | 005 | planned |
-| R-EXT-03 | 005 | planned |
+| R-EXP-06 | 011 | deferred (FUT-23) |
+| R-EXT-01 | 005 | implemented (005 V1-A) |
+| R-EXT-02 | 005 | deferred (FUT-10) |
+| R-EXT-03 | 005 | partial (005): template tokenizer + CreateProcessW; no settings UI |
 | R-EXT-04 | 005 | planned |
-| R-IMG-01 | 003 | partial (003): header probe for all formats; WIC decode not done |
+| R-IMG-01 | 003 | partial (003): header probe for all formats; WIC decode not done; part deferred: FUT-20, FUT-48 |
 | R-IMG-02 | 003 | partial (003): yamdv_core::image::resolve (tests); not wired to a decoder |
 | R-IMG-03 | 003 | partial (003): display_size/obsidian_size/html_len (tests); not used by layout |
 | R-IMG-04 | 003 | partial (003): probe + LRU (tests); no worker/decode |
-| R-IMG-05 | 003 | planned |
+| R-IMG-05 | 003 | deferred (FUT-36) |
 | R-IMG-06 | 003 | partial (003): P-25 chip for all images; block placeholders + tooltip missing |
 | R-LINK-01 | 003 | implemented (003) |
 | R-LINK-02 | 003 | implemented (003) |
@@ -57,15 +57,15 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-LINK-05 | 003 | implemented (003) |
 | R-LINK-06 | 003 | implemented (003) |
 | R-LINK-07 | 003 | planned |
-| R-MAP-01 | 010 | planned |
-| R-MAP-02 | 010 | planned |
+| R-MAP-01 | 010 | deferred (FUT-37) |
+| R-MAP-02 | 010 | deferred (FUT-37) |
 | R-MATH-01 | 009 | planned |
-| R-MATH-02 | 009 | planned |
+| R-MATH-02 | 009 | deferred (FUT-17) |
 | R-MATH-03 | 009 | planned |
 | R-MATH-04 | 009 | planned |
 | R-MATH-05 | 009 | planned |
 | R-MATH-06 | 009 | planned |
-| R-MATH-07 | 009 | planned |
+| R-MATH-07 | 009 | deferred (FUT-17) |
 | R-MD-01 | 002/003 | implemented (002) |
 | R-MD-02 | 002/003 | implemented (003): GFM tables, tasks, strikethrough, autolinks |
 | R-MD-03 | 002/003 | partial (003): highlight/sup/sub; no baseline shift |
@@ -84,34 +84,34 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-MD-16 | 002/003 | implemented (002) |
 | R-MD-17 | 002/003 | implemented (002) |
 | R-MD-18 | 002/003 | implemented (003) |
-| R-MD-19 | 002/003 | planned |
-| R-MMD-01 | 010 | planned |
-| R-MMD-02 | 010 | planned |
-| R-MMD-03 | 010 | planned |
-| R-MMD-04 | 010 | planned |
-| R-MMD-05 | 010 | planned |
-| R-MMD-06 | 010 | planned |
-| R-MMD-07 | 010 | planned |
-| R-MMD-08 | 010 | planned |
-| R-MMD-09 | 010 | planned |
-| R-MMD-10 | 010 | planned |
+| R-MD-19 | 002/003 | deferred (FUT-08) |
+| R-MMD-01 | 010 | deferred (FUT-18) |
+| R-MMD-02 | 010 | deferred (FUT-18, FUT-36) |
+| R-MMD-03 | 010 | deferred (FUT-18) |
+| R-MMD-04 | 010 | deferred (FUT-18) |
+| R-MMD-05 | 010 | deferred (FUT-18) |
+| R-MMD-06 | 010 | deferred (FUT-18) |
+| R-MMD-07 | 010 | deferred (FUT-18) |
+| R-MMD-08 | 010 | deferred (FUT-18) |
+| R-MMD-09 | 010 | deferred (FUT-18) |
+| R-MMD-10 | 010 | deferred (FUT-18) |
 | R-NAV-01 | 004/005 | planned |
-| R-NAV-02 | 004/005 | planned |
+| R-NAV-02 | 004/005 | deferred (FUT-02) |
 | R-NAV-03 | 004/005 | planned |
 | R-NAV-04 | 004/005 | planned |
 | R-NAV-05 | 004/005 | planned |
 | R-NAV-06 | 004/005 | planned |
 | R-NAV-07 | 004/005 | planned |
 | R-NAV-08 | 004/005 | planned |
-| R-NAV-09 | 004/005 | planned |
-| R-NAV-10 | 004/005 | planned |
+| R-NAV-09 | 004/005 | deferred (FUT-03) |
+| R-NAV-10 | 004/005 | deferred (FUT-33) |
 | R-NAV-11 | 004/005 | planned |
 | R-OPEN-01 | 002/005 | planned |
 | R-OPEN-02 | 002/005 | implemented (002) (same-process windows; forwarding 005) |
 | R-OPEN-03 | 002/005 | implemented (002) |
 | R-OPEN-04 | 002/005 | implemented (002) (no edit-mode insert / folder→Files tab) |
 | R-OPEN-05 | 002/005 | planned |
-| R-OPEN-06 | 002/005 | implemented (002) (no Reopen-with-encoding menu) |
+| R-OPEN-06 | 002/005 | implemented (002) (no Reopen-with-encoding menu); part deferred: FUT-09 |
 | R-OPEN-07 | 002/005 | implemented (002) |
 | R-OPEN-08 | 002/005 | implemented (002) |
 | R-OPEN-09 | 002/005 | implemented (002) (toggle 004) |
@@ -119,32 +119,32 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-OPEN-11 | 002/005 | planned |
 | R-OPEN-12 | 002/005 | implemented (002) |
 | R-OPEN-13 | 002/005 | planned |
-| R-READ-01 | 005 | planned |
-| R-READ-02 | 005 | planned |
-| R-READ-03 | 005 | planned |
-| R-READ-04 | 005 | planned |
-| R-READ-05 | 005 | planned |
-| R-READ-06 | 005 | planned |
-| R-READ-07 | 005 | planned |
-| R-READ-08 | 005 | planned |
+| R-READ-01 | 005 | implemented (005 V1-A) |
+| R-READ-02 | 005 | implemented (005 V1-A) |
+| R-READ-03 | 005 | implemented (005 V1-A) |
+| R-READ-04 | 005 | implemented (005 V1-A) |
+| R-READ-05 | 005 | implemented (005 V1-A) |
+| R-READ-06 | 005 | deferred (FUT-34) |
+| R-READ-07 | 005 | deferred (FUT-35) |
+| R-READ-08 | 005 | deferred (FUT-06, FUT-36) |
 | R-READ-09 | 005 | planned |
-| R-READ-10 | 005 | planned |
-| R-READ-11 | 005 | planned |
-| R-READ-12 | 005 | planned |
+| R-READ-10 | 005 | implemented (005 V1-A) |
+| R-READ-11 | 005 | implemented (005 V1-A) |
+| R-READ-12 | 005 | deferred (FUT-08) |
 | R-REL-01 | 012 | planned |
 | R-REL-02 | 012 | planned |
 | R-REL-03 | 012 | planned |
 | R-REL-04 | 012 | planned |
 | R-REN-01 | 002/003 | implemented (002) |
 | R-REN-02 | 002/003 | implemented (002) |
-| R-REN-03 | 002/003 | implemented (003) |
+| R-REN-03 | 002/003 | implemented (003); part deferred: FUT-41 |
 | R-REN-04 | 002/003 | partial (003): vector task boxes; toggle in 006 |
 | R-REN-05 | 002/003 | implemented (002) |
 | R-REN-06 | 002/003 | implemented (003) |
-| R-REN-07 | 002/003 | partial (003): tables; hover toolbar/fullscreen in 005 |
+| R-REN-07 | 002/003 | partial (003): tables; hover toolbar/fullscreen in 005; part deferred: FUT-06, FUT-42 |
 | R-REN-08 | 002/003 | implemented (003) |
 | R-REN-09 | 002/003 | implemented (002) |
-| R-REN-10 | 002/003 | partial (003): footnotes; hover tooltip missing |
+| R-REN-10 | 002/003 | partial (003): footnotes; hover tooltip missing; part deferred: FUT-40 |
 | R-REN-11 | 002/003 | implemented (003) |
 | R-REN-12 | 002/003 | implemented (003) |
 | R-REN-13 | 002/003 | implemented (003): front matter card |
@@ -156,52 +156,52 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-REN-19 | 002/003 | implemented (002) |
 | R-REN-20 | 002/003 | implemented (002) |
 | R-REN-21 | 002/003 | implemented (002) |
-| R-SET-01 | 004 | planned |
-| R-SET-02 | 004 | planned |
-| R-SET-03 | 004 | planned |
-| R-SET-04 | 004 | planned |
-| R-SET-05 | 004 | partial (002): read-only |
-| R-SET-06 | 004 | planned |
-| R-SYS-01 | 005 | planned |
-| R-SYS-02 | 005 | planned |
-| R-SYS-03 | 005 | planned |
+| R-SET-01 | 004 | deferred (FUT-31) |
+| R-SET-02 | 004 | deferred (FUT-26, FUT-31) |
+| R-SET-03 | 004 | deferred (FUT-31) |
+| R-SET-04 | 004 | deferred (FUT-31) |
+| R-SET-05 | 004 | implemented (005 V1-A) |
+| R-SET-06 | 004 | deferred (FUT-05) |
+| R-SYS-01 | 005 | implemented (005 V1-A) |
+| R-SYS-02 | 005 | implemented (005 V1-A) |
+| R-SYS-03 | 005 | implemented (005 V1-A) |
 | R-SYS-04 | 005 | partial (001): --help/--version/usage error |
 | R-SYS-05 | 005 | planned |
-| R-SYS-06 | 005 | planned |
+| R-SYS-06 | 005 | implemented (005 V1-A) |
 | R-SYS-07 | 005 | partial (001): app and document icons |
-| R-SYS-08 | 005 | planned |
-| R-SYS-09 | 005 | planned |
-| R-TBL-01 | 003/008 | planned |
-| R-TBL-02 | 003/008 | planned |
-| R-TBL-03 | 003/008 | planned |
-| R-TBL-04 | 003/008 | planned |
-| R-TBL-05 | 003/008 | planned |
-| R-TBL-06 | 003/008 | planned |
-| R-TBL-07 | 003/008 | planned |
-| R-TBL-08 | 003/008 | planned |
-| R-THEME-01 | 004 | partial (002): Follow System, Default |
+| R-SYS-08 | 005 | deferred (FUT-25) |
+| R-SYS-09 | 005 | deferred (FUT-25) |
+| R-TBL-01 | 003/008 | deferred (FUT-44) |
+| R-TBL-02 | 003/008 | deferred (FUT-44) |
+| R-TBL-03 | 003/008 | deferred (FUT-44) |
+| R-TBL-04 | 003/008 | deferred (FUT-44) |
+| R-TBL-05 | 003/008 | deferred (FUT-44) |
+| R-TBL-06 | 003/008 | deferred (FUT-44) |
+| R-TBL-07 | 003/008 | deferred (FUT-44) |
+| R-TBL-08 | 003/008 | deferred (FUT-44) |
+| R-THEME-01 | 004 | implemented (005 V1-A) |
 | R-THEME-02 | 004 | partial (002): data only |
-| R-THEME-03 | 004 | planned |
-| R-THEME-04 | 004 | planned |
+| R-THEME-03 | 004 | deferred (FUT-32) |
+| R-THEME-04 | 004 | deferred (FUT-49) |
 | R-THEME-05 | 004 | planned |
-| R-THEME-06 | 004 | planned |
-| R-THEME-07 | 004 | planned |
-| R-THEME-08 | 004 | planned |
+| R-THEME-06 | 004 | deferred (FUT-04) |
+| R-THEME-07 | 004 | implemented (005 V1-A) |
+| R-THEME-08 | 004 | deferred (FUT-47) |
 | R-THEME-09 | 004 | planned |
 | R-THEME-10 | 004 | planned |
-| R-WIN-01 | 005 | planned |
-| R-WIN-02 | 005 | planned |
-| R-WIN-03 | 005 | planned |
+| R-WIN-01 | 005 | implemented (005 V1-A) |
+| R-WIN-02 | 005 | implemented (005 V1-A) |
+| R-WIN-03 | 005 | implemented (005 V1-A) |
 | R-WIN-04 | 005 | partial (001): window skeleton (size/min size/centering) |
-| R-WIN-05 | 005 | planned |
-| R-WIN-06 | 005 | planned |
+| R-WIN-05 | 005 | deferred (FUT-30) |
+| R-WIN-06 | 005 | deferred (FUT-46) |
 | R-WIN-07 | 005 | planned |
 | S-EXEC-01 | 003/005 | planned |
 | S-EXEC-02 | 003/005 | planned |
-| S-EXEC-03 | 003/005 | planned |
+| S-EXEC-03 | 003/005 | implemented (005 V1-A) |
 | S-EXEC-04 | 003/005 | implemented (003): ShellExecuteExW, no NOZONECHECKS |
 | S-EXP-01 | 011 | planned |
-| S-EXP-02 | 011 | planned |
+| S-EXP-02 | 011 | deferred (FUT-21) |
 | S-EXP-03 | 011 | planned |
 | S-EXP-04 | 011 | planned |
 | S-FILE-01 | 002/005 | planned |
@@ -217,9 +217,9 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | S-HTML-01 | 003 | implemented (003): allowlist sanitizer, XSS suite |
 | S-HTML-02 | 003 | implemented (003) |
 | S-HTML-03 | 003 | implemented (003) |
-| S-IPC-01 | 005 | planned |
-| S-IPC-02 | 005 | planned |
-| S-IPC-03 | 005 | planned |
+| S-IPC-01 | 005 | implemented (005 V1-A) |
+| S-IPC-02 | 005 | implemented (005 V1-A) |
+| S-IPC-03 | 005 | implemented (005 V1-A) |
 | S-IPC-04 | 005 | planned |
 | S-LINK-01 | 003 | implemented (003) |
 | S-LINK-02 | 003 | implemented (003) |
@@ -252,10 +252,10 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | S-PROC-06 | 001 | partial (001): manifest asInvoker; elevation banner planned 004/005 |
 | S-PROC-07 | 001 | implemented (003): dialog host (ADR-0013) |
 | S-PROC-08 | 001 | planned |
-| S-REG-01 | 005 | planned |
-| S-REG-02 | 005 | planned |
-| S-REG-03 | 005 | planned |
-| S-REG-04 | 005 | planned |
+| S-REG-01 | 005 | implemented (005 V1-A) |
+| S-REG-02 | 005 | implemented (005 V1-A) |
+| S-REG-03 | 005 | implemented (005 V1-A) |
+| S-REG-04 | 005 | implemented (005 V1-A) |
 | S-RES-01 | 003 | partial (003): policy + tests, not wired |
 | S-RES-02 | 003 | partial (003): policy + mock-FS matrix (AC-6); Windows Fs impl not wired |
 | S-RES-03 | 003 | implemented (003): remote never fetched (no image I/O at all) |
@@ -274,10 +274,10 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | S-TEST-04 | 012 | partial (001): THREAT_MODEL.md skeleton |
 | S-UI-01 | 004 | planned |
 | S-UI-02 | 004 | planned |
-| S-UI-03 | 004 | planned |
+| S-UI-03 | 004 | deferred (FUT-40) |
 | T1 | 013 | measured (003): typical.md, CI |
 | T2 | 013 | planned |
-| T3 | 013 | planned |
+| T3 | 013 | measured (005): CI measure.ps1, see v1a_REPORT |
 | T4 | 013 | planned |
 | T5 | 013 | planned |
 | T6 | 013 | planned |
@@ -287,28 +287,28 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | T10 | 013 | planned |
 | R-A11Y-01 | 012 | planned |
 | R-A11Y-02 | 012 | partial (002): reduced motion for scrolling |
-| R-A11Y-03 | 012 | planned |
+| R-A11Y-03 | 012 | deferred (FUT-47) |
 | R-A11Y-04 | 012 | implemented (002) |
 | R-F2-01 | 007 | planned |
-| R-F2-02 | 007 | planned |
-| R-F2-03 | 007 | planned |
-| R-F2-04 | 007 | planned |
+| R-F2-02 | 007 | deferred (FUT-43) |
+| R-F2-03 | 007 | deferred (FUT-43) |
+| R-F2-04 | 007 | deferred (FUT-45) |
 | R-F2-05 | 007 | planned |
 | R-F2-06 | 007 | planned |
 | R-F2-07 | 007 | planned |
 | R-F2-08 | 007 | planned |
 | R-F2-09 | 007 | planned |
 | R-F2-10 | 007 | planned |
-| R-F2-11 | 007 | planned |
-| R-F2-12 | 007 | planned |
+| R-F2-11 | 007 | deferred (FUT-18) |
+| R-F2-12 | 007 | deferred (FUT-26) |
 | R-F3-01 | 006 | planned |
 | R-F3-02 | 006 | planned |
 | R-F3-03 | 006 | planned |
 | R-F3-04 | 006 | planned |
 | R-F3-05 | 006 | planned |
 | R-F3-06 | 006 | planned |
-| R-F3-07 | 006 | planned |
-| R-I18N-01 | 004 | partial (002): EN/TR strings of 002 |
+| R-F3-07 | 006 | deferred (FUT-45) |
+| R-I18N-01 | 004 | partial (002): EN/TR strings of 002; part deferred: FUT-29 |
 | R-I18N-02 | 004 | implemented (002) |
 | R-I18N-03 | 004 | planned |
 | R-I18N-04 | 004 | implemented (002) |

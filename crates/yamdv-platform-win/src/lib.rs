@@ -29,6 +29,8 @@ pub mod reentry;
 #[cfg(windows)]
 pub mod render;
 #[cfg(windows)]
+pub mod shell;
+#[cfg(windows)]
 pub mod sys;
 #[cfg(windows)]
 pub mod theme;

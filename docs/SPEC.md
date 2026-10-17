@@ -288,3 +288,6 @@ Requirement keywords: **MUST** (v1), **SHOULD** (v1 unless a phase prompt defers
 - **R-REL-02 MUST** State files are written atomically and debounced (≤ 1 write per 2 s); corrupt state files are renamed `*.corrupt-<ts>` and defaults used.
 - **R-REL-03 MUST** All OS failures (fonts missing, WIC codec missing, clipboard busy, file locked) degrade gracefully with a toast/placeholder — never a crash.
 - **R-REL-04 MUST** Works without admin rights, on locked-down machines, from read-only media (portable mode then falls back to `%APPDATA%`).
+
+## A.25 v1 scope
+The owner's v1 scope decision (2026-10-17) defers the features listed in `docs/FUTURE.md` (FUT-01…FUT-50) to after v1. For v1, any requirement or part of a requirement covered by a FUT item is not required, whatever its MUST/SHOULD keyword; `docs/TRACEABILITY.md` marks it `deferred (FUT-xx)`.

@@ -1,0 +1,21 @@
+# Ctrl+F: count and navigation (prompt 005 §3.8)
+key ctrl+F
+wait-idle
+assert find == open
+type "target"
+wait-idle
+assert find_count == 3
+assert find_index >= 1
+key enter
+wait-idle
+assert find_index >= 1
+key ctrl+G
+key shift+enter
+wait-idle
+assert find_count == 3
+type "zzzz"
+wait-idle
+assert find_count == 0
+key esc
+wait-idle
+assert find == closed

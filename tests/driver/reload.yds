@@ -1,0 +1,10 @@
+# Live reload after an external write (prompt 005 §3.6)
+write-file live.tmp.md "# Live\n\nfirst"
+open live.tmp.md
+wait-idle
+assert document == live.tmp.md
+assert source_len == 13
+write-file live.tmp.md "# Live\n\nfirst\n\nsecond paragraph"
+sleep 1500
+wait-idle
+assert source_len == 31

@@ -21,8 +21,9 @@ use std::time::Instant;
 use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, EndPaint, GetMonitorInfoW, InvalidateRect, MONITOR_DEFAULTTONEAREST, MONITORINFO,
-    MonitorFromPoint, PAINTSTRUCT, ScreenToClient, UpdateWindow,
+    BeginPaint, CreateRectRgn, DeleteObject, EndPaint, GetMonitorInfoW, GetRegionData,
+    GetUpdateRgn, InvalidateRect, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
+    PAINTSTRUCT, RGNDATAHEADER, ScreenToClient, UpdateWindow,
 };
 use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -55,11 +56,16 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_PAINT, WM_SETCURSOR, WM_SETTINGCHANGE, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    IDC_HAND, WM_MBUTTONUP, WM_SYSKEYDOWN, WM_XBUTTONUP,
+    IDC_HAND, SW_SHOWMAXIMIZED, WM_ACTIVATEAPP, WM_CHAR, WM_CONTEXTMENU, WM_DRAWITEM, WM_MBUTTONUP,
+    WM_MEASUREITEM, WM_MENUCHAR, WM_SYSKEYDOWN, WM_XBUTTONUP,
 };
 
+mod app;
 #[cfg(feature = "dev-tools")]
 mod driver;
+mod findbar;
+mod sidebar;
+mod welcome;
 use windows::Win32::UI::WindowsAndMessaging::{
     MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, QS_ALLINPUT,
     SetForegroundWindow, WM_COPYDATA, WM_MOUSEHWHEEL, WM_QUIT, WaitMessage,
@@ -106,6 +112,11 @@ const TIMER_SB_FADE: usize = 3;
 const TIMER_DRAG: usize = 4;
 const TIMER_MEMSTATS: usize = 6;
 const TIMER_TOAST: usize = 7;
+const TIMER_RELOAD: usize = 10;
+/// `custom-theme.ini` changed: debounce, then re-apply the theme.
+const TIMER_THEME: usize = 11;
+/// One-shot: repaint the sidebar when the scroll-spy heading changed (after scrolling pauses).
+const TIMER_SPY: usize = 12;
 const TIMER_COPIED: usize = 8;
 #[cfg(feature = "dev-tools")]
 const TIMER_SCRIPT: usize = 9;
@@ -128,7 +139,21 @@ pub struct DevOptions {
 
 /// Process-wide state shared by all windows (single UI thread).
 struct Shared {
-    dw: DWrite,
+    dw: Rc<DWrite>,
+    /// `appearance.scheme`.
+    scheme: String,
+    /// `appearance.mode` (system / light / dark).
+    mode: String,
+    /// Font families the `DWrite` instance was built with.
+    fonts: (String, String),
+    /// `general.restore_reading_position`.
+    restore_pos: bool,
+    /// Sidebar (B.5): visible, docked right, width, TOC font size, TOC depth.
+    side_visible: bool,
+    side_right: bool,
+    side_w: f32,
+    toc_font: f32,
+    toc_depth: u8,
     lang: Lang,
     m: Metrics,
     read: ReadOpts,
@@ -246,6 +271,8 @@ struct DocView {
     encoding: &'static str,
     /// Images of this document (R-IMG-*).
     images: crate::images::Store,
+    /// Built-in document (help); no file, history, watcher or position.
+    virt: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -269,6 +296,8 @@ enum Pending {
     Reveal {
         path: String,
     },
+    /// Information only (About).
+    Info,
 }
 
 const BTN_CANCEL: u32 = 0;
@@ -328,12 +357,34 @@ struct Win {
     focus: Option<(usize, u32)>,
     /// Actions requested by methods (new windows), drained by `handle`.
     actions: Vec<Action>,
+    /// The file was deleted: the document is shown dimmed (R-OPEN-11).
+    dimmed: bool,
+    /// Directory watcher of the open file (R-READ-01).
+    watcher: Option<crate::shell::Watcher>,
+    /// Find bar state (B.9).
+    find: Option<findbar::Find>,
+    /// Sidebar state (B.5).
+    side: sidebar::Side,
 }
 
 enum Action {
     OpenDialog,
+    /// Context menu at a screen point, with the link under the cursor (B.7.1).
+    ContextMenu(i32, i32, Option<String>),
+    /// A menu command run outside the window borrow.
+    Command(u32),
+    /// F1 help window.
+    Help,
+    /// `custom-theme.ini` changed: rebuild the palette of every window (B.4).
+    ApplyTheme,
+    /// Body font dialog (dialog host).
+    FontDialog,
+    /// Persist one setting (sidebar width after a drag).
+    SetSetting(&'static str, String),
+    /// Paths forwarded by a second instance (S-IPC-03: open only), with `--line`.
+    Forward(Vec<String>, u64),
     /// Validated dialog-host answer (S-IPC-05).
-    HostResult(yamdv_core::ipc::Outcome),
+    HostResult(yamdv_core::ipc::Kind, yamdv_core::ipc::Outcome),
     NewWindow(String),
     Close,
 }
@@ -348,7 +399,9 @@ impl Win {
     }
 
     fn col(&self, sh: &Shared) -> (f32, f32) {
-        column(self.cw, sh.column_pct)
+        let (ax, aw) = self.doc_area(sh);
+        let (x, w) = column(aw, sh.column_pct);
+        (ax + x, w)
     }
 
     fn invalidate(&self) {
@@ -383,6 +436,21 @@ impl Win {
     }
 
     fn open(&mut self, sh: &Shared, path: &str, force: Option<bool>, allow_binary: bool) {
+        self.open_inner(sh, path, force, allow_binary, true);
+    }
+
+    /// Opens `path`; `record` = a user open (history, position restore, watcher).
+    fn open_inner(
+        &mut self,
+        sh: &Shared,
+        path: &str,
+        force: Option<bool>,
+        allow_binary: bool,
+        record: bool,
+    ) {
+        if record {
+            self.save_position();
+        }
         let Some(full) = sys::full_path(path) else {
             self.show_error(Msg::InvalidPath, path);
             return;
@@ -452,11 +520,36 @@ impl Win {
         let d = decode::decode(&bytes);
         drop(bytes);
         let plain = force == Some(true) || ypath::extension(&full) == "txt";
+        // S-LINK-04: the document's own Zone.Identifier stream (a path we build ourselves).
+        let internet = std::fs::read_to_string(format!("{long}:Zone.Identifier"))
+            .ok()
+            .and_then(|z| ylink::zone_id(&z))
+            .is_some_and(|z| z >= 3);
+        self.show_text(sh, full.clone(), d.text, plain, false);
+        if let View::Doc(dv) = &mut self.view {
+            dv.internet = internet;
+            dv.info = info;
+            dv.encoding = d.encoding;
+        }
+        if record {
+            self.side.collapsed =
+                app::with(|a| a.state.toc_collapsed(&full).to_vec()).unwrap_or_default();
+            self.side.scroll = 0.0;
+            app::with(|a| a.state.add_history(&full, app::now_ms()));
+            app::save_state();
+            self.restore_position(sh);
+            self.watcher = crate::shell::watch(&long, self.hwnd);
+        }
+        self.dimmed = false;
+    }
+
+    /// Shows `text` as the document `full` (a file, or a built-in document when `virt`).
+    fn show_text(&mut self, sh: &Shared, full: String, text: String, plain: bool, virt: bool) {
         let (_, col_w) = self.col(sh);
         let content = if plain {
-            Content::plain(d.text)
+            Content::plain(text)
         } else {
-            Content::Markdown(Document::new(d.text, sh.read))
+            Content::Markdown(Document::new(text, sh.read))
         };
         let mut viewer = Viewer::new(&content, col_w, sh.m);
         viewer.code_default = yamdv_layout::code::CodeOpts {
@@ -466,11 +559,9 @@ impl Win {
             front_matter: sh.read.front_matter,
         };
         self.warm_pending = true;
-        // S-LINK-04: the document's own Zone.Identifier stream (a path we build ourselves).
-        let internet = std::fs::read_to_string(format!("{long}:Zone.Identifier"))
-            .ok()
-            .and_then(|z| ylink::zone_id(&z))
-            .is_some_and(|z| z >= 3);
+        if virt {
+            self.watcher = None;
+        }
         if self.history.is_empty() {
             self.history.push((full.clone(), 0.0));
             self.hist_pos = 0;
@@ -479,11 +570,15 @@ impl Win {
             content,
             viewer,
             path: full.clone(),
-            internet,
-            info,
-            encoding: d.encoding,
+            internet: false,
+            info: FileInfo::default(),
+            encoding: "UTF-8",
             images: crate::images::Store::new(&full, self.hwnd.0 as isize),
+            virt,
         }));
+        if let Some(f) = &mut self.find {
+            f.dirty = true;
+        }
         self.sel = None;
         self.anim = None;
         self.set_title(&format!(
@@ -528,6 +623,7 @@ impl Win {
                 sys::reveal_in_explorer(&path);
             }
             (Pending::Reveal { path }, BTN_OPEN) => sys::reveal_in_explorer(&path),
+            (Pending::Info, _) => {}
             _ => {}
         }
         self.invalidate();
@@ -755,6 +851,7 @@ impl Win {
     fn set_scroll(&mut self, y: f64) {
         let scale = f64::from(self.scale);
         let vh = self.view_h();
+        let old_thumb = self.thumb();
         let Some(d) = self.doc() else { return };
         let old = d.viewer.scroll;
         let y = (y.clamp(0.0, d.viewer.max_scroll(vh)) * scale).round() / scale;
@@ -764,18 +861,81 @@ impl Win {
         d.viewer.scroll_to(y, vh);
         let dy = ((old * scale).round() - (y * scale).round()) as i32;
         let ch_px = (self.ch * self.scale) as i32;
-        // SAFETY: valid hwnd; scroll the client area and invalidate the exposed strip.
+        let px = |v: f32| (v * self.scale).round() as i32;
+        // Blit only the document area: the sidebar, the edge chevron and the overlay
+        // scrollbar stay put (T4: the sidebar is never repainted by a scroll step).
+        let sh = shared();
+        let (mut l, mut r) = (0.0f32, self.cw);
+        if let Some(sh) = &sh {
+            let (ax, aw) = self.doc_area(sh);
+            let chev = self.chevron(sh);
+            (l, r) = (ax, ax + aw);
+            if sh.side_right {
+                r = r.min(chev.x);
+            } else {
+                l = l.max(chev.x + chev.w);
+            }
+        }
+        let doc_rc = RECT {
+            left: px(l),
+            top: 0,
+            right: px(r - 16.0).max(px(l)),
+            bottom: ch_px,
+        };
+        // SAFETY: valid hwnd; scroll the document rect and invalidate the exposed strip.
         unsafe {
             if dy.abs() < ch_px && self.dialog.is_none() {
-                ScrollWindowEx(self.hwnd, 0, dy, None, None, None, None, SW_INVALIDATE);
-                // The overlay scrollbar moved with the bits: repaint its strip.
-                let mut rc = RECT::default();
-                let _ = GetClientRect(self.hwnd, &mut rc);
-                rc.left = rc.right - (16.0 * self.scale) as i32;
-                let _ = InvalidateRect(Some(self.hwnd), Some(&rc), false);
+                ScrollWindowEx(
+                    self.hwnd,
+                    0,
+                    dy,
+                    Some(&doc_rc),
+                    Some(&doc_rc),
+                    None,
+                    None,
+                    SW_INVALIDATE,
+                );
+                // The overlay scrollbar strip is not blitted: repaint the old and new thumb only
+                // (a full-height strip would make the paint span the whole window).
+                for t in [old_thumb, self.thumb()].into_iter().flatten() {
+                    let rc = RECT {
+                        left: doc_rc.right,
+                        top: px(t.y) - 2,
+                        right: px(r),
+                        bottom: px(t.y + t.h) + 2,
+                    };
+                    let _ = InvalidateRect(Some(self.hwnd), Some(&rc), false);
+                }
+                // Fixed overlays inside the blitted rect: repaint where they were and are.
+                let ady = dy.abs();
+                if self.find.is_some() {
+                    let (bar, _) = findbar::bar_rects(self.cw);
+                    let rc = RECT {
+                        left: px(bar.x) - 4,
+                        top: px(bar.y) - ady - 4,
+                        right: px(bar.x + bar.w) + 4,
+                        bottom: px(bar.y + bar.h) + ady + 4,
+                    };
+                    let _ = InvalidateRect(Some(self.hwnd), Some(&rc), false);
+                }
+                if self.toast.is_some() {
+                    let rc = RECT {
+                        left: 0,
+                        top: px(self.ch - 120.0) - ady,
+                        right: px(self.cw),
+                        bottom: ch_px,
+                    };
+                    let _ = InvalidateRect(Some(self.hwnd), Some(&rc), false);
+                }
             } else {
                 let _ = InvalidateRect(Some(self.hwnd), None, false);
             }
+        }
+        // Scroll spy: the sidebar is repainted once scrolling pauses, and only when the active
+        // heading changed (a per-step full-height repaint would double the T4 frame cost).
+        if sh.as_ref().is_some_and(|sh| self.side_rect(sh).is_some()) {
+            // SAFETY: valid hwnd; one-shot timer (killed when it fires, T7).
+            unsafe { SetTimer(Some(self.hwnd), TIMER_SPY, 120, None) };
         }
         self.show_scrollbar();
         // Paint the exposed strip right after the handler returns (no RefCell borrow is held
@@ -871,7 +1031,11 @@ impl Win {
         };
         let th = (vh * vh / total).max(32.0);
         let ty = d.viewer.scroll / d.viewer.max_scroll(vh).max(1.0) * (vh - th);
-        Some(Rect::new(self.cw - 2.0 - w, ty as f32, w, th as f32))
+        let right = shared().map_or(self.cw, |sh| {
+            let (ax, aw) = self.doc_area(&sh);
+            ax + aw
+        });
+        Some(Rect::new(right - 2.0 - w, ty as f32, w, th as f32))
     }
 
     // ---- selection -----------------------------------------------------------------------
@@ -969,6 +1133,7 @@ impl Win {
 
     fn paint(&mut self, sh: &Shared) {
         let t0 = Instant::now();
+        let spans = update_spans(self.hwnd);
         let mut ps = PAINTSTRUCT::default();
         // SAFETY: standard BeginPaint/EndPaint pair.
         let hdc = unsafe { BeginPaint(self.hwnd, &mut ps) };
@@ -996,9 +1161,25 @@ impl Win {
             if let View::Doc(d) = &me.view {
                 d.images.begin_frame();
             }
-            r.paint(hdc, ps.rcPaint, me.pal.text, &mut |band| {
-                me.draw(sh, band, cx, geo.as_ref())
-            });
+            // Paint the vertical spans of the update region, not its bounding box: a scroll step
+            // invalidates the exposed strip plus small thumb rects, which are far apart.
+            let rects = if spans.is_empty() {
+                vec![ps.rcPaint]
+            } else {
+                spans
+                    .iter()
+                    .map(|&(top, bottom)| RECT {
+                        top: top.max(ps.rcPaint.top),
+                        bottom: bottom.min(ps.rcPaint.bottom),
+                        ..ps.rcPaint
+                    })
+                    .collect()
+            };
+            for rc in rects {
+                r.paint(hdc, rc, me.pal.text, &mut |band| {
+                    me.draw(sh, band, cx, geo.as_ref())
+                });
+            }
             if let View::Doc(d) = &me.view {
                 // P-13: everything within the viewport + one screen keeps its pixels.
                 for (_, _, bl) in d.viewer.visible(&d.content, me.view_h() * 2.0) {
@@ -1111,6 +1292,7 @@ impl Win {
         let pal = &self.pal;
         b.clear(pal.bg);
         match &self.view {
+            View::Empty { note: None } => self.draw_welcome(sh, b),
             View::Empty { note } => {
                 let msg = tr(sh.lang, note.unwrap_or(Msg::EmptyState));
                 let t = self.shape_ui(
@@ -1162,7 +1344,11 @@ impl Win {
                     sel,
                     self.view_h(),
                     Some(&d.images),
+                    self.find_marks(),
                 );
+                if self.dimmed {
+                    b.fill(Rect::new(0.0, 0.0, self.cw, self.ch), pal.bg, 0.5, 0.0);
+                }
                 self.draw_code_toolbar(sh, b, d, pal, cx);
                 if let Some((fb, fl)) = self.focus {
                     let top = (d.viewer.block_top(&d.content, fb) - d.viewer.scroll) as f32;
@@ -1188,6 +1374,10 @@ impl Win {
                 }
             }
         }
+        if matches!(self.view, View::Doc(_)) {
+            self.draw_side(sh, b);
+        }
+        self.draw_find(sh, b);
         if let Some(m) = self.toast {
             let text = format!("{}{}", tr(sh.lang, m), self.toast_arg);
             let t = self.shape_ui(
@@ -1263,7 +1453,10 @@ impl Win {
 
     fn set_dark(&mut self, dark: bool) {
         self.dark = dark;
-        self.pal = theme::palette("default", dark);
+        self.pal = shared().map_or_else(
+            || theme::palette("default", dark),
+            |sh| app::palette_for(&sh.scheme, dark).0,
+        );
         apply_mode(self.hwnd, if dark { Mode::Dark } else { Mode::Light });
         if let View::Doc(d) = &mut self.view {
             d.viewer.invalidate_layouts();
@@ -1295,7 +1488,37 @@ impl Win {
             return None;
         }
         let page = (self.view_h() - LINE_STEP).max(LINE_STEP);
+        if self.find.is_some() {
+            match vk {
+                v if v == VK_ESCAPE.0 => {
+                    self.find_close();
+                    return None;
+                }
+                v if v == VK_RETURN.0 => {
+                    self.find_step(sh, if shift { -1 } else { 1 });
+                    return None;
+                }
+                _ => {}
+            }
+        }
         match vk {
+            0x70 => return Some(Action::Help),
+            0x73 => self.open_editor(),
+            v if ctrl && v == u16::from(b'E') => self.open_editor(),
+            0x74 => return Some(Action::Command(app::RELOAD)),
+            0x5D => return Some(self.kbd_menu()),
+            v if ctrl && v == u16::from(b'D') => self.toggle_favorite(),
+            v if ctrl && v == u16::from(b'F') => self.find_open(),
+            v if ctrl && v == u16::from(b'G') => {
+                self.find_open();
+                self.find_step(sh, if shift { -1 } else { 1 });
+            }
+            0xBB | 0x6B if ctrl => return Some(Action::Command(app::FONT_BIG)),
+            0xBD | 0x6D if ctrl => return Some(Action::Command(app::FONT_SMALL)),
+            0x30 | 0x60 if ctrl => return Some(Action::Command(app::FONT_RESET)),
+            v if ctrl && v == VK_UP.0 => return Some(Action::Command(app::FONT_BIG)),
+            v if ctrl && v == VK_DOWN.0 => return Some(Action::Command(app::FONT_SMALL)),
+            0xDC if ctrl => return Some(Action::Command(app::OUTLINE)),
             v if v == VK_ESCAPE.0 && self.focus.is_some() => {
                 self.focus = None;
                 self.invalidate();
@@ -1309,15 +1532,7 @@ impl Win {
             }
             v if ctrl && v == u16::from(b'W') => return Some(Action::Close),
             v if ctrl && v == u16::from(b'O') => return Some(Action::OpenDialog),
-            v if ctrl && v == u16::from(b'A') => {
-                if let View::Doc(d) = &self.view {
-                    self.sel = Some((
-                        0,
-                        u32::try_from(d.content.source().len()).unwrap_or(u32::MAX),
-                    ));
-                    self.invalidate();
-                }
-            }
+            v if ctrl && v == u16::from(b'A') => self.select_all(),
             v if ctrl && shift && v == u16::from(b'C') => self.copy_markdown(),
             v if ctrl && v == u16::from(b'C') => self.copy(),
             v if v == VK_UP.0 => self.scroll_by(sh, -LINE_STEP, true),
@@ -1333,6 +1548,28 @@ impl Win {
     }
 
     fn mouse_down(&mut self, sh: &Shared, x: f32, y: f32, ctrl: bool) {
+        if self.dialog.is_none() && matches!(self.view, View::Empty { note: None }) {
+            if let Some(a) = self.welcome_click(sh, x, y) {
+                self.actions.push(a);
+            }
+            return;
+        }
+        if self.dialog.is_none() && matches!(self.view, View::Doc(_)) && self.over_side(sh, x, y) {
+            if let Some(a) = self.side_down(sh, x, y) {
+                self.actions.push(a);
+            }
+            return;
+        }
+        if self.find.is_some() && self.dialog.is_none() {
+            let (bar, case) = findbar::bar_rects(self.cw);
+            if case.contains(x, y) {
+                self.find_toggle_case(sh);
+                return;
+            }
+            if bar.contains(x, y) {
+                return;
+            }
+        }
         if self.dialog.is_some() {
             if let Some(g) = self.geometry(sh)
                 && let Some((d, _)) = &mut self.dialog
@@ -1434,6 +1671,13 @@ impl Win {
     }
 
     fn mouse_move(&mut self, sh: &Shared, x: f32, y: f32) {
+        if matches!(self.view, View::Empty { note: None }) {
+            self.side.hover = Some((x, y));
+            self.invalidate();
+        }
+        if self.dialog.is_none() && matches!(self.view, View::Doc(_)) && self.side_move(sh, x, y) {
+            return;
+        }
         if !self.tracking {
             let mut tme = TRACKMOUSEEVENT {
                 cbSize: u32::try_from(size_of::<TRACKMOUSEEVENT>()).unwrap_or(0),
@@ -1526,6 +1770,10 @@ impl Win {
     }
 
     fn mouse_up(&mut self) {
+        if let Some(a) = self.side_up() {
+            self.actions.push(a);
+            return;
+        }
         if self.hdrag.take().is_some() {
             // SAFETY: capture release.
             let _ = unsafe { ReleaseCapture() };
@@ -1939,6 +2187,38 @@ impl Win {
     }
 
     fn timer(&mut self, sh: &Shared, id: usize) {
+        if id == TIMER_THEME {
+            // SAFETY: valid hwnd.
+            let _ = unsafe { KillTimer(Some(self.hwnd), TIMER_THEME) };
+            self.actions.push(Action::ApplyTheme);
+            return;
+        }
+        if id == TIMER_SPY {
+            // SAFETY: valid hwnd.
+            let _ = unsafe { KillTimer(Some(self.hwnd), TIMER_SPY) };
+            let spy = self.toc_active();
+            if spy != self.side.spy {
+                self.side.spy = spy;
+                if let Some(sr) = self.side_rect(sh) {
+                    let px = |v: f32| (v * self.scale).round() as i32;
+                    let rc = RECT {
+                        left: px(sr.x),
+                        top: 0,
+                        right: px(sr.x + sr.w),
+                        bottom: px(self.ch),
+                    };
+                    // SAFETY: valid hwnd.
+                    let _ = unsafe { InvalidateRect(Some(self.hwnd), Some(&rc), false) };
+                }
+            }
+            return;
+        }
+        if id == TIMER_RELOAD {
+            // SAFETY: valid hwnd.
+            let _ = unsafe { KillTimer(Some(self.hwnd), TIMER_RELOAD) };
+            self.file_changed(sh);
+            return;
+        }
         if id == TIMER_COPIED {
             self.code_copied = None;
             // SAFETY: valid hwnd.
@@ -2061,6 +2341,7 @@ pub(crate) fn draw_doc(
     sel: Option<Range<u32>>,
     vh: f64,
     images: Option<&crate::images::Store>,
+    marks: (&[Range<u32>], Option<usize>),
 ) {
     let sel_alpha = f32::from(pal.selection_alpha_pct) / 100.0;
     for (bi, y, bl) in viewer.visible(content, vh) {
@@ -2122,6 +2403,28 @@ pub(crate) fn draw_doc(
                 Item::Para(i) => {
                     let Some(p) = bl.paras.get(*i) else { continue };
                     let px = cx + p.x - p.hscroll.map_or(0.0, off);
+                    if !marks.0.is_empty()
+                        && let Some(map) = &p.map
+                        && let (Some(f), Some(l)) = (map.segs.first(), map.segs.last())
+                    {
+                        // Find matches (B.9): all in `highlight_bg`, the current one in accent.
+                        let (start, end) = (f.src.start, l.src.end);
+                        let from = marks.0.partition_point(|m| m.end <= start);
+                        for (k, m) in marks.0.iter().enumerate().skip(from) {
+                            if m.start >= end {
+                                break;
+                            }
+                            let cur = marks.1 == Some(k);
+                            for r in viewer::selection_rects(p, m) {
+                                let (c, a) = if cur {
+                                    (pal.accent, 0.45)
+                                } else {
+                                    (pal.highlight_bg, 0.9)
+                                };
+                                b.fill(r.offset(px, y + p.y), c, a, 2.0);
+                            }
+                        }
+                    }
                     if let Some(s) = &sel {
                         for r in viewer::selection_rects(p, s) {
                             b.fill(r.offset(px, y + p.y), pal.accent, sel_alpha, 0.0);
@@ -2209,10 +2512,57 @@ fn is_immersive_color_set(lparam: LPARAM) -> bool {
     s == "ImmersiveColorSet"
 }
 
+/// Alt is held (Alt+wheel column zoom).
+fn alt_down() -> bool {
+    // SAFETY: GetKeyState has no preconditions.
+    unsafe { GetKeyState(0x12) < 0 }
+}
+
 fn lparam_xy(lp: LPARAM, scale: f32) -> (f32, f32) {
     let x = i32::from((lp.0 & 0xFFFF) as u16 as i16);
     let y = i32::from(((lp.0 >> 16) & 0xFFFF) as u16 as i16);
     (x as f32 / scale, y as f32 / scale)
+}
+
+/// Vertical spans `[top, bottom)` of the window's update region (merged, sorted). Empty when the
+/// region cannot be read or has too many pieces (the caller then paints the bounding box).
+fn update_spans(hwnd: HWND) -> Vec<(i32, i32)> {
+    // SAFETY: the region is created, read and deleted here; GetRegionData writes at most `size`
+    // bytes into a buffer of that size, aligned for RGNDATAHEADER and RECT (u32 buffer).
+    unsafe {
+        let rgn = CreateRectRgn(0, 0, 0, 0);
+        if rgn.is_invalid() {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        if GetUpdateRgn(hwnd, rgn, false).0 > 1 {
+            let size = GetRegionData(rgn, 0, None);
+            let hdr = std::mem::size_of::<RGNDATAHEADER>();
+            if size as usize >= hdr && size <= 64 * 1024 {
+                let mut buf = vec![0u32; (size as usize).div_ceil(4)];
+                let p = buf.as_mut_ptr().cast();
+                if GetRegionData(rgn, size, Some(p)) == size {
+                    let h = &*(buf.as_ptr().cast::<RGNDATAHEADER>());
+                    let n = (h.nCount as usize).min((size as usize - hdr) / 16);
+                    let rects = buf.as_ptr().cast::<u8>().add(hdr).cast::<RECT>();
+                    for i in 0..n {
+                        let r = *rects.add(i);
+                        out.push((r.top, r.bottom));
+                    }
+                }
+            }
+        }
+        let _ = DeleteObject(rgn.into());
+        out.sort_unstable();
+        let mut merged: Vec<(i32, i32)> = Vec::new();
+        for (t, b) in out {
+            match merged.last_mut() {
+                Some(last) if t <= last.1 => last.1 = last.1.max(b),
+                _ => merged.push((t, b)),
+            }
+        }
+        if merged.len() > 8 { Vec::new() } else { merged }
+    }
 }
 
 fn update_size(w: &mut Win, sh: &Shared) {
@@ -2247,6 +2597,10 @@ fn handle(
             // SAFETY: for WM_COPYDATA, lParam points to a COPYDATASTRUCT valid during the call.
             let cds = unsafe { &*(lp.0 as *const COPYDATASTRUCT) };
             let sender = HWND(wp.0 as *mut core::ffi::c_void);
+            if let Some((paths, line)) = app::accept_forward(sender, cds) {
+                actions.push(Action::Forward(paths, line));
+                return (Some(LRESULT(1)), actions);
+            }
             let out = HOST.with(|h| {
                 let mut h = h.borrow_mut();
                 let hw = h.as_mut()?;
@@ -2256,11 +2610,11 @@ fn handle(
                     "dialog-host",
                     &format!("answer after {} ms", hw.started.elapsed().as_millis()),
                 );
-                Some(o)
+                Some((hw.kind, o))
             });
             match out {
-                Some(o) => {
-                    actions.push(Action::HostResult(o));
+                Some((k, o)) => {
+                    actions.push(Action::HostResult(k, o));
                     Some(LRESULT(1))
                 }
                 None => Some(LRESULT(0)),
@@ -2287,6 +2641,69 @@ fn handle(
             Some(LRESULT(0))
         }
         // R-LINK-02: Alt+← / Alt+→ and mouse X1/X2 move through the history.
+        // §3.9: Alt+↑ / Alt+↓ / Alt+0 change the column width.
+        WM_SYSKEYDOWN if wp.0 == usize::from(VK_UP.0) => {
+            actions.push(Action::Command(app::COL_WIDE));
+            Some(LRESULT(0))
+        }
+        WM_SYSKEYDOWN if wp.0 == usize::from(VK_DOWN.0) => {
+            actions.push(Action::Command(app::COL_NARROW));
+            Some(LRESULT(0))
+        }
+        WM_SYSKEYDOWN if wp.0 == 0x30 || wp.0 == 0x60 => {
+            actions.push(Action::Command(app::COL_RESET));
+            Some(LRESULT(0))
+        }
+        // Shift+F10 opens the context menu (F10 arrives as a system key).
+        WM_SYSKEYDOWN if wp.0 == 0x79 => {
+            // SAFETY: GetKeyState has no preconditions.
+            if unsafe { GetKeyState(i32::from(VK_SHIFT.0)) } < 0 {
+                actions.push(w.kbd_menu());
+                Some(LRESULT(0))
+            } else {
+                None
+            }
+        }
+        WM_CONTEXTMENU => {
+            if lp.0 == -1 {
+                actions.push(w.kbd_menu());
+            } else {
+                let (sx, sy) = (
+                    i32::from(lp.0 as u16 as i16),
+                    i32::from((lp.0 >> 16) as u16 as i16),
+                );
+                let mut pt = POINT { x: sx, y: sy };
+                // SAFETY: valid hwnd and point.
+                let _ = unsafe { ScreenToClient(w.hwnd, &mut pt) };
+                let link = w.link_at(sh, pt.x as f32 / w.scale, pt.y as f32 / w.scale);
+                actions.push(Action::ContextMenu(sx, sy, link));
+            }
+            Some(LRESULT(0))
+        }
+        WM_ACTIVATEAPP => {
+            // Back from Windows Settings / an editor: re-query the association status.
+            welcome::refresh_default();
+            if matches!(w.view, View::Empty { note: None }) {
+                w.invalidate();
+            }
+            None
+        }
+        WM_MEASUREITEM => app::measure(w.hwnd, lp).then_some(LRESULT(1)),
+        WM_DRAWITEM => app::draw_item(w.hwnd, lp).then_some(LRESULT(1)),
+        WM_MENUCHAR => app::menu_char(wp, lp),
+        WM_CHAR if w.find.is_some() => {
+            if let Some(c) = char::from_u32(wp.0 as u32) {
+                w.find_char(sh, c);
+            }
+            Some(LRESULT(0))
+        }
+        crate::shell::WM_APP_FILE_CHANGED => {
+            // Debounce bursts of change notifications (atomic saves); R-READ-01 ≤ 100 ms.
+            let t = if wp.0 == 1 { TIMER_THEME } else { TIMER_RELOAD };
+            // SAFETY: valid hwnd.
+            unsafe { SetTimer(Some(w.hwnd), t, if wp.0 == 1 { 100 } else { 50 }, None) };
+            Some(LRESULT(0))
+        }
         WM_SYSKEYDOWN if wp.0 == usize::from(VK_LEFT.0) || wp.0 == usize::from(VK_RIGHT.0) => {
             let dir = if wp.0 == usize::from(VK_LEFT.0) {
                 -1
@@ -2305,6 +2722,18 @@ fn handle(
             actions.push(Action::OpenDialog);
             Some(LRESULT(0))
         }
+        WM_MOUSEWHEEL if wp.0 & MK_CONTROL_BIT != 0 || alt_down() => {
+            let delta = ((wp.0 >> 16) & 0xFFFF) as u16 as i16;
+            let font = wp.0 & MK_CONTROL_BIT != 0;
+            let id = match (font, delta > 0) {
+                (true, true) => app::FONT_BIG,
+                (true, false) => app::FONT_SMALL,
+                (false, true) => app::COL_WIDE,
+                (false, false) => app::COL_NARROW,
+            };
+            actions.push(Action::Command(id));
+            Some(LRESULT(0))
+        }
         WM_MOUSEWHEEL => {
             let delta = ((wp.0 >> 16) & 0xFFFF) as u16 as i16;
             let shift = wp.0 & 0x0004 != 0; // MK_SHIFT
@@ -2312,7 +2741,15 @@ fn handle(
                 i32::from(lp.0 as u16 as i16),
                 i32::from((lp.0 >> 16) as u16 as i16),
             );
-            if !(shift && w.hwheel(sh, -delta, sx, sy)) {
+            let mut pt = POINT { x: sx, y: sy };
+            // SAFETY: valid hwnd and point.
+            let _ = unsafe { ScreenToClient(w.hwnd, &mut pt) };
+            let (cx_, cy_) = (pt.x as f32 / w.scale, pt.y as f32 / w.scale);
+            if matches!(w.view, View::Doc(_))
+                && w.side_rect(sh).is_some_and(|r| r.contains(cx_, cy_))
+            {
+                w.side_wheel(delta);
+            } else if !(shift && w.hwheel(sh, -delta, sx, sy)) {
                 w.wheel(sh, delta);
             }
             Some(LRESULT(0))
@@ -2416,7 +2853,7 @@ fn handle(
             Some(LRESULT(0))
         }
         WM_SETTINGCHANGE => {
-            if is_immersive_color_set(lp) {
+            if is_immersive_color_set(lp) && sh.mode == "system" {
                 let dark = app_mode() == Mode::Dark;
                 if dark != w.dark {
                     w.set_dark(dark);
@@ -2514,7 +2951,41 @@ fn run_actions_inner(hwnd: HWND, actions: Vec<Action>) {
                 let _ = unsafe { DestroyWindow(hwnd) };
                 return;
             }
-            Action::NewWindow(p) => create_window(&sh, Some(&p)),
+            Action::NewWindow(p) => {
+                create_window(&sh, Some(&p));
+            }
+            Action::ContextMenu(x, y, link) => {
+                let Some((ctx, pal)) = WINDOWS
+                    .with(|m| m.borrow().get(&(hwnd.0 as isize)).cloned())
+                    .and_then(|w| {
+                        w.try_borrow()
+                            .ok()
+                            .map(|w| (w.menu_ctx(link.clone()), w.pal))
+                    })
+                else {
+                    continue;
+                };
+                let id = app::track(hwnd, x, y, &ctx, &pal);
+                if id != 0 {
+                    let more = app::run_command(hwnd, id, link);
+                    run_actions_inner(hwnd, more);
+                }
+            }
+            Action::Command(id) => {
+                let more = app::run_command(hwnd, id, None);
+                run_actions_inner(hwnd, more);
+            }
+            Action::ApplyTheme => app::apply_all(),
+            Action::Help => {
+                if let Some(h) = create_window(&sh, None) {
+                    app::with_win(h, |w, sh| w.show_help(sh));
+                }
+            }
+            Action::FontDialog => app::font_dialog(hwnd),
+            Action::SetSetting(k, v) => {
+                app::set(k, &v);
+            }
+            Action::Forward(paths, line) => app::open_forwarded(hwnd, paths, line),
             Action::OpenDialog => {
                 if HOST.with(|h| h.borrow().is_some()) {
                     continue;
@@ -2528,7 +2999,21 @@ fn run_actions_inner(hwnd: HWND, actions: Vec<Action>) {
                     None => show_toast(hwnd, Msg::DialogHostFailed),
                 }
             }
-            Action::HostResult(o) => {
+            Action::HostResult(yamdv_core::ipc::Kind::Font, o) => {
+                // SAFETY: valid hwnd.
+                unsafe {
+                    let _ = EnableWindow(hwnd, true);
+                    let _ = SetForegroundWindow(hwnd);
+                }
+                if let yamdv_core::ipc::Outcome::Paths(p) = o
+                    && let Some(name) = p.first()
+                    && !name.is_empty()
+                    && name.len() <= 64
+                {
+                    app::set("typography.body_font", name);
+                }
+            }
+            Action::HostResult(_, o) => {
                 // SAFETY: valid hwnd.
                 unsafe {
                     let _ = EnableWindow(hwnd, true);
@@ -2557,11 +3042,11 @@ fn run_actions_inner(hwnd: HWND, actions: Vec<Action>) {
                             w.open(&sh, &first, None, false);
                         }
                     } else {
-                        create_window(&sh, Some(&first));
+                        app::open_or_activate(&first, None);
                     }
                 }
                 for p in it {
-                    create_window(&sh, Some(&p));
+                    app::open_or_activate(&p, None);
                 }
             }
         }
@@ -2570,7 +3055,18 @@ fn run_actions_inner(hwnd: HWND, actions: Vec<Action>) {
 
 extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     if msg == WM_DESTROY {
+        if let Some(w) = WINDOWS.with(|m| m.borrow().get(&(hwnd.0 as isize)).cloned())
+            && let Ok(mut w) = w.try_borrow_mut()
+        {
+            w.save_position();
+            app::save_geometry(hwnd);
+            w.watcher = None;
+            app::save_state();
+        }
         WINDOWS.with(|m| m.borrow_mut().remove(&(hwnd.0 as isize)));
+        if WINDOWS.with(|m| !m.borrow().is_empty()) {
+            app::ensure_theme_watch(None);
+        }
         if WINDOWS.with(|m| m.borrow().is_empty()) {
             // SAFETY: no preconditions; closing the last window exits.
             unsafe { PostQuitMessage(0) };
@@ -2633,10 +3129,10 @@ fn register_class() -> bool {
     unsafe { RegisterClassExW(&wc) != 0 }
 }
 
-fn create_window(sh: &Shared, path: Option<&str>) {
+fn create_window(sh: &Shared, path: Option<&str>) -> Option<HWND> {
     // SAFETY: module handle of the running exe.
     let Ok(hinstance) = (unsafe { GetModuleHandleW(None) }) else {
-        return;
+        return None;
     };
     let mut pt = POINT::default();
     // SAFETY: valid out-pointer.
@@ -2661,9 +3157,18 @@ fn create_window(sh: &Shared, path: Option<&str>) {
     w = w.min(work.right - work.left);
     h = h.min(work.bottom - work.top);
     let n = WINDOWS.with(|m| m.borrow().len()) as i32;
-    let off = (n % 8) * scale(24, dpi_x);
-    let x = work.left + (work.right - work.left - w) / 2 + off;
-    let y = work.top + (work.bottom - work.top - h) / 2 + off;
+    let off = (n % 8) * scale(28, dpi_x);
+    let mut x = work.left + (work.right - work.left - w) / 2 + off;
+    let mut y = work.top + (work.bottom - work.top - h) / 2 + off;
+    let mut maximize = false;
+    // R-WIN-03: the remembered geometry, validated against the current monitors.
+    if let Some(g) = app::restored_geometry() {
+        x = g.x + off;
+        y = g.y + off;
+        w = g.w;
+        h = g.h;
+        maximize = g.max && n == 0;
+    }
     // SAFETY: class registered; title is static.
     let Ok(hwnd) = (unsafe {
         CreateWindowExW(
@@ -2681,12 +3186,12 @@ fn create_window(sh: &Shared, path: Option<&str>) {
             None,
         )
     }) else {
-        return;
+        return None;
     };
     // SAFETY: valid hwnd.
     let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
     let scale_f = dpi as f32 / 96.0;
-    let dark = app_mode() == Mode::Dark;
+    let dark = app::is_dark(&sh.mode);
     let mut rc = RECT::default();
     // SAFETY: valid hwnd and out-pointer.
     let _ = unsafe { GetClientRect(hwnd, &mut rc) };
@@ -2695,7 +3200,7 @@ fn create_window(sh: &Shared, path: Option<&str>) {
         hwnd,
         scale: scale_f,
         dark,
-        pal: theme::palette("default", dark),
+        pal: app::palette_for(&sh.scheme, dark).0,
         cw: (rc.right - rc.left) as f32 / scale_f,
         ch: (rc.bottom - rc.top) as f32 / scale_f,
         view: View::Empty { note: None },
@@ -2724,9 +3229,14 @@ fn create_window(sh: &Shared, path: Option<&str>) {
         auto_steps: 0,
         focus: None,
         actions: Vec::new(),
+        dimmed: false,
+        watcher: None,
+        find: None,
+        side: sidebar::Side::default(),
     };
     let rcw = Rc::new(RefCell::new(win));
     WINDOWS.with(|m| m.borrow_mut().insert(hwnd.0 as isize, rcw.clone()));
+    app::ensure_theme_watch(Some(hwnd));
     apply_mode(hwnd, if dark { Mode::Dark } else { Mode::Light });
     // SAFETY: valid hwnd.
     unsafe { DragAcceptFiles(hwnd, true) };
@@ -2737,7 +3247,8 @@ fn create_window(sh: &Shared, path: Option<&str>) {
     }
     flush_deferred(hwnd, &rcw);
     // SAFETY: valid hwnd.
-    let _ = unsafe { ShowWindow(hwnd, SW_SHOW) };
+    let _ = unsafe { ShowWindow(hwnd, if maximize { SW_SHOWMAXIMIZED } else { SW_SHOW }) };
+    Some(hwnd)
 }
 
 /// Reads `settings.ini` (read-only in this phase, R-SET-05) and returns the settings.
@@ -2768,14 +3279,20 @@ pub(crate) fn load_settings() -> Settings {
     Settings::from_ini(&yamdv_core::ini::Ini::parse(&bytes))
 }
 
-/// Opens one window per path (or one empty window) and runs the message loop.
-pub fn run(paths: &[String], dev: DevOptions) -> i32 {
-    let commit_at_start = crate::perf::commit_bytes();
-    // SAFETY: COM for IFileOpenDialog on this (UI) thread.
-    let _ = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
-    let s = load_settings();
-    let Ok(dw) = DWrite::new(s.str("typography.body_font"), s.str("typography.code_font")) else {
-        return 1;
+/// Builds the process-wide state from `s`; reuses `dw` when the fonts did not change.
+fn build_shared(
+    s: &Settings,
+    dw: Option<(Rc<DWrite>, (String, String))>,
+    dev: DevOptions,
+    commit_at_start: u64,
+) -> Option<Shared> {
+    let fonts = (
+        s.str("typography.body_font").to_string(),
+        s.str("typography.code_font").to_string(),
+    );
+    let dw = match dw {
+        Some((d, f)) if f == fonts => d,
+        _ => Rc::new(DWrite::new(&fonts.0, &fonts.1).ok()?),
     };
     let m = Metrics {
         font_size: s.int("typography.font_size") as f32,
@@ -2784,8 +3301,17 @@ pub fn run(paths: &[String], dev: DevOptions) -> i32 {
         table_zebra: s.bool("appearance.table_zebra"),
         rounded: s.str("appearance.corner_style") != "sharp",
     };
-    let shared = Shared {
+    Some(Shared {
         dw,
+        scheme: s.str("appearance.scheme").to_string(),
+        mode: s.str("appearance.mode").to_string(),
+        fonts,
+        restore_pos: s.bool("general.restore_reading_position"),
+        side_visible: s.bool("sidebar.visible"),
+        side_right: s.str("sidebar.position").starts_with("right"),
+        side_w: s.int("sidebar.width") as f32,
+        toc_font: s.int("sidebar.toc_font_size") as f32,
+        toc_depth: u8::try_from(s.int("sidebar.toc_max_depth").clamp(1, 6)).unwrap_or(4),
         lang: yamdv_core::i18n::resolve(s.str("general.language"), sys::ui_language_tag()),
         m,
         read: ReadOpts {
@@ -2806,6 +3332,28 @@ pub fn run(paths: &[String], dev: DevOptions) -> i32 {
         autohide: s.bool("reading.scrollbar_autohide"),
         dev,
         commit_at_start,
+    })
+}
+
+/// Opens one window per path (or one empty window) and runs the message loop.
+pub fn run(paths: &[String], dev: DevOptions, line: Option<u32>) -> i32 {
+    let commit_at_start = crate::perf::commit_bytes();
+    // S-IPC-01 / R-WIN-01: a second launch forwards its paths and exits.
+    let instance = crate::shell::claim_instance();
+    if instance.is_none() {
+        let full: Vec<String> = paths
+            .iter()
+            .map(|p| sys::full_path(p).unwrap_or_else(|| p.clone()))
+            .collect();
+        if crate::shell::forward(&full, u64::from(line.unwrap_or(0))) {
+            return 0;
+        }
+    }
+    // SAFETY: COM for IFileOpenDialog on this (UI) thread.
+    let _ = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
+    let s = app::init();
+    let Some(shared) = build_shared(&s, None, dev, commit_at_start) else {
+        return 1;
     };
     drop(s);
     let sh = Rc::new(shared);
@@ -2817,7 +3365,7 @@ pub fn run(paths: &[String], dev: DevOptions) -> i32 {
         create_window(&sh, None);
     } else {
         for p in paths {
-            create_window(&sh, Some(p));
+            app::open_or_activate(p, line);
         }
     }
     let _ = PENDING_OPEN.with(|p| p.borrow().len());
@@ -2841,6 +3389,11 @@ pub fn run(paths: &[String], dev: DevOptions) -> i32 {
         // SAFETY: standard message pump; msg is a valid out-pointer.
         while unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE) }.as_bool() {
             if msg.message == WM_QUIT {
+                // Stop watcher threads while they are alive: thread-local destructors run after
+                // ExitProcess has killed them, and joining a killed thread panics (abort).
+                app::shutdown();
+                let wins = WINDOWS.with(|m| std::mem::take(&mut *m.borrow_mut()));
+                drop(wins);
                 return i32::try_from(msg.wParam.0).unwrap_or(0);
             }
             // SAFETY: msg was filled by PeekMessageW.

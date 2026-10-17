@@ -1,0 +1,5 @@
+# Second launch forwards its path to this instance (prompt 005 §3.5, R-WIN-01)
+assert windows == 1
+launch b.md
+sleep 3000
+assert windows == 2
