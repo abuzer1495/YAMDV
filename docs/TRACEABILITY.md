@@ -20,20 +20,20 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-CODE-04 | 003 | implemented (003) |
 | R-CODE-05 | 003 | partial (003): toolbar not animated |
 | R-CODE-06 | 003 | partial (003): chunked paragraphs, not lazy shaping |
-| R-EDIT-01 | 006 | planned |
-| R-EDIT-02 | 006 | planned |
-| R-EDIT-03 | 006 | planned |
-| R-EDIT-04 | 006 | planned |
+| R-EDIT-01 | 006 | implemented (006 V1-B): edits on the source buffer; byte-identity test |
+| R-EDIT-02 | 006 | implemented (006 V1-B): autosave 800 ms/mode exit/deactivate/close, Ctrl+S, S-FILE-03 write, title ● |
+| R-EDIT-03 | 006 | implemented (006 V1-B): Stamp check + in-window dialog |
+| R-EDIT-04 | 006 | implemented (006 V1-B): yamdv-editor history, proptest |
 | R-EDIT-05 | 006 | deferred (FUT-15) |
 | R-EDIT-06 | 006 | deferred (FUT-45) |
 | R-EDIT-07 | 006 | deferred (FUT-12) |
 | R-EDIT-08 | 006 | deferred (FUT-45) |
-| R-EDIT-09 | 006 | planned |
+| R-EDIT-09 | 006 | partial (006 V1-B): IMM composition + candidate at caret, AltGr guard; not verified on a real IME |
 | R-EDIT-10 | 006 | deferred (FUT-45) |
-| R-EDIT-11 | 006 | planned |
-| R-EDIT-12 | 006 | planned |
+| R-EDIT-11 | 006 | implemented (006 V1-B) |
+| R-EDIT-12 | 006 | implemented (006 V1-B): read-only / lossy / plain dialogs |
 | R-EDIT-13 | 006 | deferred (FUT-45) |
-| R-EDIT-14 | 006 | planned |
+| R-EDIT-14 | 006 | implemented (006 V1-B) |
 | R-EXP-01 | 011 | deferred (FUT-39) |
 | R-EXP-02 | 011 | deferred (FUT-21) |
 | R-EXP-03 | 011 | planned |
@@ -204,16 +204,16 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | S-EXP-02 | 011 | deferred (FUT-21) |
 | S-EXP-03 | 011 | planned |
 | S-EXP-04 | 011 | planned |
-| S-FILE-01 | 002/005 | planned |
+| S-FILE-01 | 002/005 | implemented (006 V1-B): document writes only from edit modes + opt-in task toggle |
 | S-FILE-02 | 002/005 | planned |
-| S-FILE-03 | 002/005 | planned |
+| S-FILE-03 | 002/005 | implemented (006 V1-B): shell::save_document (ReplaceFileW / MoveFileExW) |
 | S-FILE-04 | 002/005 | implemented (002) |
 | S-FILE-05 | 002/005 | planned |
 | S-FILE-06 | 002/005 | planned |
 | S-FILE-07 | 002/005 | implemented (002) |
 | S-FILE-08 | 002/005 | planned |
 | S-FILE-09 | 002/005 | planned |
-| S-FILE-10 | 002/005 | planned |
+| S-FILE-10 | 002/005 | implemented (006 V1-B): encode.rs keeps EOL/BOM/encoding; byte-identity test |
 | S-HTML-01 | 003 | implemented (003): allowlist sanitizer, XSS suite |
 | S-HTML-02 | 003 | implemented (003) |
 | S-HTML-03 | 003 | implemented (003) |
@@ -289,24 +289,24 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-A11Y-02 | 012 | partial (002): reduced motion for scrolling |
 | R-A11Y-03 | 012 | deferred (FUT-47) |
 | R-A11Y-04 | 012 | implemented (002) |
-| R-F2-01 | 007 | planned |
+| R-F2-01 | 007 | implemented (006 V1-B): block-level model |
 | R-F2-02 | 007 | deferred (FUT-43) |
 | R-F2-03 | 007 | deferred (FUT-43) |
 | R-F2-04 | 007 | deferred (FUT-45) |
-| R-F2-05 | 007 | planned |
+| R-F2-05 | 007 | partial (006 V1-B): Undo/Redo/Cut/Copy/Paste + Format ▸ |
 | R-F2-06 | 007 | planned |
-| R-F2-07 | 007 | planned |
-| R-F2-08 | 007 | planned |
+| R-F2-07 | 007 | implemented (006 V1-B) |
+| R-F2-08 | 007 | partial (006 V1-B): click enters block, Ctrl+click follows, Ctrl+K wraps |
 | R-F2-09 | 007 | planned |
-| R-F2-10 | 007 | planned |
+| R-F2-10 | 007 | implemented (006 V1-B) |
 | R-F2-11 | 007 | deferred (FUT-18) |
 | R-F2-12 | 007 | deferred (FUT-26) |
-| R-F3-01 | 006 | planned |
-| R-F3-02 | 006 | planned |
-| R-F3-03 | 006 | planned |
-| R-F3-04 | 006 | planned |
-| R-F3-05 | 006 | planned |
-| R-F3-06 | 006 | planned |
+| R-F3-01 | 006 | implemented (006 V1-B) |
+| R-F3-02 | 006 | implemented (006 V1-B) |
+| R-F3-03 | 006 | implemented (006 V1-B): 30 ms debounce + Viewer::splice |
+| R-F3-04 | 006 | implemented (006 V1-B): block-based |
+| R-F3-05 | 006 | partial (006 V1-B): click → caret; preview selection not mirrored |
+| R-F3-06 | 006 | implemented (006 V1-B): opens the F1 help document |
 | R-F3-07 | 006 | deferred (FUT-45) |
 | R-I18N-01 | 004 | partial (002): EN/TR strings of 002; part deferred: FUT-29 |
 | R-I18N-02 | 004 | implemented (002) |

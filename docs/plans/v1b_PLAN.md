@@ -14,10 +14,11 @@ Risks: window.rs is 3.4 kLOC (new UI in `window/edit.rs`); no Windows GUI locall
 ## CHECKPOINT
 - [x] V1-A plan checkpoint closed (merged 5fdf661, tag phase-v1a)
 - [x] prompt stored `docs/prompts/006_V1B_EDITING.md` (SHA-256 10fce65bdae1465f3b52c570a8b8195df5f6926334df0cdea5006b5bc13d1056)
-- [ ] F-20 memprobe in place (cwd = doc folder) + M1 with images (`--line` to the image section), image cache bytes
-- [ ] F-21 T4 gate: second attempt, fail only if both > 16 ms
-- [ ] editor core (buffer, history, moves, md keys, proptest)
-- [ ] save (encoding/BOM/EOL, atomic, conflict) + byte-identity test
-- [ ] incremental reparse wiring (Viewer::splice)
-- [ ] F3 split, F2 block edit, menu/settings, title ●, autosave, conflict dialog, disabled-edit dialogs, IME
-- [ ] driver `type` latency + 9 scripts, 2 goldens, M5/T5, report, PR/merge/tag
+- [x] F-20 memprobe in place (cwd = doc folder) + M1 with images (`--line` to the image section), image cache bytes
+- [x] F-21 T4 gate: second attempt, fail only if both > 16 ms
+- [x] editor core (buffer, history, moves, md keys, proptest)
+- [x] save (encoding/BOM/EOL, atomic, conflict) + byte-identity test
+- [x] incremental reparse wiring (Viewer::splice)
+- [x] F3 split, F2 block edit, menu/settings, title ●, autosave, conflict dialog, disabled-edit dialogs, IME
+- [x] driver `type` latency + 9 scripts, 2 golden steps, M5/T5 wiring (tests/perf, measure.ps1)
+- [ ] local gates, PR (CI run 1), golden PNGs from the CI artifact (fix push), merge, tag, report
