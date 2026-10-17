@@ -21,4 +21,5 @@ Risks: window.rs is 3.4 kLOC (new UI in `window/edit.rs`); no Windows GUI locall
 - [x] incremental reparse wiring (Viewer::splice)
 - [x] F3 split, F2 block edit, menu/settings, title ●, autosave, conflict dialog, disabled-edit dialogs, IME
 - [x] driver `type` latency + 9 scripts, 2 golden steps, M5/T5 wiring (tests/perf, measure.ps1)
-- [ ] local gates, PR (CI run 1), golden PNGs from the CI artifact (fix push), merge, tag, report
+- [x] local gates green (fmt, clippy linux + xwin incl. dev-tools, tests, spec-check)
+- [ ] CI run 1, golden PNGs from the CI artifact (fix push), merge, tag, report
