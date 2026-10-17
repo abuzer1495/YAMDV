@@ -426,6 +426,7 @@ mod tests {
         let mut sh = MockShaper;
         let mut ctx = Ctx {
             images: &crate::img::NO_IMAGES,
+            rich: &crate::rich::NO_RICH,
             shaper: &mut sh,
             m: Metrics::default(),
             pal: &pal,
@@ -518,6 +519,7 @@ mod tests {
         let mut run = |o: CodeOpts| {
             let mut ctx = Ctx {
                 images: &crate::img::NO_IMAGES,
+                rich: &crate::rich::NO_RICH,
                 shaper: &mut sh,
                 m: Metrics::default(),
                 pal: &pal,

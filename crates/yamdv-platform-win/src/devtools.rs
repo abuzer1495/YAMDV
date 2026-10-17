@@ -96,11 +96,14 @@ pub fn render_png(o: &RenderPng) -> i32 {
             .unwrap_or_else(|_| o.input.clone()),
     );
     let mut shaper = DwShaper(&dw);
+    let cache = yamdv_layout::rich::RichCache::default();
+    let rich = crate::dwrite::Rich::new(&dw, &cache, true, true);
     // Lay out everything (the viewport is the whole document); repeat until heights settle.
     let mut total = viewer.total_height();
     for _ in 0..16 {
         let mut env = Env {
             images: &images,
+            rich: &rich,
             shaper: &mut shaper,
             m,
             pal: &pal,

@@ -27,6 +27,10 @@ pub struct ReadOpts {
     pub code_wrap: bool,
     /// `reading.front_matter` (R-REN-13; layout only): 0 collapsed, 1 expanded, 2 hidden.
     pub front_matter: u8,
+    /// `reading.render_math` (R-MATH-*; layout only).
+    pub render_math: bool,
+    /// `reading.render_mermaid` (R-MMD-*; layout only).
+    pub render_mermaid: bool,
 }
 
 /// pulldown-cmark options per Phase 002 §4.3 item 1.

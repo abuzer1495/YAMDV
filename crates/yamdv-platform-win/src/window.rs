@@ -272,6 +272,8 @@ struct DocView {
     encoding: &'static str,
     /// Images of this document (R-IMG-*).
     images: crate::images::Store,
+    /// Laid-out formulas and diagrams of this document (R-MATH-*, R-MMD-*).
+    rich: yamdv_layout::rich::RichCache,
     /// Built-in document (help); no file, history, watcher or position.
     virt: bool,
     /// File facts for saving (V1-B).
@@ -593,6 +595,7 @@ impl Win {
             info: FileInfo::default(),
             encoding: "UTF-8",
             images: crate::images::Store::new(&full, self.hwnd.0 as isize),
+            rich: yamdv_layout::rich::RichCache::default(),
             virt,
             facts: edit::Facts {
                 plain,
@@ -1178,6 +1181,12 @@ impl Win {
                 strings: &strings,
                 single_newline_break: sh.read.single_newline_break,
                 images: &d.images,
+                rich: &crate::dwrite::Rich::new(
+                    &sh.dw,
+                    &d.rich,
+                    sh.read.render_math,
+                    sh.read.render_mermaid,
+                ),
             };
             d.viewer.prepare(&mut d.content, &mut env, vh);
         }
@@ -1312,6 +1321,7 @@ impl Win {
             line_pitch: (size * 1.4).round(),
             rtl: false,
             tab_spaces: None,
+            objects: Vec::new(),
         })
     }
 
@@ -2043,6 +2053,12 @@ impl Win {
                 strings: &strings,
                 single_newline_break: sh.read.single_newline_break,
                 images: &d.images,
+                rich: &crate::dwrite::Rich::new(
+                    &sh.dw,
+                    &d.rich,
+                    sh.read.render_math,
+                    sh.read.render_mermaid,
+                ),
             };
             d.viewer.prepare(&mut d.content, &mut env, vh);
         }
@@ -2477,6 +2493,16 @@ pub(crate) fn draw_doc(
                         // Decoding: a quiet `code_bg` box of the final size (no layout shift).
                         None => b.fill(r, pal.code_bg, 1.0, 4.0),
                     }
+                }
+                Item::Math {
+                    x: mx,
+                    y: my,
+                    mb,
+                    color,
+                    hscroll,
+                } => {
+                    let o = hscroll.map_or(0.0, off);
+                    b.math(mb, cx + mx - o, y + my, *color);
                 }
                 Item::PushClip(r) => b.push_clip(r.offset(cx, y)),
                 Item::PopClip => b.pop_clip(),
@@ -3387,6 +3413,8 @@ fn build_shared(
             single_newline_break: s.bool("reading.single_newline_break"),
             code_line_numbers: s.bool("reading.code_line_numbers"),
             code_wrap: s.bool("reading.code_wrap"),
+            render_math: s.bool("reading.render_math"),
+            render_mermaid: s.bool("reading.render_mermaid"),
             front_matter: match s.str("reading.front_matter") {
                 "expanded" => 1,
                 "hidden" => 2,

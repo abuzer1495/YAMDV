@@ -107,6 +107,12 @@ pub(crate) fn code_block(
     w: f32,
     out: &mut Out,
 ) -> f32 {
+    let fence = info.split_whitespace().next().unwrap_or("");
+    if fence.eq_ignore_ascii_case("math") && ctx.rich.render_math() && ctx.rich.math().is_some() {
+        // R-MATH-05: ```math is display math.
+        let tex = pt.text.clone();
+        return crate::rich::display_math(ctx, &tex, pt, x, y, w, out);
+    }
     let m = ctx.m;
     let dark = is_dark(ctx.pal.bg);
     let opts = (ctx.code_opts)(ctx.block, node);
@@ -135,6 +141,7 @@ pub(crate) fn code_block(
             line_pitch: pitch,
             rtl: false,
             tab_spaces: None,
+            objects: Vec::new(),
         });
         s.width() / 10.0
     };
@@ -221,6 +228,7 @@ pub(crate) fn code_block(
             line_pitch: pitch,
             rtl: false,
             tab_spaces: Some(4),
+            objects: Vec::new(),
         });
         let base_u16 = all[a].u16s.start;
         for l in &all[a..b] {
@@ -298,6 +306,7 @@ pub(crate) fn code_block(
             line_pitch: pitch,
             rtl: false,
             tab_spaces: None,
+            objects: Vec::new(),
         });
         out.para(x + CODE_PAD_X / 2.0 + 8.0, top, shaped, None, None);
     }
@@ -355,6 +364,7 @@ pub(crate) fn code_block(
             line_pitch: 11.0 * 1.4,
             rtl: false,
             tab_spaces: None,
+            objects: Vec::new(),
         });
         s.width()
     };

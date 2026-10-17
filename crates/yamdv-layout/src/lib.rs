@@ -7,11 +7,13 @@
 pub mod block;
 pub mod callout;
 pub mod code;
+pub mod diagram;
 pub mod fenwick;
 pub mod front;
 pub mod geom;
 pub mod img;
 pub mod plain;
+pub mod rich;
 pub mod shaper;
 pub mod table;
 pub mod viewer;

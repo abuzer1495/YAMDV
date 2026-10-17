@@ -171,6 +171,20 @@ pub enum Item {
     },
     /// Scrollbar of region `regions[i]` (drawn with the current offset).
     HScrollBar(usize),
+    /// A laid-out formula (R-MATH-01) with its baseline origin at (x, y); glyphs without a
+    /// `\color` override use `color`.
+    Math {
+        /// Origin x (left edge).
+        x: f32,
+        /// Baseline y.
+        y: f32,
+        /// Formula.
+        mb: std::rc::Rc<yamdv_math::MathBox>,
+        /// Default color.
+        color: u32,
+        /// Horizontal scroll region it moves with.
+        hscroll: Option<u16>,
+    },
     /// Code block header toolbar (drawn by the platform on hover / focus, B.6.7).
     CodeToolbar {
         /// Detail node of the code block.
@@ -408,6 +422,8 @@ pub struct Ctx<'a> {
     pub code_opts: &'a dyn Fn(usize, usize) -> crate::code::CodeOpts,
     /// Image knowledge of the platform.
     pub images: &'a dyn crate::img::ImageHost,
+    /// Math font, settings and cache (R-MATH-*, R-MMD-*).
+    pub rich: &'a dyn crate::rich::RichHost,
 }
 
 /// Vertical margins (top, bottom) of a top-level block kind (B.6.2–B.6.9).
@@ -512,7 +528,7 @@ pub(crate) fn spans(segs: &[Seg], b: &Style, m: &Metrics, pal: &Palette) -> Vec<
             t.strike = true;
         }
         if f & st::CODE != 0 {
-            // PHASE-003: inline math also uses the inline-code style until math rendering lands.
+            // Inline math that is not rendered (setting off / no math font) keeps this style.
             t.family = Family::Code;
             t.size = b.size * 0.875;
         }
@@ -609,6 +625,7 @@ pub(crate) fn shape_text(
         line_pitch: pitch,
         rtl: is_rtl(text),
         tab_spaces: None,
+        objects: Vec::new(),
     })
 }
 
@@ -640,7 +657,39 @@ pub(crate) fn leaf_aligned(
     align: u8,
     out: &mut Out,
 ) -> f32 {
-    let sp = spans(&pt.segs, &style, &ctx.m, ctx.pal);
+    let mut sp = spans(&pt.segs, &style, &ctx.m, ctx.pal);
+    // R-MATH-04: inline formulas become inline objects (baseline-aligned, one unit); errors keep
+    // their source in the `error` color (R-MATH-03).
+    let mut objects = Vec::new();
+    let mut maths: Vec<(usize, std::rc::Rc<yamdv_math::MathBox>)> = Vec::new();
+    let mut no_bg: Vec<usize> = Vec::new();
+    for (k, seg) in pt.segs.iter().filter(|g| g.style != 0).enumerate() {
+        if seg.style & st::MATH == 0 {
+            continue;
+        }
+        let t = pt.slice16(seg.u16_start, seg.u16_start + seg.u16_len);
+        let (tex, disp) = crate::rich::strip_delims(t);
+        let Some(r) = crate::rich::math_box(ctx, tex, crate::rich::math_size(style.size), disp)
+        else {
+            continue;
+        };
+        let Some(s) = sp.get_mut(k) else { continue };
+        no_bg.push(k);
+        match r {
+            Ok(mb) => {
+                objects.push(crate::shaper::InlineObject {
+                    range: (s.range.start, s.range.end),
+                    width: mb.width,
+                    ascent: mb.ascent,
+                    descent: mb.descent,
+                });
+                s.style.family = style.family;
+                s.style.size = style.size;
+                maths.push((k, mb));
+            }
+            Err(_) => s.style.color = ctx.pal.error,
+        }
+    }
     let rtl = is_rtl(&pt.text);
     let shaped = ctx.shaper.shape(&ParaSpec {
         text: &pt.text,
@@ -650,6 +699,7 @@ pub(crate) fn leaf_aligned(
         line_pitch: pitch,
         rtl,
         tab_spaces: None,
+        objects,
     });
     let x = match align {
         2 => x + ((w - shaped.width()) / 2.0).max(0.0),
@@ -683,8 +733,8 @@ pub(crate) fn leaf_aligned(
             }
         }
     }
-    for s in &sp {
-        if s.style.family == Family::Code {
+    for (k, s) in sp.iter().enumerate() {
+        if s.style.family == Family::Code && !no_bg.contains(&k) {
             let em = s.style.size / 0.875;
             for r in shaped.range_rects(s.range.clone()) {
                 let ih = s.style.size * 1.3 + 0.3 * em;
@@ -759,6 +809,18 @@ pub(crate) fn leaf_aligned(
             });
         }
     }
+    for (k, mb) in maths {
+        let Some(s) = sp.get(k) else { continue };
+        if let Some(r) = shaped.range_rects(s.range.clone()).first() {
+            out.items.push(Item::Math {
+                x: x + r.x,
+                y: y + r.y + pitch * 0.8,
+                mb,
+                color: style.color,
+                hscroll: None,
+            });
+        }
+    }
     out.para(x, y, shaped, Some(pt), None)
 }
 
@@ -787,6 +849,7 @@ pub(crate) fn card(
         line_pitch: m.code_pitch(),
         rtl: false,
         tab_spaces: Some(4),
+        objects: Vec::new(),
     });
     let text_h = shaped.height().max(m.code_pitch());
     let h = CODE_HEADER + CODE_PAD_TOP + text_h + CODE_PAD_BOTTOM;
@@ -1013,8 +1076,33 @@ fn node(
         NodeKind::Placeholder(Placeholder::FrontMatter) => {
             crate::front::front_matter(ctx, src, d, i, x, y, w, out)
         }
+        NodeKind::Placeholder(Placeholder::Math) => {
+            // R-MATH-05: one or more display formulas, stacked.
+            let pt = node_text(src, d, i, true);
+            let texs: Vec<String> = pt
+                .segs
+                .iter()
+                .filter(|s| s.style & st::MATH != 0)
+                .map(|s| {
+                    let t = pt.slice16(s.u16_start, s.u16_start + s.u16_len);
+                    crate::rich::strip_delims(t).0.to_string()
+                })
+                .collect();
+            let mut h = 0.0;
+            for (k, tex) in texs.iter().enumerate() {
+                if k > 0 {
+                    h += 8.0;
+                }
+                let card_src = source_text(src, &d.nodes[i].range);
+                h += crate::rich::display_math(ctx, tex, card_src, x, y + h, w, out);
+                if !ctx.rich.render_math() || ctx.rich.math().is_none() {
+                    break;
+                }
+            }
+            h
+        }
         NodeKind::Placeholder(p) => {
-            // PHASE-003: tables, HTML, math, footnotes, front matter are shown as source cards.
+            // Footnotes and details placeholders are shown as source cards.
             let label = ctx.strings.placeholder(*p).to_string();
             let pt = source_text(src, &d.nodes[i].range);
             card(ctx, pt, Some(&label), x, y, w, out)

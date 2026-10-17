@@ -1119,8 +1119,14 @@ impl Detail {
                 },
                 Event::Text(t) => b.text(&r, &t),
                 Event::Code(t) => b.run(RunKind::Text, &r, &t, style::CODE),
-                Event::InlineMath(t) | Event::DisplayMath(t) => {
-                    b.run(RunKind::Text, &r, &t, style::CODE | style::MATH)
+                Event::InlineMath(_) | Event::DisplayMath(_) => {
+                    // R-MATH-04: the run carries its source with delimiters (copy, errors).
+                    let s = b
+                        .source
+                        .get(b.abs(&r).start as usize..b.abs(&r).end as usize)
+                        .unwrap_or("")
+                        .to_string();
+                    b.run(RunKind::Text, &r, &s, style::CODE | style::MATH)
                 }
                 Event::InlineHtml(t) => b.inline_html(&r, &t),
                 Event::Html(t) => b.run(RunKind::Text, &r, &t, style::MUTED),
@@ -1441,9 +1447,9 @@ mod tests {
         // R-MD-14: inline `<b>` is applied as strong, never shown as source.
         assert_eq!(find(style::STRONG).as_deref(), Some("h"));
         assert_eq!(find(style::MUTED), None);
-        assert_eq!(find(style::MATH).as_deref(), Some("m"));
+        assert_eq!(find(style::MATH).as_deref(), Some("$m$"));
         assert_eq!(find(style::STRIKE).as_deref(), Some("s"));
-        assert_eq!(find(style::CODE).as_deref(), Some("m"));
+        assert_eq!(find(style::CODE).as_deref(), Some("$m$"));
         assert_eq!(
             ds[2].nodes[0].kind,
             NodeKind::Placeholder(Placeholder::Math)

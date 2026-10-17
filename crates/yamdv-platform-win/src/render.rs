@@ -22,8 +22,9 @@ use tiny_skia::{
 use windows::Win32::Foundation::{COLORREF, DWRITE_E_NOCOLOR, HWND, RECT};
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_GLYPH_IMAGE_FORMATS_CFF, DWRITE_GLYPH_IMAGE_FORMATS_COLR,
-    DWRITE_GLYPH_IMAGE_FORMATS_TRUETYPE, DWRITE_GLYPH_RUN, DWRITE_GLYPH_RUN_DESCRIPTION,
-    DWRITE_MATRIX, DWRITE_MEASURING_MODE, DWRITE_STRIKETHROUGH, DWRITE_UNDERLINE,
+    DWRITE_GLYPH_IMAGE_FORMATS_TRUETYPE, DWRITE_GLYPH_OFFSET, DWRITE_GLYPH_RUN,
+    DWRITE_GLYPH_RUN_DESCRIPTION, DWRITE_MATRIX, DWRITE_MEASURING_MODE,
+    DWRITE_MEASURING_MODE_NATURAL, DWRITE_STRIKETHROUGH, DWRITE_UNDERLINE,
     IDWriteBitmapRenderTarget, IDWriteFactory4, IDWriteInlineObject, IDWritePixelSnapping_Impl,
     IDWriteRenderingParams, IDWriteTextRenderer, IDWriteTextRenderer_Impl,
 };
@@ -805,6 +806,115 @@ impl Band<'_> {
         // SAFETY: valid layout and renderer; `ctx` outlives the synchronous Draw call.
         unsafe {
             let _ = layout.Draw(Some((&raw const ctx).cast()), &self.r.text, x, y - top);
+        }
+        self.gdi_begin();
+    }
+
+    /// Draws a laid-out formula (R-MATH-01) with its baseline origin at (x, y): glyphs from the
+    /// math font as positioned glyph runs, rules (fraction bars, radical overbars) as fills.
+    pub fn math(&self, mb: &yamdv_math::MathBox, x: f32, y: f32, color: u32) {
+        // Glyph ink can exceed the box slightly (italic overhang, assembly parts).
+        let pad = 4.0;
+        let bbox = Rect::new(
+            x - pad,
+            y - mb.ascent - pad,
+            mb.width + 2.0 * pad,
+            mb.ascent + mb.descent + 2.0 * pad,
+        );
+        if !self.visible(bbox.y, bbox.h) {
+            return;
+        }
+        match self.clip() {
+            Some(c) if !c.overlaps(&bbox) => {}
+            Some(c) if !c.contains_rect(&bbox) => {
+                self.clipped_px(c, || self.math_raw(mb, x, y, color));
+            }
+            _ => self.math_raw(mb, x, y, color),
+        }
+    }
+
+    fn math_raw(&self, mb: &yamdv_math::MathBox, x: f32, y: f32, color: u32) {
+        use yamdv_math::Op;
+        for op in &mb.ops {
+            if let Op::Rule {
+                x: rx,
+                y: ry,
+                w,
+                h,
+                color: c,
+            } = op
+            {
+                self.fill(
+                    Rect::new(x + rx, y + ry, *w, *h),
+                    c.unwrap_or(color),
+                    1.0,
+                    0.0,
+                );
+            }
+        }
+        let Some(face) = crate::dwrite::math_draw_face() else {
+            return;
+        };
+        let top = self.top_px as f32 / self.scale;
+        // Consecutive glyphs of one size and color form one run (zero advances, explicit offsets).
+        let glyphs: Vec<(u16, f32, f32, f32, u32)> = mb
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                Op::Glyph {
+                    gid,
+                    x: gx,
+                    y: gy,
+                    size,
+                    color: c,
+                } => Some((*gid, *gx, *gy, *size, c.unwrap_or(color))),
+                Op::Rule { .. } => None,
+            })
+            .collect();
+        self.cpu_begin();
+        let mut i = 0;
+        while i < glyphs.len() {
+            let (_, _, _, size, col) = glyphs[i];
+            let mut j = i + 1;
+            while j < glyphs.len() && glyphs[j].3.to_bits() == size.to_bits() && glyphs[j].4 == col
+            {
+                j += 1;
+            }
+            let run = &glyphs[i..j];
+            let ids: Vec<u16> = run.iter().map(|g| g.0).collect();
+            let adv = vec![0.0f32; run.len()];
+            let offs: Vec<DWRITE_GLYPH_OFFSET> = run
+                .iter()
+                .map(|g| DWRITE_GLYPH_OFFSET {
+                    advanceOffset: g.1,
+                    ascenderOffset: -g.2,
+                })
+                .collect();
+            let mut gr = DWRITE_GLYPH_RUN {
+                fontFace: std::mem::ManuallyDrop::new(Some(face.clone())),
+                fontEmSize: size,
+                glyphCount: ids.len() as u32,
+                glyphIndices: ids.as_ptr(),
+                glyphAdvances: adv.as_ptr(),
+                glyphOffsets: offs.as_ptr(),
+                isSideways: BOOL(0),
+                bidiLevel: 0,
+            };
+            // SAFETY: the run's buffers outlive the synchronous call; the face reference taken
+            // above is released right after.
+            unsafe {
+                let _ = self.r.brt.DrawGlyphRun(
+                    x,
+                    y - top,
+                    DWRITE_MEASURING_MODE_NATURAL,
+                    &gr,
+                    &self.r.params,
+                    colorref(col),
+                    None,
+                );
+                std::mem::ManuallyDrop::drop(&mut gr.fontFace);
+            }
+            i = j;
         }
         self.gdi_begin();
     }

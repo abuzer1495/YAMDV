@@ -240,6 +240,7 @@ mod tests {
         let mut sh = MockShaper;
         let mut ctx = Ctx {
             images: host,
+            rich: &crate::rich::NO_RICH,
             shaper: &mut sh,
             m: Metrics::default(),
             pal: &pal,
