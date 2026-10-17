@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 54fecf44433aeae4460ebb1ce8466c6ed1746d107dc6a5fd4b2ded50b57f4ba3 # shrinks to init = " \n  aaa", ops = [Type(769271225253523120, "-ü"), Paste(14017249196637485029, "\r\r"), Backspace(1459667110617), Type(1838293114150671412, "#-a"), Paste(31804746321245174, "🎉🎉"), Format(199677193924620292, 1), Backspace(132744603050862251), Type(2623739442589948200, "\naö"), Format(9749319163621276439, 0)]
+cc 68a54d0f8462ca5028b03180c3a0277e0878dab67e1aa227ffc20883a0ba8dfe # shrinks to init = "#a>a##a\n--aa#a\n ", ops = [Type(8363773587081333571, "ö\n["), Backspace(11155777947900467155), Delete(9747536247434117816, 3), Delete(9361277953171801420, 0), Backspace(879687216097200881), Format(8261861366606743796, 3), Type(3628655271376341926, "\nö\n"), Delete(122530499016780556, 0), Type(13224478562580826700, "a"), Backspace(9769782502667072018), Delete(7605738870224766265, 0), Paste(12875351240393840500, "🎉🎉🎉🎉"), Delete(6853667050998118922, 0), Paste(633839927794665520, "aa\r"), Paste(1210325291577572982, "\r"), Type(12250030456562555, "a["), Backspace(12731450330058857911), Delete(3210962951575238552, 0), Backspace(10535900749884604032), Format(13917892893768852067, 0)], fast = false
