@@ -26,4 +26,5 @@ Risks: no Windows GUI locally (visual check of math/mermaid layout with a throwa
 - [x] corpus + goldens + measure.ps1 rows
 - [x] driver scripts math.yds / mermaid.yds; TRACEABILITY rows; S-PARSE-05 formula cap
 - [x] fuzz: math 2.30 M runs, mermaid 2.61 M runs, 301 s each, 0 crashes
-- [ ] local gates, CI run, goldens from artifact (fix push), report, PR, merge, tag
+- [x] local gates; CI run 39036097595; goldens + block-PNG fix; report; PR #7
+- [ ] PR run green, merge, tag phase-v1c
