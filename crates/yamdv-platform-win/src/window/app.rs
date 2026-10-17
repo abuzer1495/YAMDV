@@ -333,6 +333,22 @@ mod cmd {
     pub const CONFIG_DIR: u32 = 92;
     pub const SHORTCUTS: u32 = 93;
     pub const ABOUT: u32 = 94;
+    // V1-B editing (prompt 006 §2.6).
+    pub const LIVE_EDIT: u32 = 100;
+    pub const SPLIT_EDIT: u32 = 101;
+    pub const SWAP_PANES: u32 = 102;
+    pub const UNDO: u32 = 103;
+    pub const REDO: u32 = 104;
+    pub const CUT: u32 = 105;
+    pub const PASTE: u32 = 106;
+    /// Format ▸ items: bold, italic, strike, code, link, h1, h2, h3, paragraph, quote, bullet,
+    /// numbered, task.
+    pub const FMT0: u32 = 110; // + 0..13
+    pub const AUTOSAVE: u32 = 130;
+    pub const EFONT_BODY: u32 = 131;
+    pub const EFONT_CODE: u32 = 132;
+    pub const ELINES: u32 = 133;
+    pub const EWRAP: u32 = 134;
 }
 pub(super) use cmd::*;
 
@@ -398,6 +414,8 @@ pub(super) struct MenuCtx {
     pub link: Option<String>,
     pub has_doc: bool,
     pub path: Option<String>,
+    /// Edit mode: 0 = read, 1 = Live Edit (F2), 2 = Split Edit (F3).
+    pub edit: u8,
 }
 
 fn build(lang: Lang, c: &MenuCtx) -> HMENU {
@@ -405,7 +423,38 @@ fn build(lang: Lang, c: &MenuCtx) -> HMENU {
     let b = Builder { lang };
     // SAFETY: plain menu creation; destroyed after TrackPopupMenuEx.
     let m = unsafe { CreatePopupMenu() }.unwrap_or_default();
-    b.msg(m, COPY, Msg::MCopy, "Ctrl+C", 0);
+    if c.edit != 0 {
+        b.msg(m, UNDO, Msg::MUndo, "Ctrl+Z", 0);
+        b.msg(m, REDO, Msg::MRedo, "Ctrl+Y", 0);
+        b.msg(m, CUT, Msg::MCut, "Ctrl+X", 0);
+        b.msg(m, COPY, Msg::MCopy, "Ctrl+C", 0);
+        b.msg(m, PASTE, Msg::MPaste, "Ctrl+V", 0);
+        b.sep(m);
+        let f = b.sub(m, Msg::MFormat);
+        for (i, (msg, key)) in [
+            (Msg::MBold, "Ctrl+B"),
+            (Msg::MItalic, "Ctrl+I"),
+            (Msg::MStrike, "Ctrl+Shift+X"),
+            (Msg::MInlineCode, "Ctrl+`"),
+            (Msg::MLink, "Ctrl+K"),
+            (Msg::MHeading1, "Ctrl+1"),
+            (Msg::MHeading2, "Ctrl+2"),
+            (Msg::MHeading3, "Ctrl+3"),
+            (Msg::MParagraph, "Ctrl+Shift+0"),
+            (Msg::MQuote, "Ctrl+Shift+Q"),
+            (Msg::MBulletList, "Ctrl+Shift+8"),
+            (Msg::MNumberedList, "Ctrl+Shift+7"),
+            (Msg::MTaskList, "Ctrl+Shift+9"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            b.msg(f, FMT0 + i as u32, msg, key, 0);
+        }
+        b.sep(m);
+    } else {
+        b.msg(m, COPY, Msg::MCopy, "Ctrl+C", 0);
+    }
     b.msg(m, COPY_MD, Msg::MCopyMd, "Ctrl+Shift+C", 0);
     if c.link.is_some() {
         b.msg(m, COPY_LINK, Msg::MCopyLink, "", 0);
@@ -495,6 +544,18 @@ fn build(lang: Lang, c: &MenuCtx) -> HMENU {
             );
         }
     }
+    if c.has_doc {
+        let e = b.sub(m, Msg::MEdit);
+        b.msg(e, LIVE_EDIT, Msg::MLiveEdit, "F2", check(c.edit == 1));
+        b.msg(e, SPLIT_EDIT, Msg::MSplitEdit, "F3", check(c.edit == 2));
+        b.msg(
+            e,
+            SWAP_PANES,
+            Msg::MSwapPanes,
+            "",
+            check(get("editing.split_swapped") == "true"),
+        );
+    }
     let f = b.sub(m, Msg::MFile);
     b.msg(f, OPEN, Msg::MOpen, "Ctrl+O", 0);
     if c.has_doc {
@@ -534,6 +595,31 @@ fn build(lang: Lang, c: &MenuCtx) -> HMENU {
         Msg::MCtxMenu,
         "",
         check(get("integration.context_menu") == "true"),
+    );
+    b.msg(
+        st,
+        AUTOSAVE,
+        Msg::MAutosave,
+        "",
+        check(get("editing.autosave") == "true"),
+    );
+    let efont = get("editing.editor_font");
+    let ef = b.sub(st, Msg::MEditorFont);
+    b.msg(ef, EFONT_BODY, Msg::MFontBody, "", radio(efont != "code"));
+    b.msg(ef, EFONT_CODE, Msg::MFontCode, "", radio(efont == "code"));
+    b.msg(
+        st,
+        ELINES,
+        Msg::MEditorLineNumbers,
+        "",
+        check(get("editing.editor_line_numbers") == "true"),
+    );
+    b.msg(
+        st,
+        EWRAP,
+        Msg::MEditorSoftWrap,
+        "",
+        check(get("editing.editor_soft_wrap") == "true"),
     );
     b.msg(st, EDIT_SETTINGS, Msg::MEditSettings, "", 0);
     b.msg(st, CONFIG_DIR, Msg::MConfigFolder, "", 0);
@@ -903,6 +989,20 @@ pub(super) fn run_command(hwnd: HWND, id: u32, link: Option<String>) -> Vec<Acti
         }
         SHORTCUTS => out.push(Action::Help),
         ABOUT => with_win(hwnd, |w, sh| w.about(sh)),
+        SWAP_PANES => toggle("editing.split_swapped"),
+        AUTOSAVE => toggle("editing.autosave"),
+        EFONT_BODY => {
+            set("editing.editor_font", "body");
+        }
+        EFONT_CODE => {
+            set("editing.editor_font", "code");
+        }
+        ELINES => toggle("editing.editor_line_numbers"),
+        EWRAP => toggle("editing.editor_soft_wrap"),
+        LIVE_EDIT | SPLIT_EDIT | UNDO | REDO | CUT | PASTE => {
+            with_win(hwnd, |w, sh| w.edit_command(sh, id));
+        }
+        i if (FMT0..FMT0 + 13).contains(&i) => with_win(hwnd, |w, sh| w.edit_command(sh, id)),
         _ => {}
     }
     out
@@ -927,6 +1027,10 @@ impl Win {
 
     /// Re-reads and re-lays out the document, keeping the top block (R-READ-01).
     pub(super) fn reload(&mut self, sh: &Shared) {
+        // Edit mode: rebuild from the buffer, never from disk (V1-B).
+        if self.edit_rebuild(sh) {
+            return;
+        }
         let View::Doc(d) = &self.view else { return };
         let (block, off) = d.viewer.anchor();
         let path = d.path.clone();
@@ -1309,6 +1413,7 @@ impl Win {
                 link,
                 has_doc: !d.virt,
                 path: Some(d.path.clone()),
+                edit: self.edit_mode_id(),
             },
             _ => MenuCtx::default(),
         }
@@ -1334,6 +1439,9 @@ impl Win {
 
     /// Debounced watcher notification (R-READ-01, R-OPEN-11).
     pub(super) fn file_changed(&mut self, sh: &Shared) {
+        if self.edit_file_changed(sh) {
+            return;
+        }
         let View::Doc(d) = &self.view else { return };
         if d.virt {
             return;

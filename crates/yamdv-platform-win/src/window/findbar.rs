@@ -38,16 +38,20 @@ impl Win {
     }
 
     fn find_recompute(&mut self) {
+        // F3 searches the editor buffer; F2 and read mode the document.
+        let buf = self.find_source();
         let View::Doc(d) = &self.view else { return };
         let Some(f) = &mut self.find else { return };
-        let src = d.content.source();
+        let src = buf.as_ref().map_or(d.content.source(), |b| b.0.as_str());
         f.matches = find::find_all(src, &f.query, f.case)
             .into_iter()
             .map(|(a, b)| u32::try_from(a).unwrap_or(0)..u32::try_from(b).unwrap_or(0))
             .collect();
         f.dirty = false;
         // Incremental: the first match at or after the reading position.
-        let top = d.content.range(d.viewer.anchor().0).start;
+        let top = buf
+            .as_ref()
+            .map_or_else(|| d.content.range(d.viewer.anchor().0).start, |b| b.1);
         f.cur = (!f.matches.is_empty()).then(|| {
             f.matches
                 .partition_point(|m| m.start < top)
@@ -88,7 +92,16 @@ impl Win {
     }
 
     /// Scrolls the current match into view (one third from the top).
-    fn find_reveal(&mut self, _sh: &Shared) {
+    fn find_reveal(&mut self, sh: &Shared) {
+        let cur = self
+            .find
+            .as_ref()
+            .and_then(|f| f.cur.and_then(|i| f.matches.get(i)).cloned());
+        if let Some(m) = cur
+            && self.find_reveal_edit(sh, m)
+        {
+            return;
+        }
         let target = {
             let (View::Doc(d), Some(f)) = (&self.view, &self.find) else {
                 return;

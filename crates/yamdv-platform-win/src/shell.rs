@@ -522,3 +522,72 @@ pub fn write_atomic(path: &str, text: &str) -> bool {
     let tmp = format!("{path}.tmp");
     std::fs::write(&tmp, text).is_ok() && std::fs::rename(&tmp, p).is_ok()
 }
+
+/// Document save (V1-B, S-FILE-03): a hidden `.~<name>.yamdv-<random>.tmp` created new next to
+/// the target, flushed, then `ReplaceFileW` (keeps the target's attributes, ACL and streams),
+/// falling back to `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)`. A symbolic link is saved
+/// through to its final target. Read-only targets are never cleared (callers refuse them).
+pub fn save_document(path: &str, bytes: &[u8]) -> std::io::Result<()> {
+    use std::hash::{BuildHasher, Hasher};
+    use std::io::Write;
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_NORMAL, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+        REPLACE_FILE_FLAGS, ReplaceFileW, SetFileAttributesW,
+    };
+    use windows::core::HSTRING;
+    let exists = std::fs::symlink_metadata(path).is_ok();
+    // Symlink → final target (`canonicalize` = GetFinalPathNameByHandleW).
+    let target = if exists {
+        std::fs::canonicalize(path)?
+    } else {
+        std::path::PathBuf::from(path)
+    };
+    let dir = target
+        .parent()
+        .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+    let name = target
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    h.write_u128(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos()),
+    );
+    let tmp = dir.join(format!(".~{name}.yamdv-{:016x}.tmp", h.finish()));
+    let write = || -> std::io::Result<()> {
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .attributes(0x2) // FILE_ATTRIBUTE_HIDDEN
+            .open(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all() // FlushFileBuffers
+    };
+    if let Err(e) = write() {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    let (t, s) = (
+        HSTRING::from(target.to_string_lossy().as_ref()),
+        HSTRING::from(tmp.to_string_lossy().as_ref()),
+    );
+    // SAFETY: valid NUL-terminated paths for the duration of the calls.
+    let ok = unsafe {
+        (exists && ReplaceFileW(&t, &s, None, REPLACE_FILE_FLAGS(0), None, None).is_ok())
+            || MoveFileExW(&s, &t, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH).is_ok()
+    };
+    if !ok {
+        let e = std::io::Error::last_os_error();
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    if !exists {
+        // A new file must not stay hidden (ReplaceFileW keeps the old attributes otherwise).
+        // SAFETY: valid path.
+        let _ = unsafe { SetFileAttributesW(&t, FILE_ATTRIBUTE_NORMAL) };
+    }
+    Ok(())
+}

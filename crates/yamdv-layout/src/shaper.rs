@@ -88,7 +88,10 @@ pub trait Shaped: std::fmt::Debug {
         if let Some(r) = self.range_rects(idx..idx + 1).first() {
             return Rect::new(r.x, r.y, 0.0, r.h);
         }
-        match idx.checked_sub(1).and_then(|p| self.range_rects(p..idx).last().copied()) {
+        match idx
+            .checked_sub(1)
+            .and_then(|p| self.range_rects(p..idx).last().copied())
+        {
             Some(r) => Rect::new(r.right(), r.y, 0.0, r.h),
             None => Rect::new(0.0, 0.0, 0.0, self.height().max(1.0)),
         }

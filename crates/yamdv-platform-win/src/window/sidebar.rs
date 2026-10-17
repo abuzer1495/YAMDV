@@ -85,7 +85,8 @@ impl Win {
 
     /// Sidebar rectangle, `None` when hidden.
     pub(super) fn side_rect(&self, sh: &Shared) -> Option<Rect> {
-        if !sh.side_visible {
+        // The sidebar is hidden in Split Edit (prompt 006 §2.4).
+        if !sh.side_visible || self.split_rects().is_some() {
             return None;
         }
         let w = self.side_w(sh);
@@ -95,6 +96,9 @@ impl Win {
 
     /// Document area `(x, width)` beside the sidebar.
     pub(super) fn doc_area(&self, sh: &Shared) -> (f32, f32) {
+        if let Some((_, p, _)) = self.split_rects() {
+            return (p.x, p.w);
+        }
         match self.side_rect(sh) {
             Some(r) if sh.side_right => (0.0, r.x),
             Some(r) => (r.w, self.cw - r.w),
@@ -456,6 +460,9 @@ impl Win {
 
     /// `true` when `(x, y)` is on the sidebar, its resize edge or the chevron.
     pub(super) fn over_side(&self, sh: &Shared, x: f32, y: f32) -> bool {
+        if self.split_rects().is_some() {
+            return false;
+        }
         self.chevron(sh).contains(x, y) || self.side_rect(sh).is_some_and(|r| r.contains(x, y))
     }
 

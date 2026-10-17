@@ -661,6 +661,7 @@ dependencies = [
  "windows-core",
  "windows-numerics",
  "yamdv-core",
+ "yamdv-editor",
  "yamdv-export",
  "yamdv-layout",
  "yamdv-ui",

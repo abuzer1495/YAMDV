@@ -290,6 +290,8 @@ pub struct SourceBlock {
 /// Options of the verbatim (plain / F3 editor) layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlainOpts {
+    /// Plain content is an F3 editor pane (verbatim layout, every line kept).
+    pub editor: bool,
     /// Code font instead of the body font.
     pub code_font: bool,
     /// Soft wrap at the column width.
@@ -299,6 +301,7 @@ pub struct PlainOpts {
 impl Default for PlainOpts {
     fn default() -> Self {
         Self {
+            editor: false,
             code_font: false,
             wrap: true,
         }
@@ -692,7 +695,7 @@ impl Viewer {
                             Some(bg),
                         )
                     }
-                    (_, Content::Plain { text, chunks }) if self.plain != PlainOpts::default() => {
+                    (_, Content::Plain { text, chunks }) if self.plain.editor => {
                         let r = chunks.get(i).cloned().unwrap_or(0..0);
                         let mut s = text.get(r.start as usize..r.end as usize).unwrap_or("");
                         // The last chunk keeps its final break, so the empty last line exists
