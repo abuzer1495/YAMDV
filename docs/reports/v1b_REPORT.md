@@ -3,7 +3,7 @@
 ## 0. Status
 - Prompt 006 is stored as `docs/prompts/006_V1B_EDITING.md`, SHA-256 `10fce65bdae1465f3b52c570a8b8195df5f6926334df0cdea5006b5bc13d1056`.
 - Branch `phase/v1b-editing` → `main` via PR #6. Tag `phase-v1b`.
-- Measurements come from CI run 39027801840 (code head 9b7dcd6; later commits are docs, goldens and this report). Every job is green and all 21 driver scripts pass (9 new, 12 carried over).
+- Measurements come from CI run 39027801840 (code head 9b7dcd6; later commits are docs, goldens and this report). Every job is green and all 21 driver scripts pass (9 new, 12 carried over). PR run 39029420460 (head cd54f47, with the committed goldens) is green too: T4 typical warm 13.46 ms, T5 19.4 / 24.1 ms, T-DLG 484 ms.
 - Result: **done**. F-20 and F-21 are fixed. Nothing from `docs/FUTURE.md` was built.
 - New dependencies: `ropey` 1.6 (pre-approved, ADR-0016) and `proptest` as a dev-dependency (ADR-0017).
 
@@ -47,7 +47,7 @@ CI run 39027801840 on `windows-latest` (Server 2025, Hyper-V 1024×768, no GPU).
 | T4 large warm median p99 / cold | 6.25 / 7.02 ms | ≤ 16 ms | +0.13 / −0.03 |
 | T5 typing p99: F3 on `large-1mb.md` / F2 on `typical.md` | 16.9 / 19.8 ms (60 samples each) | ≤ 25 / 40 ms | new |
 | T7 idle CPU 30 s (empty, `typical.md`) | 0 µs / 0 µs | ≤ 1 ms | = |
-| T-DLG | 348 ms | ≤ 400 soft | −235 (now under the soft budget; no code change, runner variance) |
+| T-DLG | 348 ms (run 2: 484 ms) | ≤ 400 soft | −235 (runner variance, no code change; still FUT-50) |
 | B-SIZE `yamdv.exe` | 2.29 MiB (2,399,744 B) | ≤ 4.0 MiB | +0.24 MiB (editor) |
 | ACG matrix | PNG, JPEG, GIF, BMP, TIFF yes; ICO, WebP no (FUT-48) | — | = |
 | Goldens | 51 files, 3,842,864 B (P-28 ≤ 12 MB); 2 new in `tests/golden/v1a/` | 2 listed | +0.13 MB |
@@ -76,4 +76,4 @@ V1-B tamamlandı. YAMDV'de artık Markdown dosyaları güvenle düzenlenebiliyor
 - Ortak düzenleyici: geri al / yinele, Markdown tuşları ve biçim kısayolları, IME.
 - Otomatik kaydetme ve Ctrl+S. Dosyanın kodlaması, BOM'u ve satır sonları korunuyor; değişmeyen baytlara dokunulmuyor. Dosya dışarıdan değişirse çakışma penceresi açılıyor.
 
-21 driver betiğinin hepsi CI'da geçiyor. Kaydırma p99 9,9 ms, yazma gecikmesi p99 F3'te 16,9 ms, F2'de 19,8 ms; düzenleme sonrası bellek 5,8 MiB'ın altında. Görselli M1 ölçümü artık yapılıyor (4,64 MiB). Aç penceresi bu çalıştırmada 348 ms ile ilk kez yumuşak hedefin altında kaldı.
+21 driver betiğinin hepsi CI'da geçiyor. Kaydırma p99 9,9 ms, yazma gecikmesi p99 F3'te 16,9 ms, F2'de 19,8 ms; düzenleme sonrası bellek 5,8 MiB'ın altında. Görselli M1 ölçümü artık yapılıyor (4,64 MiB). Aç penceresi 348–484 ms arasında değişiyor (yumuşak hedef 400 ms, FUT-50).

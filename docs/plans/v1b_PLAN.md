@@ -25,4 +25,5 @@ Risks: window.rs is 3.4 kLOC (new UI in `window/edit.rs`); no Windows GUI locall
 - [x] CI run 1 = 39027801840 (workflow_dispatch on 9b7dcd6) all green; duplicate PR run 39028427202 cancelled (A-4 rule 6)
 - [x] goldens split-light, live-block-light from the run-1 artifact (c048def)
 - [x] report docs/reports/v1b_REPORT.md
-- [ ] NEXT: PR CI run 2 green -> merge PR #6 -> tag phase-v1b
+- [x] PR CI run 2 (39029420460) green
+- [ ] NEXT: merge PR #6 -> tag phase-v1b
