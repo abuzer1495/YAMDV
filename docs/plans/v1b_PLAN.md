@@ -22,4 +22,7 @@ Risks: window.rs is 3.4 kLOC (new UI in `window/edit.rs`); no Windows GUI locall
 - [x] F3 split, F2 block edit, menu/settings, title ●, autosave, conflict dialog, disabled-edit dialogs, IME
 - [x] driver `type` latency + 9 scripts, 2 golden steps, M5/T5 wiring (tests/perf, measure.ps1)
 - [x] local gates green (fmt, clippy linux + xwin incl. dev-tools, tests, spec-check)
-- [ ] CI run 1, golden PNGs from the CI artifact (fix push), merge, tag, report
+- [x] CI run 1 = 39027801840 (workflow_dispatch on 9b7dcd6) all green; duplicate PR run 39028427202 cancelled (A-4 rule 6)
+- [x] goldens split-light, live-block-light from the run-1 artifact (c048def)
+- [x] report docs/reports/v1b_REPORT.md
+- [ ] NEXT: PR CI run 2 green -> merge PR #6 -> tag phase-v1b
