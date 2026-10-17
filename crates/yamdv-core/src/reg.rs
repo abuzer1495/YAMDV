@@ -102,6 +102,39 @@ pub fn context_menu_plan(exe: &str, label: &str) -> Vec<Value> {
     out
 }
 
+/// Uninstall entry key (R-SYS-05, "Apps & features").
+pub const UNINSTALL_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\YAMDV";
+
+/// Values of the uninstall entry written by `--install` (R-SYS-05).
+/// (`EstimatedSize` is a `REG_DWORD` and written separately by the platform layer.)
+pub fn uninstall_entry_plan(exe: &str, dir: &str, version: &str) -> Vec<Value> {
+    vec![
+        v(UNINSTALL_KEY, "DisplayName", "YAMDV"),
+        v(UNINSTALL_KEY, "DisplayIcon", &format!("\"{exe}\",0")),
+        v(UNINSTALL_KEY, "DisplayVersion", version),
+        v(UNINSTALL_KEY, "Publisher", "YAMDV"),
+        v(UNINSTALL_KEY, "InstallLocation", dir),
+        v(
+            UNINSTALL_KEY,
+            "UninstallString",
+            &format!("\"{exe}\" --uninstall"),
+        ),
+        v(UNINSTALL_KEY, "NoModify", "1"),
+        v(UNINSTALL_KEY, "NoRepair", "1"),
+    ]
+}
+
+/// Install folder below `%LOCALAPPDATA%` (R-SYS-05).
+pub fn install_dir(local_app_data: &str) -> String {
+    format!("{}\\Programs\\YAMDV", local_app_data.trim_end_matches('\\'))
+}
+
+/// `true` when `exe` lives in the install folder (case-insensitive path compare).
+pub fn is_installed_path(exe: &str, local_app_data: &str) -> bool {
+    let want = format!("{}\\yamdv.exe", install_dir(local_app_data)).to_lowercase();
+    !local_app_data.is_empty() && exe.to_lowercase() == want
+}
+
 /// What removal does with a key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Removal {
@@ -129,6 +162,13 @@ pub fn unregister_plan() -> Vec<Removal> {
     out
 }
 
+/// `--uninstall` removals: the registration plus the uninstall entry (S-REG-02).
+pub fn uninstall_plan() -> Vec<Removal> {
+    let mut out = unregister_plan();
+    out.push(Removal::Tree(UNINSTALL_KEY.into()));
+    out
+}
+
 /// Removal of the context-menu verb only.
 pub fn context_menu_removal() -> Vec<Removal> {
     EXTS.iter()
@@ -148,6 +188,7 @@ pub fn allowed_key(key: &str) -> bool {
         "software\\classes\\applications\\yamdv.exe",
         "software\\yamdv\\capabilities",
         "software\\registeredapplications",
+        "software\\microsoft\\windows\\currentversion\\uninstall\\yamdv",
     ];
     ok.iter()
         .any(|p| k == *p || k.starts_with(&format!("{p}\\")))
@@ -162,6 +203,30 @@ pub fn allowed_key(key: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn r_sys_05_uninstall_entry_and_install_dir() {
+        let dir = install_dir("C:\\Users\\u\\AppData\\Local\\");
+        assert_eq!(dir, "C:\\Users\\u\\AppData\\Local\\Programs\\YAMDV");
+        let exe = format!("{dir}\\yamdv.exe");
+        assert!(is_installed_path(
+            &exe.to_uppercase(),
+            "C:\\Users\\u\\AppData\\Local"
+        ));
+        assert!(!is_installed_path("D:\\tools\\yamdv.exe", "C:\\x"));
+        assert!(!is_installed_path(&exe, ""));
+        let plan = uninstall_entry_plan(&exe, &dir, "1.0.0");
+        assert!(plan.iter().all(|v| allowed_key(&v.key)));
+        let un = plan
+            .iter()
+            .find(|v| v.name == "UninstallString")
+            .map(|v| v.data.clone());
+        assert_eq!(un, Some(format!("\"{exe}\" --uninstall")));
+        assert!(uninstall_plan().contains(&Removal::Tree(UNINSTALL_KEY.into())));
+        assert!(!allowed_key(
+            "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Other"
+        ));
+    }
 
     #[test]
     fn s_reg_01_every_write_is_allowlisted() {

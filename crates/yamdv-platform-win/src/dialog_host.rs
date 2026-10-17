@@ -172,8 +172,10 @@ pub(crate) fn send_copydata(owner: HWND, data: &[u8], timeout_ms: u32) -> bool {
     }
 }
 
-/// Host entry point (`--dialog-host open <owner> <nonce>`); hardening was applied by `main`.
-pub fn run_host(kind: &str, owner: isize, nonce: u64) -> i32 {
+/// Host entry point (`--dialog-host <kind> <owner> <nonce> [<hex arg>]`); hardening was applied
+/// by `main`. Kinds: `open`, `font`, `save`, `save-html`, `save-pdf`, `save-csv` (the optional
+/// argument is the hex-encoded UTF-8 default file name) and `print`.
+pub fn run_host(kind: &str, owner: isize, nonce: u64, arg: Option<&str>) -> i32 {
     let owner = hwnd_from(owner);
     if !owner_ok(owner) {
         return EXIT_REFUSED;
@@ -204,8 +206,50 @@ pub fn run_host(kind: &str, owner: isize, nonce: u64) -> i32 {
         );
         return code;
     }
-    if kind == "save" {
-        let (outcome, code) = match crate::sys::save_dialog(owner, &f) {
+    if kind == "print" {
+        let (outcome, code) = match crate::sys::print_dialog(owner) {
+            Some(Some(c)) => (
+                Outcome::Paths(vec![
+                    c.printer,
+                    if c.devmode.is_empty() {
+                        "-".into()
+                    } else {
+                        crate::sys::hex(&c.devmode)
+                    },
+                    c.range
+                        .map_or_else(|| "all".into(), |(a, b)| format!("{a}-{b}")),
+                    c.copies.to_string(),
+                ]),
+                EXIT_OK,
+            ),
+            Some(None) => (Outcome::Cancel, EXIT_OK),
+            None => (Outcome::Error, EXIT_DIALOG_FAILED),
+        };
+        send_reply(
+            owner,
+            &Reply {
+                kind: Kind::Print,
+                nonce,
+                outcome,
+            },
+        );
+        return code;
+    }
+    if let Some(what) = kind.strip_prefix("save") {
+        let export = match what {
+            "-html" => Some(("HTML", "*.html;*.htm", "html")),
+            "-pdf" => Some(("PDF", "*.pdf", "pdf")),
+            "-csv" => Some(("CSV", "*.csv", "csv")),
+            _ => None,
+        };
+        let spec = crate::sys::SaveSpec {
+            export: export.map(|(a, b, c)| (a.to_string(), b.to_string(), c.to_string())),
+            default_name: arg
+                .and_then(crate::sys::unhex)
+                .and_then(|b| String::from_utf8(b).ok())
+                .filter(|n| !n.is_empty() && n.len() <= 255 && !n.contains(['\\', '/', ':'])),
+        };
+        let (outcome, code) = match crate::sys::save_dialog_spec(owner, &f, &spec) {
             Some(Some(p)) => (Outcome::Paths(vec![p]), EXIT_OK),
             Some(None) => (Outcome::Cancel, EXIT_OK),
             None => (Outcome::Error, EXIT_DIALOG_FAILED),
@@ -279,8 +323,14 @@ pub fn launch_kind(owner: HWND, kind: Kind) -> Option<HostWait> {
     let verb = match kind {
         Kind::Font => "font",
         Kind::Save => "save",
+        Kind::Print => "print",
         _ => "open",
     };
+    launch_verb(owner, kind, verb, None)
+}
+
+/// Starts the host with an explicit verb (`save-html`, …) and an optional default file name.
+pub fn launch_verb(owner: HWND, kind: Kind, verb: &str, name: Option<&str>) -> Option<HostWait> {
     let mut buf = vec![0u16; 32_768];
     // SAFETY: valid buffer; NULL module = our own executable.
     let n = unsafe { GetModuleFileNameW(None, &mut buf) } as usize;
@@ -289,10 +339,16 @@ pub fn launch_kind(owner: HWND, kind: Kind) -> Option<HostWait> {
     }
     let exe = String::from_utf16_lossy(buf.get(..n).unwrap_or(&[]));
     let n = nonce();
-    let mut cmd: Vec<u16> = format!("\"{exe}\" --dialog-host {verb} {} {n}", owner.0 as isize)
-        .encode_utf16()
-        .chain(Some(0))
-        .collect();
+    let extra = name.map_or_else(String::new, |s| {
+        format!(" {}", crate::sys::hex(s.as_bytes()))
+    });
+    let mut cmd: Vec<u16> = format!(
+        "\"{exe}\" --dialog-host {verb} {} {n}{extra}",
+        owner.0 as isize
+    )
+    .encode_utf16()
+    .chain(Some(0))
+    .collect();
     let app = HSTRING::from(exe.as_str());
     let si = STARTUPINFOW {
         cb: size_of::<STARTUPINFOW>() as u32,

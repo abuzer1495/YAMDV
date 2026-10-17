@@ -28,9 +28,24 @@ fn main() {
             write(Stream::Err, &msg);
             cli::EXIT_USAGE
         }
-        cli::Command::DialogHost { kind, owner, nonce } => {
-            yamdv_platform_win::dialog_host::run_host(&kind, owner, nonce)
+        cli::Command::DialogHost {
+            kind,
+            owner,
+            nonce,
+            arg,
+        } => yamdv_platform_win::dialog_host::run_host(&kind, owner, nonce, arg.as_deref()),
+        cli::Command::ExportHtml {
+            input,
+            out,
+            theme,
+            dark,
+        } => yamdv_platform_win::export::cli_html(&input, out.as_deref(), theme.as_deref(), dark),
+        cli::Command::ExportPdf { input, out } => {
+            yamdv_platform_win::print::cli_pdf(&input, out.as_deref())
         }
+        cli::Command::Install { launch } => yamdv_platform_win::install::install(launch),
+        cli::Command::Uninstall { keep } => yamdv_platform_win::install::uninstall(keep),
+        cli::Command::UninstallHelper(pid) => yamdv_platform_win::install::uninstall_helper(pid),
         cli::Command::Register => i32::from(!yamdv_platform_win::shell::register()),
         cli::Command::Unregister => {
             yamdv_platform_win::shell::unregister();

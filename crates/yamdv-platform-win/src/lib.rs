@@ -23,6 +23,8 @@ pub mod hardening;
 #[cfg(windows)]
 pub mod images;
 #[cfg(windows)]
+pub mod install;
+#[cfg(windows)]
 pub mod log;
 #[cfg(windows)]
 pub mod perf;

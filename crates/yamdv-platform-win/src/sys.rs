@@ -234,23 +234,48 @@ pub fn open_dialog(owner: HWND, f: &Filters<'_>) -> Option<Vec<String>> {
     }
 }
 
+/// What a save dialog saves: a non-Markdown export (filter name, pattern, extension) and the
+/// default file name.
+#[derive(Debug, Clone, Default)]
+pub struct SaveSpec {
+    /// `(filter name, pattern, default extension)`; `None` = Markdown/Text/All.
+    pub export: Option<(String, String, String)>,
+    /// Default file name (`<doc stem>.html` …).
+    pub default_name: Option<String>,
+}
+
 /// `IFileSaveDialog` (V1-B "Save … as…"). `Some(None)` = cancelled, `None` = failure.
 pub fn save_dialog(owner: HWND, f: &Filters<'_>) -> Option<Option<String>> {
+    save_dialog_spec(owner, f, &SaveSpec::default())
+}
+
+/// [`save_dialog`] with an export filter and a default file name.
+pub fn save_dialog_spec(owner: HWND, f: &Filters<'_>, spec: &SaveSpec) -> Option<Option<String>> {
     use windows::Win32::UI::Shell::{FOS_OVERWRITEPROMPT, FileSaveDialog, IFileSaveDialog};
     // SAFETY: as in `open_dialog`.
     unsafe {
         let dlg: IFileSaveDialog =
             CoCreateInstance(&FileSaveDialog, None, CLSCTX_INPROC_SERVER).ok()?;
-        let names = [
-            HSTRING::from(f.markdown),
-            HSTRING::from(f.text),
-            HSTRING::from(f.all),
-        ];
-        let specs = [
-            HSTRING::from(MD_PATTERN),
-            HSTRING::from("*.txt"),
-            HSTRING::from("*.*"),
-        ];
+        let (names, specs, ext) = match &spec.export {
+            Some((n, p, e)) => (
+                vec![HSTRING::from(n.as_str()), HSTRING::from(f.all)],
+                vec![HSTRING::from(p.as_str()), HSTRING::from("*.*")],
+                e.as_str(),
+            ),
+            None => (
+                vec![
+                    HSTRING::from(f.markdown),
+                    HSTRING::from(f.text),
+                    HSTRING::from(f.all),
+                ],
+                vec![
+                    HSTRING::from(MD_PATTERN),
+                    HSTRING::from("*.txt"),
+                    HSTRING::from("*.*"),
+                ],
+                "md",
+            ),
+        };
         let filters: Vec<COMDLG_FILTERSPEC> = names
             .iter()
             .zip(specs.iter())
@@ -260,7 +285,10 @@ pub fn save_dialog(owner: HWND, f: &Filters<'_>) -> Option<Option<String>> {
             })
             .collect();
         let _ = dlg.SetFileTypes(&filters);
-        let _ = dlg.SetDefaultExtension(&HSTRING::from("md"));
+        let _ = dlg.SetDefaultExtension(&HSTRING::from(ext));
+        if let Some(n) = &spec.default_name {
+            let _ = dlg.SetFileName(&HSTRING::from(n.as_str()));
+        }
         if let Ok(opts) = dlg.GetOptions() {
             let _ = dlg.SetOptions(opts | FOS_OVERWRITEPROMPT | FOS_FORCEFILESYSTEM);
         }
@@ -494,4 +522,104 @@ pub fn user_locale() -> String {
     let n = unsafe { windows::Win32::Globalization::GetUserDefaultLocaleName(&mut buf) };
     let n = usize::try_from(n).unwrap_or(0).saturating_sub(1);
     String::from_utf16_lossy(buf.get(..n).unwrap_or(&[]))
+}
+
+/// The print dialog's answer (prompt 008 §3.1): serializable data only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrintChoice {
+    /// Printer name.
+    pub printer: String,
+    /// DEVMODE bytes (`dmSize + dmDriverExtra`).
+    pub devmode: Vec<u8>,
+    /// 1-based inclusive page range (`None` = all pages).
+    pub range: Option<(u32, u32)>,
+    /// Copies.
+    pub copies: u32,
+}
+
+/// `PrintDlgExW` (dialog host only): `Some(Some(choice))` = print, `Some(None)` = cancelled,
+/// `None` = the dialog failed.
+pub fn print_dialog(owner: HWND) -> Option<Option<PrintChoice>> {
+    use windows::Win32::Foundation::GlobalFree;
+    use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
+    use windows::Win32::UI::Controls::Dialogs::{
+        DEVNAMES, PD_NOCURRENTPAGE, PD_NOSELECTION, PD_PAGENUMS, PD_RESULT_PRINT,
+        PD_USEDEVMODECOPIESANDCOLLATE, PRINTDLGEXW, PRINTPAGERANGE, PrintDlgExW,
+        START_PAGE_GENERAL,
+    };
+    let mut range = PRINTPAGERANGE {
+        nFromPage: 1,
+        nToPage: 1,
+    };
+    let mut pd = PRINTDLGEXW {
+        lStructSize: size_of::<PRINTDLGEXW>() as u32,
+        hwndOwner: owner,
+        Flags: PD_NOSELECTION | PD_NOCURRENTPAGE | PD_USEDEVMODECOPIESANDCOLLATE,
+        nMaxPageRanges: 1,
+        lpPageRanges: &raw mut range,
+        nMinPage: 1,
+        nMaxPage: 0xFFFF,
+        nCopies: 1,
+        nStartPage: START_PAGE_GENERAL,
+        ..Default::default()
+    };
+    // SAFETY: the structure and the page-range buffer outlive the modal call.
+    unsafe { PrintDlgExW(&raw mut pd) }.ok()?;
+    // SAFETY: the dialog allocated the movable global blocks; each is locked, copied, unlocked
+    // and freed exactly once; DEVNAMES offsets are in characters from the block start.
+    let (printer, devmode) = unsafe {
+        let mut printer = String::new();
+        if !pd.hDevNames.is_invalid() {
+            let p = GlobalLock(pd.hDevNames).cast::<u16>();
+            if !p.is_null() {
+                let dn = &*p.cast::<DEVNAMES>();
+                let start = p.add(usize::from(dn.wDeviceOffset));
+                let mut n = 0usize;
+                while n < 256 && *start.add(n) != 0 {
+                    n += 1;
+                }
+                printer = String::from_utf16_lossy(std::slice::from_raw_parts(start, n));
+                let _ = GlobalUnlock(pd.hDevNames);
+            }
+            let _ = GlobalFree(Some(pd.hDevNames));
+        }
+        let mut dm = Vec::new();
+        if !pd.hDevMode.is_invalid() {
+            let p = GlobalLock(pd.hDevMode).cast::<u8>();
+            if !p.is_null() {
+                let size = GlobalSize(pd.hDevMode).min(64 * 1024);
+                dm = std::slice::from_raw_parts(p, size).to_vec();
+                let _ = GlobalUnlock(pd.hDevMode);
+            }
+            let _ = GlobalFree(Some(pd.hDevMode));
+        }
+        (printer, dm)
+    };
+    if pd.dwResultAction != PD_RESULT_PRINT || printer.is_empty() {
+        return Some(None);
+    }
+    let range = (pd.Flags.0 & PD_PAGENUMS.0 != 0 && pd.nPageRanges > 0)
+        .then_some((range.nFromPage.max(1), range.nToPage.max(range.nFromPage)));
+    Some(Some(PrintChoice {
+        printer,
+        devmode,
+        range,
+        copies: pd.nCopies.max(1),
+    }))
+}
+
+/// Lower-case hex of `b` (DEVMODE bytes in the dialog-host reply).
+pub fn hex(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+/// Inverse of [`hex`] (`None` on odd length or a non-hex digit).
+pub fn unhex(s: &str) -> Option<Vec<u8>> {
+    if !s.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..s.len())
+        .step_by(2)
+        .map(|i| s.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok()))
+        .collect()
 }

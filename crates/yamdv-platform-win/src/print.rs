@@ -73,7 +73,11 @@ fn paper_devmode(printer: &str, mm: (f64, f64)) -> DEVMODEW {
         dmSpecVersion: 0x0401,
         ..Default::default()
     };
-    for (d, c) in dm.dmDeviceName.iter_mut().zip(printer.encode_utf16().take(31)) {
+    for (d, c) in dm
+        .dmDeviceName
+        .iter_mut()
+        .zip(printer.encode_utf16().take(31))
+    {
         *d = c;
     }
     let letter = (mm.0 - 215.9).abs() < 1.0;
@@ -491,10 +495,7 @@ pub fn cli_pdf(input: &str, out: Option<&str>) -> i32 {
     };
     match print(&dw, &job, &pdf_target(&out)) {
         Ok(p) => {
-            crate::console::write(
-                crate::console::Stream::Out,
-                &format!("pages {}\n", p.pages),
-            );
+            crate::console::write(crate::console::Stream::Out, &format!("pages {}\n", p.pages));
             0
         }
         Err(Error::NoPrinter) => {

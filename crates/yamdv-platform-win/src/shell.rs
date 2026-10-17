@@ -354,7 +354,7 @@ pub fn open_in_editor(
     }
 }
 
-fn set_values(vals: &[reg::Value]) -> bool {
+pub(crate) fn set_values(vals: &[reg::Value]) -> bool {
     let mut ok = true;
     for v in vals {
         if !reg::allowed_key(&v.key) {
@@ -404,7 +404,7 @@ fn set_values(vals: &[reg::Value]) -> bool {
     ok
 }
 
-fn remove(items: &[reg::Removal]) {
+pub(crate) fn remove(items: &[reg::Removal]) {
     for r in items {
         match r {
             reg::Removal::Tree(k) => {
@@ -434,7 +434,12 @@ pub fn exe_path() -> String {
 
 /// R-SYS-01 per-user registration (explicit action only, S-REG-03).
 pub fn register() -> bool {
-    let ok = set_values(&reg::register_plan(&exe_path()));
+    register_exe(&exe_path())
+}
+
+/// [`register`] for an explicit exe path (`--install` registers the installed copy).
+pub(crate) fn register_exe(exe: &str) -> bool {
+    let ok = set_values(&reg::register_plan(exe));
     notify_assoc_changed();
     ok
 }
@@ -472,7 +477,7 @@ pub fn context_menu_present() -> bool {
     }
 }
 
-fn notify_assoc_changed() {
+pub(crate) fn notify_assoc_changed() {
     use windows::Win32::UI::Shell::{SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify};
     // SAFETY: documented notification with no items.
     unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None) };

@@ -174,6 +174,10 @@ thread_local! {
     static PENDING_OPEN: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     /// The dialog host this UI thread waits for (F-09); at most one at a time.
     static HOST: RefCell<Option<crate::dialog_host::HostWait>> = const { RefCell::new(None) };
+    /// What the pending save/print dialog is for (`None` = "Save … as…").
+    static EXPORT: RefCell<Option<ExportKind>> = const { RefCell::new(None) };
+    /// `--uninstall` decision: keep settings (`Some(true)`) or remove them.
+    static UNINSTALL: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
 }
 
 fn shared() -> Option<Rc<Shared>> {
@@ -320,6 +324,8 @@ enum Pending {
     Info,
     /// Editing dialogs (V1-B).
     Edit(edit::Ask),
+    /// `--uninstall`: keep or remove settings (R-SYS-05).
+    Uninstall,
 }
 
 const BTN_CANCEL: u32 = 0;
@@ -328,6 +334,8 @@ const BTN_RENDER: u32 = 2;
 const BTN_OPEN: u32 = 3;
 const BTN_COPY: u32 = 4;
 const BTN_REVEAL: u32 = 5;
+const BTN_KEEP: u32 = 40;
+const BTN_REMOVE: u32 = 41;
 
 #[derive(Default)]
 struct Scrollbar {
@@ -387,6 +395,18 @@ struct Win {
     find: Option<findbar::Find>,
     /// Sidebar state (B.5).
     side: sidebar::Side,
+    /// CSV of the table under the last context-menu click (R-EXP-04).
+    ctx_table: Option<String>,
+}
+
+/// What an export dialog-host answer is for (prompt 008 §2–§3).
+#[derive(Debug, Clone)]
+enum ExportKind {
+    Html,
+    Pdf,
+    Print,
+    /// Export table as CSV (the CSV text).
+    Csv(String),
 }
 
 enum Action {
@@ -411,6 +431,10 @@ enum Action {
     Close,
     /// "Save … as…" dialog (dialog host, V1-B).
     SaveAsDialog,
+    /// Export HTML / PDF / table CSV or Print (dialog host, V1-D).
+    Export(ExportKind),
+    /// Welcome page "Install YAMDV for this user" (R-SYS-05).
+    Install,
 }
 
 fn rgb_text(dark: bool) -> u32 {
@@ -648,6 +672,12 @@ impl Win {
             return;
         };
         match (p, id) {
+            (Pending::Uninstall, id) => {
+                if id == BTN_KEEP || id == BTN_REMOVE {
+                    UNINSTALL.with(|u| u.set(Some(id == BTN_KEEP)));
+                }
+                self.actions.push(Action::Close);
+            }
             (_, BTN_CANCEL) => {}
             (Pending::Large { path }, BTN_PLAIN) => self.open(sh, &path, Some(true), false),
             (Pending::Large { path }, BTN_RENDER) => self.open(sh, &path, Some(false), false),
@@ -1559,6 +1589,10 @@ impl Win {
         match vk {
             0x70 => return Some(Action::Help),
             0x73 => self.open_editor(),
+            v if ctrl && shift && v == u16::from(b'E') => {
+                return Some(Action::Export(ExportKind::Pdf));
+            }
+            v if ctrl && v == u16::from(b'P') => return Some(Action::Export(ExportKind::Print)),
             v if ctrl && v == u16::from(b'E') => self.open_editor(),
             0x74 => return Some(Action::Command(app::RELOAD)),
             0x5D => return Some(self.kbd_menu()),
@@ -2780,6 +2814,7 @@ fn handle(
         }
         WM_CONTEXTMENU => {
             if lp.0 == -1 {
+                w.ctx_table = None;
                 actions.push(w.kbd_menu());
             } else {
                 let (sx, sy) = (
@@ -2789,7 +2824,9 @@ fn handle(
                 let mut pt = POINT { x: sx, y: sy };
                 // SAFETY: valid hwnd and point.
                 let _ = unsafe { ScreenToClient(w.hwnd, &mut pt) };
-                let link = w.link_at(sh, pt.x as f32 / w.scale, pt.y as f32 / w.scale);
+                let (x, y) = (pt.x as f32 / w.scale, pt.y as f32 / w.scale);
+                let link = w.link_at(sh, x, y);
+                w.ctx_table = w.table_csv_at(sh, x, y);
                 actions.push(Action::ContextMenu(sx, sy, link));
             }
             Some(LRESULT(0))
@@ -3085,10 +3122,14 @@ fn run_actions_inner(hwnd: HWND, actions: Vec<Action>) {
                     let _ = EnableWindow(hwnd, true);
                     let _ = SetForegroundWindow(hwnd);
                 }
+                let purpose = EXPORT.with(|e| e.borrow_mut().take());
                 match o {
                     yamdv_core::ipc::Outcome::Paths(p) => {
                         if let Some(path) = p.into_iter().next() {
-                            app::with_win(hwnd, |w, sh| w.edit_save_as(sh, &path));
+                            match purpose {
+                                None => app::with_win(hwnd, |w, sh| w.edit_save_as(sh, &path)),
+                                Some(k) => app::with_win(hwnd, |w, sh| w.run_export(sh, &k, &path)),
+                            }
                         }
                     }
                     yamdv_core::ipc::Outcome::Error => show_toast(hwnd, Msg::DialogHostFailed),
@@ -3097,6 +3138,30 @@ fn run_actions_inner(hwnd: HWND, actions: Vec<Action>) {
             }
             Action::NewWindow(p) => {
                 create_window(&sh, Some(&p));
+            }
+            Action::Export(k) => start_export(hwnd, k),
+            Action::Install => {
+                let me = crate::shell::exe_path();
+                if !crate::shell::spawn(&me, &["--install".into()]) {
+                    show_toast(hwnd, Msg::InstallFailed);
+                }
+            }
+            Action::HostResult(yamdv_core::ipc::Kind::Print, o) => {
+                // SAFETY: valid hwnd.
+                unsafe {
+                    let _ = EnableWindow(hwnd, true);
+                    let _ = SetForegroundWindow(hwnd);
+                }
+                EXPORT.with(|e| e.borrow_mut().take());
+                match o {
+                    yamdv_core::ipc::Outcome::Paths(p) => {
+                        if let Some(t) = print_target(&p) {
+                            app::with_win(hwnd, |w, sh| w.run_print(sh, &t));
+                        }
+                    }
+                    yamdv_core::ipc::Outcome::Error => show_toast(hwnd, Msg::DialogHostFailed),
+                    yamdv_core::ipc::Outcome::Cancel => {}
+                }
             }
             Action::ContextMenu(x, y, link) => {
                 let Some((ctx, pal)) = WINDOWS
@@ -3377,6 +3442,7 @@ fn create_window(sh: &Shared, path: Option<&str>) -> Option<HWND> {
         watcher: None,
         find: None,
         side: sidebar::Side::default(),
+        ctx_table: None,
     };
     let rcw = Rc::new(RefCell::new(win));
     WINDOWS.with(|m| m.borrow_mut().insert(hwnd.0 as isize, rcw.clone()));
@@ -3515,6 +3581,49 @@ pub fn run(paths: &[String], dev: DevOptions, line: Option<u32>) -> i32 {
         }
     }
     let _ = PENDING_OPEN.with(|p| p.borrow().len());
+    message_loop()
+}
+
+/// `--uninstall` (R-SYS-05): one window asks in-window whether to keep settings; the removal
+/// runs after the window closed (its state was saved first, so "remove" really removes it).
+pub fn run_uninstall() -> i32 {
+    let commit_at_start = crate::perf::commit_bytes();
+    // SAFETY: COM on this (UI) thread.
+    let _ = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
+    let s = app::init();
+    let Some(shared) = build_shared(&s, None, DevOptions::default(), commit_at_start) else {
+        return 1;
+    };
+    drop(s);
+    let sh = Rc::new(shared);
+    SHARED.with(|c| *c.borrow_mut() = Some(sh.clone()));
+    if !register_class() {
+        return 1;
+    }
+    let Some(hwnd) = create_window(&sh, None) else {
+        return 1;
+    };
+    app::with_win(hwnd, |w, sh| {
+        w.ask(
+            sh,
+            Msg::UninstallTitle,
+            Msg::UninstallBody,
+            vec![
+                (Msg::UninstallKeep, BTN_KEEP),
+                (Msg::UninstallRemove, BTN_REMOVE),
+                (Msg::Cancel, BTN_CANCEL),
+            ],
+            Pending::Uninstall,
+        );
+    });
+    let _ = message_loop();
+    match UNINSTALL.with(std::cell::Cell::get) {
+        Some(keep) => crate::install::perform_uninstall(keep),
+        None => 0,
+    }
+}
+
+fn message_loop() -> i32 {
     let mut msg = MSG::default();
     // Message loop that also waits on the dialog host's process handle (F-09).
     loop {
@@ -3551,6 +3660,156 @@ pub fn run(paths: &[String], dev: DevOptions, line: Option<u32>) -> i32 {
     }
 }
 
+impl Win {
+    /// CSV of the table at client point `(x, y)` (R-EXP-04), `None` elsewhere.
+    fn table_csv_at(&self, sh: &Shared, x: f32, y: f32) -> Option<String> {
+        let h = self.hit(sh, x, y)?;
+        let View::Doc(d) = &self.view else {
+            return None;
+        };
+        let Content::Markdown(doc) = &d.content else {
+            return None;
+        };
+        crate::export::table_csv(doc, h.block, h.source)
+    }
+
+    /// The shown document as an export job (current scheme, mode and typography).
+    fn export_job(&self, sh: &Shared) -> Option<crate::export::Job> {
+        let View::Doc(d) = &self.view else {
+            return None;
+        };
+        Some(crate::export::Job {
+            source: d.content.source().to_string(),
+            path: d.path.clone(),
+            scheme: sh.scheme.clone(),
+            dark: self.dark,
+            m: sh.m,
+            fonts: sh.fonts.clone(),
+            lang: sh.lang,
+        })
+    }
+
+    /// Runs an export to `path` chosen in the save dialog.
+    fn run_export(&mut self, sh: &Shared, k: &ExportKind, path: &str) {
+        let ok = match k {
+            ExportKind::Csv(text) => crate::shell::write_atomic(path, text),
+            ExportKind::Html => self
+                .export_job(sh)
+                .is_some_and(|j| crate::export::export_html(&sh.dw, &j, path)),
+            ExportKind::Pdf => self.export_job(sh).is_some_and(|j| {
+                crate::print::print(&sh.dw, &j, &crate::print::pdf_target(path)).is_ok()
+            }),
+            ExportKind::Print => false,
+        };
+        self.toast(if ok { Msg::Exported } else { Msg::ExportFailed });
+        self.invalidate();
+    }
+
+    /// Prints the shown document to the printer chosen in the print dialog.
+    fn run_print(&mut self, sh: &Shared, t: &crate::print::Target) {
+        let ok = self
+            .export_job(sh)
+            .is_some_and(|j| crate::print::print(&sh.dw, &j, t).is_ok());
+        self.toast(if ok { Msg::PrintSent } else { Msg::PrintFailed });
+        self.invalidate();
+    }
+}
+
+/// Starts the save (or print) dialog of an export (prompt 008 §2–§3).
+fn start_export(hwnd: HWND, k: ExportKind) {
+    use yamdv_core::ipc::Kind;
+    if HOST.with(|h| h.borrow().is_some()) {
+        return;
+    }
+    let mut stem = None;
+    app::with_win(hwnd, |w, _| {
+        if let View::Doc(d) = &w.view {
+            stem = Some(crate::export::stem(&d.path));
+        }
+    });
+    let Some(stem) = stem else { return };
+    if matches!(k, ExportKind::Pdf) && !crate::print::printer_exists(crate::print::PDF_PRINTER) {
+        app::with_win(hwnd, |w, sh| {
+            w.ask_text(
+                sh,
+                Msg::PdfPrinterMissingTitle,
+                tr(sh.lang, Msg::PdfPrinterMissing).to_string(),
+                vec![(Msg::Ok, BTN_CANCEL)],
+                Pending::Info,
+            );
+        });
+        return;
+    }
+    let h = match &k {
+        ExportKind::Print => crate::dialog_host::launch_kind(hwnd, Kind::Print),
+        ExportKind::Html => crate::dialog_host::launch_verb(
+            hwnd,
+            Kind::Save,
+            "save-html",
+            Some(&format!("{stem}.html")),
+        ),
+        ExportKind::Pdf => crate::dialog_host::launch_verb(
+            hwnd,
+            Kind::Save,
+            "save-pdf",
+            Some(&format!("{stem}.pdf")),
+        ),
+        ExportKind::Csv(_) => crate::dialog_host::launch_verb(
+            hwnd,
+            Kind::Save,
+            "save-csv",
+            Some(&format!("{stem}.csv")),
+        ),
+    };
+    match h {
+        Some(h) => {
+            // SAFETY: valid hwnd; WM_ENABLE is not handled by us (no re-entry).
+            let _ = unsafe { EnableWindow(hwnd, false) };
+            HOST.with(|x| *x.borrow_mut() = Some(h));
+            EXPORT.with(|e| *e.borrow_mut() = Some(k));
+        }
+        None => show_toast(hwnd, Msg::DialogHostFailed),
+    }
+}
+
+/// Print-dialog answer `[printer, devmode hex | "-", "all" | "a-b", copies]` (S-IPC-05:
+/// validated like any host answer).
+fn print_target(p: &[String]) -> Option<crate::print::Target> {
+    let [printer, dm, range, _copies] = p else {
+        return None;
+    };
+    if printer.is_empty() || printer.len() > 260 {
+        return None;
+    }
+    let devmode = if dm == "-" {
+        Vec::new()
+    } else {
+        sys::unhex(dm)?
+    };
+    let range = match range.as_str() {
+        "all" => None,
+        r => {
+            let (a, b) = r.split_once('-')?;
+            let (a, b) = (a.parse::<u32>().ok()?, b.parse::<u32>().ok()?);
+            if a < 1 || b < a {
+                return None;
+            }
+            Some((a, b))
+        }
+    };
+    let s = load_settings();
+    Some(crate::print::Target {
+        printer: printer.clone(),
+        devmode,
+        range,
+        paper_mm: Some(yamdv_export::paginate::paper_mm(
+            s.str("export.pdf_page_size"),
+            &sys::user_locale(),
+        )),
+        ..Default::default()
+    })
+}
+
 /// The dialog host process ended: re-enable the owner if no answer arrived; toast on failure.
 fn host_exited() {
     let Some(h) = HOST.with(|h| h.borrow_mut().take()) else {
@@ -3559,6 +3818,7 @@ fn host_exited() {
     if h.answered {
         return;
     }
+    EXPORT.with(|e| e.borrow_mut().take());
     // SAFETY: valid (or stale, then harmless) hwnd.
     let _ = unsafe { EnableWindow(h.owner, true) };
     let code = crate::dialog_host::exit_code(&h);
