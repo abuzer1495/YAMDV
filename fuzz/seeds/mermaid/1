@@ -1,0 +1,14 @@
+flowchart TD
+  start([Start]) --> input[/Read input/]
+  input --> check{Valid?}
+  check -->|yes| proc[[Process data]]
+  check -- no --> err((Error))
+  err -.-> input
+  proc ==> db[(Database)]
+  db --> done(Done)
+  subgraph backend [Backend services]
+    proc
+    db
+  end
+  classDef hot fill:#ffd6cc,stroke:#c0392b,color:#7b241c
+  class err hot

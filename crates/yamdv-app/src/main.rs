@@ -60,6 +60,7 @@ fn run(paths: &[String], dev: cli::Dev) -> i32 {
                 width: dev.width.unwrap_or(1000.0),
                 scale: dev.scale.unwrap_or(1.0),
                 dark: dev.dark,
+                block: dev.block,
             },
         );
     }

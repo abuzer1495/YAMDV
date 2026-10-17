@@ -2410,136 +2410,161 @@ pub(crate) fn draw_doc(
     images: Option<&crate::images::Store>,
     marks: (&[Range<u32>], Option<usize>),
 ) {
-    let sel_alpha = f32::from(pal.selection_alpha_pct) / 100.0;
     for (bi, y, bl) in viewer.visible(content, vh) {
         let y = y as f32;
         if !b.visible(y, bl.height.max(1.0)) {
             continue;
         }
-        let off = |r: u16| {
-            let max = bl
-                .regions
-                .get(usize::from(r))
-                .map_or(0.0, |g| g.max_scroll());
-            viewer.hscroll(bi, r).min(max)
-        };
-        for it in &bl.items {
-            match it {
-                Item::Fill {
-                    rect,
-                    color,
-                    radius,
-                } => b.fill(rect.offset(cx, y), *color, 1.0, *radius),
-                Item::Stroke {
-                    rect,
-                    color,
-                    radius,
-                } => b.stroke(rect.offset(cx, y), *color, *radius, 1.0),
-                Item::StrokeW {
-                    rect,
-                    color,
-                    radius,
-                    width,
-                } => b.stroke(rect.offset(cx, y), *color, *radius, *width),
-                Item::Line {
-                    pts,
-                    color,
-                    width,
-                    closed,
-                } => {
-                    let moved: Vec<(f32, f32)> = pts.iter().map(|p| (p.0 + cx, p.1 + y)).collect();
-                    b.polyline(&moved, *color, *width, *closed);
-                }
-                Item::Bullet {
-                    cx: bx,
-                    cy,
-                    size,
-                    shape,
-                    color,
-                } => match shape {
-                    Bullet::Disc => b.circle(cx + bx, y + cy, size / 2.0, *color, None),
-                    Bullet::Ring => b.circle(cx + bx, y + cy, size / 2.0, *color, Some(1.2)),
-                    Bullet::Square => b.fill(
-                        Rect::new(cx + bx - size / 2.0, y + cy - size / 2.0, *size, *size),
-                        *color,
-                        1.0,
-                        0.0,
-                    ),
-                },
-                Item::FadeRight { rect, color } => b.fade_right(rect.offset(cx, y), *color),
-                Item::Para(i) => {
-                    let Some(p) = bl.paras.get(*i) else { continue };
-                    let px = cx + p.x - p.hscroll.map_or(0.0, off);
-                    if !marks.0.is_empty()
-                        && let Some(map) = &p.map
-                        && let (Some(f), Some(l)) = (map.segs.first(), map.segs.last())
-                    {
-                        // Find matches (B.9): all in `highlight_bg`, the current one in accent.
-                        let (start, end) = (f.src.start, l.src.end);
-                        let from = marks.0.partition_point(|m| m.end <= start);
-                        for (k, m) in marks.0.iter().enumerate().skip(from) {
-                            if m.start >= end {
-                                break;
-                            }
-                            let cur = marks.1 == Some(k);
-                            for r in viewer::selection_rects(p, m) {
-                                let (c, a) = if cur {
-                                    (pal.accent, 0.45)
-                                } else {
-                                    (pal.highlight_bg, 0.9)
-                                };
-                                b.fill(r.offset(px, y + p.y), c, a, 2.0);
-                            }
+        draw_block(
+            b,
+            bl,
+            &|r| viewer.hscroll(bi, r),
+            pal,
+            (cx, y),
+            sel.as_ref(),
+            images,
+            marks,
+        );
+    }
+}
+
+/// Draws one laid-out block with its origin at (`cx`, `y`); `hs` gives the horizontal scroll
+/// offset of each region (shared by [`draw_doc`] and [`crate::snapshot::block_png`]).
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+pub(crate) fn draw_block(
+    b: &Band<'_>,
+    bl: &yamdv_layout::block::BlockLayout,
+    hs: &dyn Fn(u16) -> f32,
+    pal: &Palette,
+    (cx, y): (f32, f32),
+    sel: Option<&Range<u32>>,
+    images: Option<&crate::images::Store>,
+    marks: (&[Range<u32>], Option<usize>),
+) {
+    let sel_alpha = f32::from(pal.selection_alpha_pct) / 100.0;
+    let off = |r: u16| {
+        let max = bl
+            .regions
+            .get(usize::from(r))
+            .map_or(0.0, |g| g.max_scroll());
+        hs(r).min(max)
+    };
+    for it in &bl.items {
+        match it {
+            Item::Fill {
+                rect,
+                color,
+                radius,
+            } => b.fill(rect.offset(cx, y), *color, 1.0, *radius),
+            Item::Stroke {
+                rect,
+                color,
+                radius,
+            } => b.stroke(rect.offset(cx, y), *color, *radius, 1.0),
+            Item::StrokeW {
+                rect,
+                color,
+                radius,
+                width,
+            } => b.stroke(rect.offset(cx, y), *color, *radius, *width),
+            Item::Line {
+                pts,
+                color,
+                width,
+                closed,
+            } => {
+                let moved: Vec<(f32, f32)> = pts.iter().map(|p| (p.0 + cx, p.1 + y)).collect();
+                b.polyline(&moved, *color, *width, *closed);
+            }
+            Item::Bullet {
+                cx: bx,
+                cy,
+                size,
+                shape,
+                color,
+            } => match shape {
+                Bullet::Disc => b.circle(cx + bx, y + cy, size / 2.0, *color, None),
+                Bullet::Ring => b.circle(cx + bx, y + cy, size / 2.0, *color, Some(1.2)),
+                Bullet::Square => b.fill(
+                    Rect::new(cx + bx - size / 2.0, y + cy - size / 2.0, *size, *size),
+                    *color,
+                    1.0,
+                    0.0,
+                ),
+            },
+            Item::FadeRight { rect, color } => b.fade_right(rect.offset(cx, y), *color),
+            Item::Para(i) => {
+                let Some(p) = bl.paras.get(*i) else { continue };
+                let px = cx + p.x - p.hscroll.map_or(0.0, off);
+                if !marks.0.is_empty()
+                    && let Some(map) = &p.map
+                    && let (Some(f), Some(l)) = (map.segs.first(), map.segs.last())
+                {
+                    // Find matches (B.9): all in `highlight_bg`, the current one in accent.
+                    let (start, end) = (f.src.start, l.src.end);
+                    let from = marks.0.partition_point(|m| m.end <= start);
+                    for (k, m) in marks.0.iter().enumerate().skip(from) {
+                        if m.start >= end {
+                            break;
+                        }
+                        let cur = marks.1 == Some(k);
+                        for r in viewer::selection_rects(p, m) {
+                            let (c, a) = if cur {
+                                (pal.accent, 0.45)
+                            } else {
+                                (pal.highlight_bg, 0.9)
+                            };
+                            b.fill(r.offset(px, y + p.y), c, a, 2.0);
                         }
                     }
-                    if let Some(s) = &sel {
-                        for r in viewer::selection_rects(p, s) {
-                            b.fill(r.offset(px, y + p.y), pal.accent, sel_alpha, 0.0);
-                        }
-                    }
-                    b.text(p.shaped.as_ref(), px, y + p.y);
                 }
-                // Drawn by the window on hover (not part of static renders).
-                Item::CodeToolbar { .. } => {}
-                Item::Image { rect, src, .. } => {
-                    let r = rect.offset(cx, y);
-                    let (wp, hp) = (
-                        (r.w * b.scale).round().max(1.0) as u32,
-                        (r.h * b.scale).round().max(1.0) as u32,
-                    );
-                    match images.and_then(|s| s.pixels(src, wp, hp)) {
-                        Some(bm) => b.image(r.x, r.y, bm.w, bm.h, &bm.px),
-                        // Decoding: a quiet `code_bg` box of the final size (no layout shift).
-                        None => b.fill(r, pal.code_bg, 1.0, 4.0),
+                if let Some(s) = &sel {
+                    for r in viewer::selection_rects(p, s) {
+                        b.fill(r.offset(px, y + p.y), pal.accent, sel_alpha, 0.0);
                     }
                 }
-                Item::Math {
-                    x: mx,
-                    y: my,
-                    mb,
-                    color,
-                    hscroll,
-                } => {
-                    let o = hscroll.map_or(0.0, off);
-                    b.math(mb, cx + mx - o, y + my, *color);
+                b.text(p.shaped.as_ref(), px, y + p.y);
+            }
+            // Drawn by the window on hover (not part of static renders).
+            Item::CodeToolbar { .. } => {}
+            Item::Image { rect, src, .. } => {
+                let r = rect.offset(cx, y);
+                let (wp, hp) = (
+                    (r.w * b.scale).round().max(1.0) as u32,
+                    (r.h * b.scale).round().max(1.0) as u32,
+                );
+                match images.and_then(|s| s.pixels(src, wp, hp)) {
+                    Some(bm) => b.image(r.x, r.y, bm.w, bm.h, &bm.px),
+                    // Decoding: a quiet `code_bg` box of the final size (no layout shift).
+                    None => b.fill(r, pal.code_bg, 1.0, 4.0),
                 }
-                Item::Path {
-                    segs,
-                    fill,
-                    stroke,
-                    width,
-                    dash,
-                } => b.path(segs, (cx, y), *fill, stroke.map(|c| (c, *width, *dash))),
-                Item::PushClip(r) => b.push_clip(r.offset(cx, y)),
-                Item::PopClip => b.pop_clip(),
-                Item::HScrollBar(ri) => {
-                    let Some(g) = bl.regions.get(*ri) else {
-                        continue;
-                    };
-                    let o = off(u16::try_from(*ri).unwrap_or(0));
-                    b.fill(g.track.offset(cx, y), pal.text, 0.08, 3.0);
-                    b.fill(g.thumb(o).offset(cx, y), pal.text, 0.35, 3.0);
-                }
+            }
+            Item::Math {
+                x: mx,
+                y: my,
+                mb,
+                color,
+                hscroll,
+            } => {
+                let o = hscroll.map_or(0.0, off);
+                b.math(mb, cx + mx - o, y + my, *color);
+            }
+            Item::Path {
+                segs,
+                fill,
+                stroke,
+                width,
+                dash,
+            } => b.path(segs, (cx, y), *fill, stroke.map(|c| (c, *width, *dash))),
+            Item::PushClip(r) => b.push_clip(r.offset(cx, y)),
+            Item::PopClip => b.pop_clip(),
+            Item::HScrollBar(ri) => {
+                let Some(g) = bl.regions.get(*ri) else {
+                    continue;
+                };
+                let o = off(u16::try_from(*ri).unwrap_or(0));
+                b.fill(g.track.offset(cx, y), pal.text, 0.08, 3.0);
+                b.fill(g.thumb(o).offset(cx, y), pal.text, 0.35, 3.0);
             }
         }
     }

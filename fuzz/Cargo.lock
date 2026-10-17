@@ -189,6 +189,8 @@ dependencies = [
  "yamdv-core",
  "yamdv-highlight",
  "yamdv-layout",
+ "yamdv-math",
+ "yamdv-mermaid",
 ]
 
 [[package]]
@@ -202,4 +204,14 @@ dependencies = [
  "unicode-segmentation",
  "yamdv-core",
  "yamdv-highlight",
+ "yamdv-math",
+ "yamdv-mermaid",
 ]
+
+[[package]]
+name = "yamdv-math"
+version = "0.1.0"
+
+[[package]]
+name = "yamdv-mermaid"
+version = "0.1.0"

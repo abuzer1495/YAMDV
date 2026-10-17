@@ -1,0 +1,20 @@
+sequenceDiagram
+  title: Login flow
+  autonumber
+  actor U as User
+  participant B as Browser
+  participant S as Server
+  U->>B: Open page
+  B->>+S: GET /login
+  S-->>-B: 200 OK
+  Note right of S: cached
+  loop every 5 min
+    B-)S: heartbeat
+  end
+  alt valid password
+    S->>B: token
+  else invalid
+    S-xB: reject
+  end
+  Note over B,S: TLS everywhere
+  B->>B: render

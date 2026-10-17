@@ -60,6 +60,8 @@ pub struct Dev {
     pub mem_stats: Option<String>,
     /// `--script <file>` (in-window test driver).
     pub script: Option<String>,
+    /// `--block <n>` with `--render-png`: render only top-level block `n` (prompt 007 §4).
+    pub block: Option<usize>,
     /// `--line <n>`: scroll the (first) document to source line `n` (not a dev flag).
     pub line: Option<u32>,
 }
@@ -129,6 +131,10 @@ pub fn parse_with<I: IntoIterator<Item = String>>(args: I, dev_tools: bool) -> C
                 _ => return usage(&a),
             },
             "--autoscroll" if dev_tools => dev.autoscroll = true,
+            "--block" if dev_tools => match it.next().and_then(|v| v.parse::<usize>().ok()) {
+                Some(n) => dev.block = Some(n),
+                None => return usage(&a),
+            },
             "--render-png" | "--perf-log" | "--mem-stats" | "--script" | "--width" | "--scale"
             | "--theme"
                 if dev_tools =>
