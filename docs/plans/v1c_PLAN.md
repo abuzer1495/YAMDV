@@ -17,11 +17,13 @@ Risks: no Windows GUI locally (visual check of math/mermaid layout with a throwa
 ## CHECKPOINT
 - [x] V1-B merged (d6ecab1), tag phase-v1b
 - [x] prompt stored `docs/prompts/007_V1C_MATH_MERMAID.md` (SHA-256 94b18de380577e7dcff0a3c89f3d05e85605ba49bbffb4749850bea39617e784)
-- [ ] yamdv-math: table, parser, layout, tests
-- [ ] platform: Cambria Math face + glyph drawing; layout glue (display + inline + errors)
-- [ ] yamdv-mermaid: parsers, flowchart layout, sequence layout, tests
-- [ ] mermaid rendering (card, palette, limits, cache)
-- [ ] §4 block PNG API
-- [ ] fuzz targets math/mermaid (5 min each)
-- [ ] corpus + goldens + measure.ps1 rows
-- [ ] local gates, CI run, report, PR, merge, tag
+- [x] yamdv-math: table, parser, layout, tests
+- [x] platform: Cambria Math face + glyph drawing; layout glue (display + inline + errors)
+- [x] yamdv-mermaid: parsers, flowchart layout, sequence layout, tests
+- [x] mermaid rendering (card, palette, limits, cache)
+- [x] §4 block PNG API
+- [x] fuzz targets math/mermaid (5 min each)
+- [x] corpus + goldens + measure.ps1 rows
+- [x] driver scripts math.yds / mermaid.yds; TRACEABILITY rows; S-PARSE-05 formula cap
+- [x] fuzz: math 2.30 M runs, mermaid 2.61 M runs, 301 s each, 0 crashes
+- [ ] local gates, CI run, goldens from artifact (fix push), report, PR, merge, tag

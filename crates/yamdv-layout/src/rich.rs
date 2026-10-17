@@ -113,6 +113,8 @@ pub type MathResult = Result<Rc<MathBox>, MathError>;
 
 /// Rendered diagrams per document (S-PARSE-06).
 pub const MAX_DIAGRAMS: usize = 100;
+/// Rendered formulas per document (S-PARSE-05).
+pub const MAX_FORMULAS: usize = 5000;
 
 /// Entries kept per cache map before it is cleared.
 const CACHE_CAP: usize = 4096;
@@ -125,6 +127,7 @@ pub struct RichCache {
     pub(crate) diagrams: RefCell<HashMap<(u64, u32), Rc<crate::diagram::Laid>>>,
     forced: RefCell<HashSet<u64>>,
     rendered: RefCell<HashSet<u64>>,
+    formulas: RefCell<HashSet<u64>>,
 }
 
 impl RichCache {
@@ -147,6 +150,19 @@ impl RichCache {
             return false;
         }
         r.insert(h);
+        true
+    }
+    /// Admits formula `h`: at most [`MAX_FORMULAS`] distinct formulas per document render
+    /// (S-PARSE-05); later ones stay source.
+    pub fn admit_formula(&self, h: u64) -> bool {
+        let mut f = self.formulas.borrow_mut();
+        if f.contains(&h) {
+            return true;
+        }
+        if f.len() >= MAX_FORMULAS {
+            return false;
+        }
+        f.insert(h);
         true
     }
     /// Cached entries (formulas, diagrams).
@@ -189,7 +205,11 @@ pub fn math_box(ctx: &Ctx<'_>, tex: &str, size: f32, display: bool) -> Option<Ma
         return None;
     }
     let face = ctx.rich.math()?;
-    let key = (source_hash(tex), size.to_bits(), display);
+    let h = source_hash(tex);
+    if ctx.rich.cache().is_some_and(|c| !c.admit_formula(h)) {
+        return None;
+    }
+    let key = (h, size.to_bits(), display);
     if let Some(c) = ctx.rich.cache()
         && let Some(r) = c.math.borrow().get(&key)
     {
@@ -461,5 +481,13 @@ mod tests {
         r.cache().unwrap().force(hash);
         let (it, _) = lay(&src, &r, 600.0);
         assert!(count(&it, is_path) >= 520);
+    }
+
+    #[test]
+    fn s_parse_05_formula_cap() {
+        let c = RichCache::default();
+        assert!((0..MAX_FORMULAS as u64).all(|h| c.admit_formula(h)));
+        assert!(c.admit_formula(7));
+        assert!(!c.admit_formula(u64::MAX));
     }
 }
