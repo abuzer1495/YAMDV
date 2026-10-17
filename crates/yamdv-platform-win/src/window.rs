@@ -55,8 +55,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_PAINT, WM_SETCURSOR, WM_SETTINGCHANGE, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    IDC_HAND, SW_SHOWMAXIMIZED, WM_CHAR, WM_CONTEXTMENU, WM_DRAWITEM, WM_MBUTTONUP, WM_MEASUREITEM,
-    WM_MENUCHAR, WM_SYSKEYDOWN, WM_XBUTTONUP,
+    IDC_HAND, SW_SHOWMAXIMIZED, WM_ACTIVATEAPP, WM_CHAR, WM_CONTEXTMENU, WM_DRAWITEM, WM_MBUTTONUP,
+    WM_MEASUREITEM, WM_MENUCHAR, WM_SYSKEYDOWN, WM_XBUTTONUP,
 };
 
 mod app;
@@ -64,6 +64,7 @@ mod app;
 mod driver;
 mod findbar;
 mod sidebar;
+mod welcome;
 use windows::Win32::UI::WindowsAndMessaging::{
     MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, QS_ALLINPUT,
     SetForegroundWindow, WM_COPYDATA, WM_MOUSEHWHEEL, WM_QUIT, WaitMessage,
@@ -1203,6 +1204,7 @@ impl Win {
         let pal = &self.pal;
         b.clear(pal.bg);
         match &self.view {
+            View::Empty { note: None } => self.draw_welcome(sh, b),
             View::Empty { note } => {
                 let msg = tr(sh.lang, note.unwrap_or(Msg::EmptyState));
                 let t = self.shape_ui(
@@ -1458,6 +1460,12 @@ impl Win {
     }
 
     fn mouse_down(&mut self, sh: &Shared, x: f32, y: f32, ctrl: bool) {
+        if self.dialog.is_none() && matches!(self.view, View::Empty { note: None }) {
+            if let Some(a) = self.welcome_click(sh, x, y) {
+                self.actions.push(a);
+            }
+            return;
+        }
         if self.dialog.is_none() && matches!(self.view, View::Doc(_)) && self.over_side(sh, x, y) {
             if let Some(a) = self.side_down(sh, x, y) {
                 self.actions.push(a);
@@ -1575,6 +1583,10 @@ impl Win {
     }
 
     fn mouse_move(&mut self, sh: &Shared, x: f32, y: f32) {
+        if matches!(self.view, View::Empty { note: None }) {
+            self.side.hover = Some((x, y));
+            self.invalidate();
+        }
         if self.dialog.is_none() && matches!(self.view, View::Doc(_)) && self.side_move(sh, x, y) {
             return;
         }
@@ -2512,6 +2524,14 @@ fn handle(
                 actions.push(Action::ContextMenu(sx, sy, link));
             }
             Some(LRESULT(0))
+        }
+        WM_ACTIVATEAPP => {
+            // Back from Windows Settings / an editor: re-query the association status.
+            welcome::refresh_default();
+            if matches!(w.view, View::Empty { note: None }) {
+                w.invalidate();
+            }
+            None
         }
         WM_MEASUREITEM => app::measure(w.hwnd, lp).then_some(LRESULT(1)),
         WM_DRAWITEM => app::draw_item(w.hwnd, lp).then_some(LRESULT(1)),
