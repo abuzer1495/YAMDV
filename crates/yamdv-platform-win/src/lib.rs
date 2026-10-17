@@ -17,6 +17,8 @@ pub mod dialog_host;
 #[cfg(windows)]
 pub mod dwrite;
 #[cfg(windows)]
+pub mod export;
+#[cfg(windows)]
 pub mod hardening;
 #[cfg(windows)]
 pub mod images;

@@ -468,3 +468,30 @@ pub fn font_dialog(owner: HWND, current: &str) -> Option<Option<String>> {
         None
     }
 }
+
+/// D.4 rule 10: one working-set trim right after a print / PDF / export operation (never
+/// periodic; transient buffers are freed by the caller before this).
+pub fn trim_once() {
+    use windows::Win32::System::Memory::{
+        SETPROCESSWORKINGSETSIZEEX_FLAGS, SetProcessWorkingSetSizeEx,
+    };
+    use windows::Win32::System::Threading::GetCurrentProcess;
+    // SAFETY: pseudo handle of this process; (-1, -1) asks the system to trim the working set.
+    let _ = unsafe {
+        SetProcessWorkingSetSizeEx(
+            GetCurrentProcess(),
+            usize::MAX,
+            usize::MAX,
+            SETPROCESSWORKINGSETSIZEEX_FLAGS(0),
+        )
+    };
+}
+
+/// User locale name (`en-US`, `tr-TR`, …) for the *auto* paper size.
+pub fn user_locale() -> String {
+    let mut buf = [0u16; 85];
+    // SAFETY: valid buffer.
+    let n = unsafe { windows::Win32::Globalization::GetUserDefaultLocaleName(&mut buf) };
+    let n = usize::try_from(n).unwrap_or(0).saturating_sub(1);
+    String::from_utf16_lossy(buf.get(..n).unwrap_or(&[]))
+}
