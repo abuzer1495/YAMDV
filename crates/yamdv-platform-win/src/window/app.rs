@@ -502,6 +502,26 @@ fn build(lang: Lang, c: &MenuCtx) -> HMENU {
     m
 }
 
+/// Driver probe: builds the menu without showing it; (item count, checked labels joined by `|`).
+#[cfg(feature = "dev-tools")]
+pub(super) fn menu_probe(c: &MenuCtx) -> (usize, String) {
+    let Some(sh) = shared() else {
+        return (0, String::new());
+    };
+    let m = build(sh.lang, c);
+    // SAFETY: menu created by build(); destroyed here.
+    let _ = unsafe { DestroyMenu(m) };
+    ITEMS.with(|i| {
+        let i = i.borrow();
+        let checked: Vec<&str> = i
+            .iter()
+            .filter(|x| x.2 == 1 || x.2 == 2)
+            .map(|x| x.0.as_str())
+            .collect();
+        (i.len(), checked.join("|"))
+    })
+}
+
 /// Shows the context menu at screen point `(x, y)` and returns the chosen command (0 = none).
 pub(super) fn track(hwnd: HWND, x: i32, y: i32, c: &MenuCtx, pal: &Palette) -> u32 {
     let Some(sh) = shared() else { return 0 };

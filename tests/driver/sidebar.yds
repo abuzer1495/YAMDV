@@ -1,0 +1,12 @@
+# Sidebar: clicking a TOC entry scrolls to the heading (prompt 005 §3.3)
+assert sidebar == visible
+assert scroll_y == 0
+side-click "Target section"
+wait-idle
+assert scroll_y > 500
+command outline
+wait-idle
+assert sidebar == hidden
+command outline
+wait-idle
+assert sidebar == visible

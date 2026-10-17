@@ -289,6 +289,15 @@ pub fn spawn(exe: &str, args: &[String]) -> bool {
     if crate::sys::dry_launch_pub() {
         return true;
     }
+    create_process(exe, args)
+}
+
+/// Starts this executable again (driver scripts: second-instance forwarding, R-SYS-03).
+pub fn spawn_self(args: &[String]) -> bool {
+    create_process(&exe_path(), args)
+}
+
+fn create_process(exe: &str, args: &[String]) -> bool {
     let app = HSTRING::from(exe);
     let mut cl = wide(&cmdline::command_line(exe, args));
     let si = STARTUPINFOW {
@@ -466,25 +475,30 @@ fn notify_assoc_changed() {
 
 /// R-SYS-02 association status: is our exe the handler for `.md`?
 pub fn is_default_app() -> bool {
-    use windows::Win32::UI::Shell::{ASSOCF_NONE, ASSOCSTR_EXECUTABLE, AssocQueryStringW};
-    let mut buf = [0u16; 1024];
-    let mut n = buf.len() as u32;
-    // SAFETY: valid buffers; association query only (S-REG-04).
+    use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_SZ, RegGetValueW};
+    let mut buf = [0u16; 256];
+    let mut n = (buf.len() * 2) as u32;
+    // SAFETY: valid key/value names and a writable buffer of `n` bytes; read-only (S-REG-04).
+    // The `UserChoice` ProgId is what Windows Settings writes; reading it avoids loading the
+    // shell association engine into the viewer process (M0).
     let r = unsafe {
-        AssocQueryStringW(
-            ASSOCF_NONE,
-            ASSOCSTR_EXECUTABLE,
-            windows::core::w!(".md"),
-            windows::core::w!("open"),
-            Some(PWSTR(buf.as_mut_ptr())),
-            &mut n,
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            windows::core::w!(
+                r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.md\UserChoice"
+            ),
+            windows::core::w!("ProgId"),
+            RRF_RT_REG_SZ,
+            None,
+            Some(buf.as_mut_ptr().cast()),
+            Some(&mut n),
         )
     };
     if r.is_err() {
         return false;
     }
-    let s = String::from_utf16_lossy(buf.get(..(n as usize).saturating_sub(1)).unwrap_or(&[]));
-    s.eq_ignore_ascii_case(&exe_path())
+    let len = (n as usize / 2).saturating_sub(1);
+    String::from_utf16_lossy(buf.get(..len).unwrap_or(&[])) == yamdv_core::reg::PROGID
 }
 
 /// R-SYS-02: register, then open Windows Settings for the app (never writes `UserChoice`).

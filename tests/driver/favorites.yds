@@ -1,0 +1,8 @@
+# Favorites add / remove (prompt 005 §3.3, R-NAV-09)
+assert favorites == 0
+key ctrl+D
+wait-idle
+assert favorites == 1
+command favorite
+wait-idle
+assert favorites == 0

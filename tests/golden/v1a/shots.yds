@@ -1,0 +1,23 @@
+# Window goldens (prompt 005 §4): run by `cargo xtask golden-shell` with an empty profile.
+resize 1000 700
+wait-idle
+command mode light
+wait-idle
+snapshot welcome-light.png
+open ../../driver/a.md
+wait-idle
+snapshot doc-sidebar-light.png
+command mode dark
+wait-idle
+snapshot doc-sidebar-dark.png
+command mode light
+key ctrl+F
+type "target"
+wait-idle
+snapshot find-light.png
+key esc
+command scheme glacier
+wait-idle
+snapshot glacier-light.png
+command scheme github
+command mode system

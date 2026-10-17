@@ -17,6 +17,9 @@ Risks: window.rs is already 2.9 kLOC (split new UI into modules); T4 p99 at 14.2
 - [x] DONE (compiles, not yet run on Windows): `window/app.rs` settings/state persistence + live restyle, owner-draw context menu (all §3.2 entries incl. ChooseFontW via dialog host `font` kind), zoom keys/wheel + toast, F1 help (assets/help_*.md), F4/Ctrl+E editor, Ctrl+D favorites, About, find bar `window/findbar.rs`, single instance + forward + one window per file, watcher → debounced reload / dimmed + toast, reading positions, history recording, geometry save/restore, CLI --register/--unregister/--set-default/--context-menu/--line
 - [x] sidebar `window/sidebar.rs` (tabs, TOC flatten/spy/collapse persisted, history groups/remove/clear, favorites, chevron, drag-resize, left/right)
 - [ ] NEXT: welcome page, custom-theme.ini hot reload watcher, driver commands+scripts, goldens, measurements(T3), report
-- [ ] OLD NOTE: `window/app.rs` = App thread_local (Settings+Ini+State+dirs), rebuild Shared (dw: Rc<DWrite>) on setting change and restyle/reload all windows keeping anchor; owner-draw HMENU context menu via Action::ContextMenu (WM_CONTEXTMENU, WM_MEASUREITEM/DRAWITEM/MENUCHAR; feature Win32_UI_Controls); then find bar (WM_CHAR, marks in draw_doc), zoom keys + toast, F4 editor, Ctrl+D, positions/history/geometry, WM_COPYDATA forward, watcher → reload, CLI flags, welcome page, sidebar, ChooseFontW via dialog host kind 3
 - [ ] platform: popup menu, context menu, toast/zoom, find bar, sidebar, themes live, single instance, watcher, positions, editor, registration + CLI, welcome
 - [ ] driver scripts, goldens, measurements, report, PR/merge/tag
+
+- [x] welcome page integrated (default-app status via UserChoice ProgId, no shell assoc engine)
+- [x] driver commands (command/type/side-click/write-file/open/launch/sleep/snapshot/resize) + 6 scripts; golden-shell xtask + CI step; driver profiles isolated per script
+- NEXT: custom-theme.ini hot reload, T3 in measure.ps1, TRACEABILITY statuses, PR + CI, goldens from CI artifact, merge, tag, report
