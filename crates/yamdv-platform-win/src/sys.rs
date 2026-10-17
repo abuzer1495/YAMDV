@@ -350,6 +350,11 @@ pub fn launches() -> u32 {
     LAUNCHES.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Counts a launch; `true` when launches are dry (test driver).
+pub(crate) fn dry_launch_pub() -> bool {
+    dry_launch()
+}
+
 fn dry_launch() -> bool {
     LAUNCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     DRY_RUN.load(std::sync::atomic::Ordering::Relaxed)

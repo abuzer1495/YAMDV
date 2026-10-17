@@ -82,6 +82,14 @@ fn owner_ok(owner: HWND) -> bool {
     let mut pid = 0u32;
     // SAFETY: valid hwnd; out-pointer on the stack.
     unsafe { GetWindowThreadProcessId(owner, Some(&mut pid)) };
+    same_user_pid(pid)
+}
+
+/// S-IPC-02: `pid` runs as the same user as this process (token SID comparison).
+pub(crate) fn same_user_pid(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
     // SAFETY: plain open for query; closed below.
     let Ok(h) = (unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }) else {
         return false;
@@ -110,7 +118,12 @@ extern "system" fn host_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRES
 }
 
 fn send_reply(owner: HWND, reply: &Reply) {
-    let data = ipc::encode(reply);
+    send_copydata(owner, &ipc::encode(reply), 10_000);
+}
+
+/// Sends `data` as `WM_COPYDATA` (`dwData` = magic) from a temporary message-only window, so the
+/// receiver can identify the sending process (S-IPC-02). `true` when the receiver accepted it.
+pub(crate) fn send_copydata(owner: HWND, data: &[u8], timeout_ms: u32) -> bool {
     // SAFETY: registering and creating a message-only window of our own class.
     let me = unsafe {
         let inst = GetModuleHandleW(None).unwrap_or_default();
@@ -136,24 +149,26 @@ fn send_reply(owner: HWND, reply: &Reply) {
             None,
         )
     };
-    let Ok(me) = me else { return };
+    let Ok(me) = me else { return false };
     let cds = COPYDATASTRUCT {
         dwData: ipc::MAGIC as usize,
         cbData: data.len() as u32,
         lpData: data.as_ptr() as *mut _,
     };
+    let mut res = 0usize;
     // SAFETY: cds and data outlive the synchronous call; the receiver copies the data.
     unsafe {
-        let _ = SendMessageTimeoutW(
+        let r = SendMessageTimeoutW(
             owner,
             WM_COPYDATA,
             WPARAM(me.0 as usize),
             LPARAM(&raw const cds as isize),
             SMTO_ABORTIFHUNG,
-            10_000,
-            None,
+            timeout_ms,
+            Some(&mut res),
         );
         let _ = DestroyWindow(me);
+        r.0 != 0 && res != 0
     }
 }
 
