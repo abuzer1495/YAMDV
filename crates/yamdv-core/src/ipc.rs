@@ -22,6 +22,31 @@ const HEADER: usize = 4 + 2 + 2 + 8 + 2 + 2;
 pub enum Kind {
     /// File-open dialog.
     Open = 1,
+    /// Second launch forwarding its paths to the primary instance (S-IPC-01); `nonce` carries
+    /// the `--line` value (0 = none) and the payload is limited to [`FORWARD_MAX_BYTES`].
+    Forward = 2,
+}
+
+/// S-IPC-01 payload limit for [`Kind::Forward`].
+pub const FORWARD_MAX_BYTES: usize = 64 * 1024;
+
+/// Encodes a forward message; paths that would exceed 64 KB are dropped.
+pub fn encode_forward(paths: &[String], line: u64) -> Vec<u8> {
+    let mut keep = Vec::new();
+    let mut size = HEADER;
+    for p in paths {
+        let n = 4 + 2 * p.encode_utf16().count();
+        if size + n > FORWARD_MAX_BYTES {
+            break;
+        }
+        size += n;
+        keep.push(p.clone());
+    }
+    encode(&Reply {
+        kind: Kind::Forward,
+        nonce: line,
+        outcome: Outcome::Paths(keep),
+    })
 }
 
 /// Dialog outcome.
@@ -114,6 +139,8 @@ pub fn decode(b: &[u8]) -> Result<Reply, DecodeError> {
     }
     let kind = match u16::from_le_bytes(rd(b, &mut at)?) {
         1 => Kind::Open,
+        2 if b.len() <= FORWARD_MAX_BYTES => Kind::Forward,
+        2 => return Err(DecodeError::Malformed),
         _ => return Err(DecodeError::Unknown),
     };
     let nonce = u64::from_le_bytes(rd(b, &mut at)?);
@@ -215,5 +242,26 @@ mod tests {
         for i in 0..b.len() {
             let _ = decode(&b[..i]);
         }
+    }
+
+    #[test]
+    fn s_ipc_01_forward_round_trip_and_limit() {
+        let b = encode_forward(&["C:\\a.md".to_string()], 42);
+        let r = decode(&b).unwrap();
+        assert_eq!(r.kind, Kind::Forward);
+        assert_eq!(r.nonce, 42);
+        let many: Vec<String> = (0..100).map(|i| format!("C:\\{i:0>500}.md")).collect();
+        let b = encode_forward(&many, 0);
+        assert!(b.len() <= FORWARD_MAX_BYTES);
+        assert!(decode(&b).is_ok());
+        let mut big = encode(&Reply {
+            kind: Kind::Forward,
+            nonce: 0,
+            outcome: Outcome::Paths(many),
+        });
+        assert!(big.len() > FORWARD_MAX_BYTES);
+        assert_eq!(decode(&big), Err(DecodeError::Malformed));
+        big.truncate(10);
+        assert!(decode(&big).is_err());
     }
 }

@@ -12,3 +12,6 @@ Risks: window.rs is already 2.9 kLOC (split new UI into modules); T4 p99 at 14.2
 - [x] §2.2 docs/FUTURE.md by `cargo xtask future` (spec-check verifies); README section
 - [x] §2.3 P-30, P-31 (`docs/spec-patches/v1a.txt`), spec-check green
 - [x] §2.4 TRACEABILITY deferrals by `cargo xtask future` (70 rows; 11 section refs are not rows)
+- [x] pure core: `state.rs` (state.ini, history groups, favorites, positions, geometry validation), `find.rs` (Turkish i), `cmdline.rs` (S-EXEC-03 quoting, editor templates), `reg.rs` (S-REG plan), `ipc` Forward kind (S-IPC-01), `Settings::set`
+- [ ] platform: popup menu, context menu, toast/zoom, find bar, sidebar, themes live, single instance, watcher, positions, editor, registration + CLI, welcome
+- [ ] driver scripts, goldens, measurements, report, PR/merge/tag
