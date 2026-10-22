@@ -157,19 +157,19 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-REN-19 | 002/003 | implemented (002) |
 | R-REN-20 | 002/003 | implemented (002) |
 | R-REN-21 | 002/003 | implemented (002) |
-| R-SET-01 | 004 | deferred (FUT-31) |
-| R-SET-02 | 004 | deferred (FUT-26, FUT-31) |
-| R-SET-03 | 004 | deferred (FUT-31) |
-| R-SET-04 | 004 | deferred (FUT-31) |
+| R-SET-01 | 004 | implemented (012 V2-B): settings panel, window/setpanel.rs + settings-panel.yds (FUT-31) |
+| R-SET-02 | 004 | partial (012 V2-B): panel search done (FUT-26 first half), FUT-26 rest open |
+| R-SET-03 | 004 | implemented (012 V2-B): live apply + settings.ini, Reset section/all (FUT-31) |
+| R-SET-04 | 004 | implemented (012 V2-B): yamdv-ui::settings_panel rows/geometry tests (FUT-31) |
 | R-SET-05 | 004 | implemented (005 V1-A) |
-| R-SET-06 | 004 | deferred (FUT-05) |
+| R-SET-06 | 004 | implemented (012 V2-B): yamdv-core::keymap, capture/conflict/Typora, shortcuts.yds (FUT-05) |
 | R-SYS-01 | 005 | implemented (005 V1-A) |
 | R-SYS-02 | 005 | implemented (005 V1-A) |
 | R-SYS-03 | 005 | implemented (005 V1-A) |
 | R-SYS-04 | 005 | partial (001): --help/--version/usage error |
 | R-SYS-05 | 005 | implemented (008 V1-D): install.rs (r_sys_05_*, CI v1d-checks) |
 | R-SYS-06 | 005 | implemented (005 V1-A) |
-| R-SYS-07 | 005 | implemented (008 V1-D): icons (001), version resource 1.0.0 |
+| R-SYS-07 | 005 | implemented (008 V1-D): icons (001), version resource 1.1.0 (012) |
 | R-SYS-08 | 005 | deferred (FUT-25) |
 | R-SYS-09 | 005 | deferred (FUT-25) |
 | R-TBL-01 | 003/008 | deferred (FUT-44) |
@@ -183,9 +183,9 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-THEME-01 | 004 | implemented (005 V1-A) |
 | R-THEME-02 | 004 | partial (002): data only |
 | R-THEME-03 | 004 | implemented (011): scheme cards, popup.rs + scheme-cards.yds (FUT-32) |
-| R-THEME-04 | 004 | deferred (FUT-49) |
+| R-THEME-04 | 004 | implemented (012 V2-B): font pickers with resolved fallback (FUT-49) |
 | R-THEME-05 | 004 | planned |
-| R-THEME-06 | 004 | deferred (FUT-04) |
+| R-THEME-06 | 004 | implemented (012 V2-B): custom-color editor, color-editor.yds (FUT-04) |
 | R-THEME-07 | 004 | implemented (005 V1-A) |
 | R-THEME-08 | 004 | deferred (FUT-47) |
 | R-THEME-09 | 004 | planned |
