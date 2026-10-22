@@ -125,6 +125,9 @@ foreach ($s in Get-ChildItem (Join-Path $root 'tests\driver\*.yds')) {
   } else {
     Out-Result 'FAIL' "driver/$($s.Name)" "exit $($p.ExitCode), $secs s$extra"
     if (Test-Path $log) { Copy-Item $log $fails }
+    # Crash note (panic location + message, no document content) from the temporary profile.
+    Get-ChildItem -Recurse -Filter 'crash-*.txt' -Path (Join-Path $tmp "prof-$($s.BaseName)") -ErrorAction SilentlyContinue |
+      ForEach-Object { Copy-Item $_.FullName (Join-Path $fails "$($s.BaseName)-$($_.Name)") }
   }
   Get-Process -Name 'yamdv-dev' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 }

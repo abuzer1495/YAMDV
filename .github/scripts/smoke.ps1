@@ -29,6 +29,9 @@ $fail += Run 'rel-version' $Rel @('--version') 20000
 $v = (Get-Content "$root/rel-version.out" -Raw)
 if ($v -notmatch 'YAMDV') { Write-Host "::error::--version printed nothing"; $fail++ }
 $fail += Run 'dev-version' $Dev @('--version') 20000
+# The exact line the owner test pack uses (Windows PowerShell pipeline capture).
+$pv = (& $Rel --version 2>$null | Out-String).Trim()
+Write-Host "pipeline --version: '$pv' (exit $LASTEXITCODE)"
 $doc = (Resolve-Path tests/driver/a.md).Path
 $fail += Run 'dev-start' $Dev @('--script', (Resolve-Path tests/smoke/start.yds).Path, $doc) 30000
 if (Test-Path tests/smoke/start.yds.log) { Get-Content tests/smoke/start.yds.log }

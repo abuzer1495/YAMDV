@@ -10,3 +10,4 @@ Branch `fix/v2b-startup-crash`. Owner pack run: every driver script exit 0xC0000
 
 ## CHECKPOINT
 - 2026-10-22 23:15 (UTC+3): step 1 committed and pushed; waiting for first CI run.
+- 23:50: run 39846032458: CI-built exes start fine (smoke green, 28/32 driver PASS). Suspect cargo-xwin pack build; added pack-build + pack-smoke jobs.

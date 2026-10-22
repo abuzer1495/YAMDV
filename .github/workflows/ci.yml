@@ -130,6 +130,57 @@ jobs:
           path: m/
           retention-days: 30
 
+  pack-build:
+    # V2-B fix: the owner test pack is built with cargo-xwin on Linux (tools/testpack/build-pack.sh);
+    # build the same exes here so the Windows job below can start them (build parity check).
+    name: pack exes (cargo-xwin, ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/bin/cargo-xwin
+            ~/.cache/cargo-xwin
+            target
+          key: xwin-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+      - name: install cargo-xwin + lld
+        run: |
+          command -v cargo-xwin || cargo install cargo-xwin --version 0.23.1 --locked
+          sudo apt-get install -y -qq lld llvm clang >/dev/null
+      - name: build (same commands as build-pack.sh)
+        run: |
+          T=x86_64-pc-windows-msvc
+          cargo xwin build --release --locked --target $T -p yamdv-app
+          cargo xwin build --release --locked --target $T -p yamdv-app --features dev-tools,mem-stats --target-dir target/dev
+          mkdir -p pack && cp target/$T/release/yamdv.exe pack/yamdv.exe && cp target/dev/$T/release/yamdv.exe pack/yamdv-dev.exe
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pack-exes
+          path: pack/
+          retention-days: 7
+
+  pack-smoke:
+    name: pack exes start on Windows (startup smoke)
+    needs: [pack-build]
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pack-exes
+          path: pack
+      - name: startup smoke (pack exes)
+        shell: pwsh
+        run: ./.github/scripts/smoke.ps1 -Rel pack/yamdv.exe -Dev pack/yamdv-dev.exe
+
   owner-kit:
     name: owner kit (F-05)
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
