@@ -29,6 +29,9 @@ pub enum Kind {
     Font = 3,
     /// Save-as dialog (`IFileSaveDialog`); the answer is one path.
     Save = 4,
+    /// Print dialog (`PrintDlgExW`, prompt 008 §3.1); the answer is serializable data only:
+    /// printer name, DEVMODE bytes (hex), page range (`from-to` or `all`), copies.
+    Print = 5,
 }
 
 /// S-IPC-01 payload limit for [`Kind::Forward`].
@@ -146,6 +149,7 @@ pub fn decode(b: &[u8]) -> Result<Reply, DecodeError> {
         2 if b.len() <= FORWARD_MAX_BYTES => Kind::Forward,
         3 => Kind::Font,
         4 => Kind::Save,
+        5 => Kind::Print,
         2 => return Err(DecodeError::Malformed),
         _ => return Err(DecodeError::Unknown),
     };

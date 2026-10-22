@@ -7,6 +7,19 @@ use std::cell::Cell;
 thread_local! {
     /// Cached association status (R-SYS-02); refreshed when the app is re-activated.
     static DEFAULT_APP: Cell<Option<bool>> = const { Cell::new(None) };
+    /// Not running from the install folder and not portable (R-SYS-05), queried once.
+    static OFFER_INSTALL: Cell<Option<bool>> = const { Cell::new(None) };
+}
+
+/// The welcome page shows [Install YAMDV for this user].
+pub(super) fn offer_install() -> bool {
+    OFFER_INSTALL.with(|c| {
+        c.get().unwrap_or_else(|| {
+            let v = crate::install::offer_install();
+            c.set(Some(v));
+            v
+        })
+    })
 }
 
 /// Association status, queried once and cached.
@@ -30,6 +43,7 @@ pub(super) enum Hit {
     Open,
     Recent(String),
     SetDefault,
+    Install,
 }
 
 impl Win {
@@ -59,7 +73,8 @@ impl Win {
                 28.0 + 26.0 * recent.len() as f32
             }
             + 24.0
-            + 32.0;
+            + 32.0
+            + if offer_install() { 44.0 } else { 0.0 };
         let mut y = ((self.ch - h) / 2.0).max(24.0).round();
         let mut out = Vec::new();
         out.push((
@@ -115,6 +130,14 @@ impl Win {
                 tr(sh.lang, Msg::WelcomeSetDefault).to_string(),
             ));
         }
+        if offer_install() {
+            y += 44.0;
+            out.push((
+                Rect::new(x + (w - 260.0) / 2.0, y, 260.0, 32.0),
+                Some(Hit::Install),
+                tr(sh.lang, Msg::WelcomeInstall).to_string(),
+            ));
+        }
         out
     }
 
@@ -141,7 +164,7 @@ impl Win {
                     let (tx, ty) = center(t.as_ref());
                     b.text(t.as_ref(), tx, ty);
                 }
-                (_, Some(Hit::Open | Hit::SetDefault)) => {
+                (_, Some(Hit::Open | Hit::SetDefault | Hit::Install)) => {
                     let primary = hit == Some(Hit::Open);
                     if primary {
                         b.fill(r, pal.accent, 1.0, 6.0);
@@ -192,6 +215,10 @@ impl Win {
             .1?;
         match hit {
             Hit::Open => Some(Action::OpenDialog),
+            Hit::Install => {
+                OFFER_INSTALL.with(|c| c.set(Some(false)));
+                Some(Action::Install)
+            }
             Hit::SetDefault => {
                 refresh_default();
                 Some(Action::Command(app::SET_DEFAULT))

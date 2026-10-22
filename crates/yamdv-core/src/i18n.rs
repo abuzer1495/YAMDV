@@ -212,6 +212,24 @@ messages! {
     Discard => "Don't save", "Kaydetme";
     SaveFailed => "The file could not be saved", "Dosya kaydedilemedi";
     EditHelp => "Help (F1)", "Yardım (F1)";
+    MExport => "Export", "Dışa aktar";
+    MExportHtml => "Export HTML…", "HTML olarak dışa aktar…";
+    MExportPdf => "Export PDF…", "PDF olarak dışa aktar…";
+    MPrint => "Print…", "Yazdır…";
+    MCopyTableCsv => "Copy table as CSV", "Tabloyu CSV olarak kopyala";
+    MExportTableCsv => "Export table as CSV…", "Tabloyu CSV olarak dışa aktar…";
+    PdfPrinterMissingTitle => "Export PDF", "PDF olarak dışa aktar";
+    PdfPrinterMissing => "Microsoft Print to PDF is not installed — use Print… and choose a PDF printer.", "Microsoft Print to PDF yüklü değil — Yazdır… seçeneğini kullanıp bir PDF yazıcısı seçin.";
+    Exported => "Exported", "Dışa aktarıldı";
+    ExportFailed => "Export failed", "Dışa aktarma başarısız";
+    PrintSent => "Sent to the printer", "Yazıcıya gönderildi";
+    PrintFailed => "Printing failed", "Yazdırma başarısız";
+    WelcomeInstall => "Install YAMDV for this user", "YAMDV'yi bu kullanıcı için yükle";
+    InstallFailed => "Installation failed", "Yükleme başarısız";
+    UninstallTitle => "Uninstall YAMDV", "YAMDV'yi kaldır";
+    UninstallBody => "YAMDV, its registration and its Start-menu shortcut will be removed. Keep your settings, favorites and recent files?", "YAMDV, kaydı ve Başlat menüsü kısayolu kaldırılacak. Ayarlarınız, sık kullanılanlarınız ve son dosyalarınız saklansın mı?";
+    UninstallKeep => "Uninstall, keep settings", "Kaldır, ayarları sakla";
+    UninstallRemove => "Uninstall, remove settings", "Kaldır, ayarları sil";
 }
 
 /// Resolves the UI language from the setting (`system`/`en`/`tr`) and the user's UI language

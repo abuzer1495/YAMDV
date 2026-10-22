@@ -1,5 +1,5 @@
 # Phase 002 measurements and soft-budget gate on windows-latest (§4.9, Appendix D §D.3, P-05/P-09).
-# Results land in ./m (uploaded as the "measurements" artifact). Any exceeded soft budget fails CI.
+# Results land in ./m (uploaded as the "measurements" artifact). A-5: only M0, M1 and T4 typical warm fail CI.
 $ErrorActionPreference = 'Stop'
 New-Item -ItemType Directory -Force -Path m | Out-Null
 $m = (Resolve-Path m).Path
@@ -11,10 +11,19 @@ $typ = (Resolve-Path 'tests/corpus/002/typical.md').Path
 $large = "$m/large-1mb.md"
 $size = @('--size', '1000x700')
 
+# A-5 (owner, 2026-10-17; overrides F-22): only M0, M1 and T4 typical warm are gates, each with
+# one retry (fails only when two consecutive attempts both exceed the budget; attempt 1's JSON is
+# kept as <label>.a1.json). Every other measurement is report-only: one attempt, warning on failure.
+$gated = @('M0', 'M1')
 function Probe([string]$label, [string]$exe, [string[]]$extra) {
   Write-Host "== memprobe $label"
   & cargo xtask memprobe $exe --json "$m/$label.json" --label $label @size @extra
-  if ($LASTEXITCODE -ne 0) { $script:failed += $label; Write-Host "::error::$label failed or over budget" }
+  if ($LASTEXITCODE -eq 0) { return }
+  if ($gated -notcontains $label) { Write-Host "::warning::$label failed or over budget (report only, A-5)"; return }
+  Write-Host "::warning::$label attempt 1 failed or over budget; retrying (A-5)"
+  if (Test-Path "$m/$label.json") { Move-Item -Force "$m/$label.json" "$m/$label.a1.json" }
+  & cargo xtask memprobe $exe --json "$m/$label.json" --label $label @size @extra
+  if ($LASTEXITCODE -ne 0) { $script:failed += $label; Write-Host "::error::$label failed or over budget on two consecutive attempts" }
 }
 
 Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber | Format-List | Out-File "$m/host.txt"
@@ -34,6 +43,7 @@ $mh = (Resolve-Path 'tests/corpus/002/math-heavy.md').Path
 $mm = (Resolve-Path 'tests/corpus/002/mermaid-heavy.md').Path
 foreach ($d in @(@{n='M3-math'; f=$mh}, @{n='M3-mermaid'; f=$mm})) {
   Probe $d.n $rel @('--doc', $d.f, '--runs', '5', '--budget-pws-mib', '9.6', '--screenshot', "$m/$($d.n).png")
+  if (-not (Test-Path "$m/$($d.n).json")) { continue }
   $j = (Get-Content "$m/$($d.n).json" -Raw | ConvertFrom-Json).median
   Write-Host "T1M $($d.n): first paint $($j.first_paint_ms) ms, PWS $($j.private_ws_mib) MiB"
   "T1M $($d.n) first_paint_ms $($j.first_paint_ms) pws_mib $($j.private_ws_mib)" | Out-File -Append "$m/T1M.txt"
@@ -42,14 +52,14 @@ foreach ($d in @(@{n='M3-math'; f=$mh}, @{n='M3-mermaid'; f=$mm})) {
 $bp = "$m/block-mermaid-2x.png"
 # yamdv.exe is a GUI-subsystem exe: `&` does not wait for it, so start it and wait for the exit code.
 $bpp = Start-Process -FilePath $dev -ArgumentList @('--render-png', $bp, '--block', '2', '--width', '1000', '--scale', '2', (Resolve-Path 'tests/corpus/002/mermaid.md').Path) -Wait -PassThru -NoNewWindow
-if ($bpp.ExitCode -ne 0 -or -not (Test-Path $bp) -or (Get-Item $bp).Length -lt 1000) { $failed += 'block-png'; Write-Host "::error::block PNG snapshot failed" } else { Write-Host "block PNG: $((Get-Item $bp).Length) bytes" }
+if ($bpp.ExitCode -ne 0 -or -not (Test-Path $bp) -or (Get-Item $bp).Length -lt 1000) { Write-Host "::warning::block PNG snapshot failed (report only, A-5)" } else { Write-Host "block PNG: $((Get-Item $bp).Length) bytes" }
 # M6 (P-10, F-09): Ctrl+O shows the dialog in the out-of-process host; cancel, wait 2 s, no trim.
 # Budget: PWS <= M1 + 1 MiB and commit <= M1 commit + 1.5 MiB; module count unchanged; T-DLG reported.
-$m1j = (Get-Content "$m/M1.json" -Raw | ConvertFrom-Json).median
+$m1j = if (Test-Path "$m/M1.json") { (Get-Content "$m/M1.json" -Raw | ConvertFrom-Json).median } else { [pscustomobject]@{ private_ws_mib = 8; private_usage_mib = 8 } }
 Probe 'M6' $rel @('--doc', $typ, '--runs', '3', '--open-dialog', '--settle-ms', '2000', '--budget-pws-mib', "$($m1j.private_ws_mib + 1)", '--budget-commit-mib', "$($m1j.private_usage_mib + 1.5)")
-$m6 = (Get-Content "$m/M6.json" -Raw | ConvertFrom-Json).median
+$m6 = if (Test-Path "$m/M6.json") { (Get-Content "$m/M6.json" -Raw | ConvertFrom-Json).median } else { [pscustomobject]@{ t_dlg_ms = 'n/a'; modules_before_dialog = 'n/a'; module_count = 'n/a' } }
 Write-Host "T-DLG = $($m6.t_dlg_ms) ms (soft 400); modules before/after = $($m6.modules_before_dialog)/$($m6.module_count)"
-if ($m6.t_dlg_ms -gt 400) { Write-Host "::warning::T-DLG $($m6.t_dlg_ms) ms > 400 ms (soft, report only)" }
+if ($m6.t_dlg_ms -is [double] -and $m6.t_dlg_ms -gt 400) { Write-Host "::warning::T-DLG $($m6.t_dlg_ms) ms > 400 ms (soft, report only)" }
 # T7: idle CPU 30 s on the empty state and on a document
 Probe 'T7-empty' $rel @('--runs', '1', '--cpu-ms', '30000', '--budget-cpu-ms', '1')
 Probe 'T7-doc' $rel @('--doc', $typ, '--runs', '1', '--cpu-ms', '30000', '--budget-cpu-ms', '1')
@@ -59,11 +69,11 @@ Probe 'T7-doc' $rel @('--doc', $typ, '--runs', '1', '--cpu-ms', '30000', '--budg
 function T4Run([string]$n, [string]$f, [string]$tag) {
   $log = "$m/T4-$n-$tag.log"
   Probe "T4-$n-$tag" $dev @('--doc', $f, '--runs', '1', '--wait-title', 'SCROLL_DONE', '--settle-ms', '500', '--arg', '--autoscroll', '--arg', '--perf-log', '--arg', $log) | Out-Host
-  if (-not (Test-Path $log)) { $script:failed += "T4-$n-$tag-log"; return $null }
+  if (-not (Test-Path $log)) { if ($n -eq 'typical') { $script:failed += "T4-$n-$tag-log" } else { Write-Host "::warning::T4-$n-$tag no log (report only, A-5)" }; return $null }
   $p99 = [double](((Get-Content $log) | Where-Object { $_ -like 'p99_ms *' }) -split ' ')[1]
   $frames = [int](((Get-Content $log) | Where-Object { $_ -like 'frames *' }) -split ' ')[1]
   Write-Host "T4-$n-$tag frames = $frames, p99 = $p99 ms"
-  if ($frames -lt 10) { $script:failed += "T4-$n-$tag-frames" }
+  if ($frames -lt 10) { if ($n -eq 'typical') { $script:failed += "T4-$n-$tag-frames" } else { Write-Host "::warning::T4-$n-$tag too few frames (report only, A-5)" } }
   return [double]$p99
 }
 # F-21 (prompt 006): one attempt = median p99 of 3 warm runs. If attempt 1 exceeds 16 ms, one
@@ -80,11 +90,12 @@ foreach ($d in @(@{n='typical'; f=$typ}, @{n='large'; f=$large}, @{n='math'; f=$
   # the 16 ms gate compare numbers (in V1-A run 2 the Probe text leaked in and the gate compared strings).
   $med1 = T4Attempt $d.n $d.f 1
   $med2 = 'not run'
-  if ($med1 -gt 16) { Write-Host "::warning::T4-$($d.n) attempt 1 warm median p99 $med1 ms > 16 ms; retrying"; $med2 = T4Attempt $d.n $d.f 2 }
+  if ($med1 -gt 16 -and $d.n -eq 'typical') { Write-Host "::warning::T4-$($d.n) attempt 1 warm median p99 $med1 ms > 16 ms; retrying"; $med2 = T4Attempt $d.n $d.f 2 }
   Write-Host "T4-$($d.n) cold p99 = $cold ms; warm median p99 attempt 1 = $med1 ms, attempt 2 = $med2"
   "T4-$($d.n) cold_p99_ms $cold warm_median_p99_ms attempt1 $med1 attempt2 $med2" | Out-File -Append "$m/T4-summary.txt"
   if ($cold -gt 33) { Write-Host "::warning::T4 cold p99 $cold ms > 33 ms target (report only)" }
-  if ($med1 -gt 16 -and $med2 -is [double] -and $med2 -gt 16) { $failed += "T4-$($d.n)"; Write-Host "::error::T4 warm median p99 $med1 / $med2 ms > 16 ms on two consecutive attempts" }
+  if ($med1 -gt 16 -and $d.n -ne 'typical') { Write-Host "::warning::T4-$($d.n) warm median p99 $med1 ms > 16 ms (report only, A-5)" }
+  if ($d.n -eq 'typical' -and $med1 -gt 16 -and $med2 -is [double] -and $med2 -gt 16) { $failed += "T4-$($d.n)"; Write-Host "::error::T4 warm median p99 $med1 / $med2 ms > 16 ms on two consecutive attempts" }
 }
 # Subsystem breakdown (mem-stats build), informational
 foreach ($d in @(@{n='M1'; f=$typ; x=$m1line}, @{n='M2'; f=$large; x=@()})) {
@@ -129,7 +140,7 @@ foreach ($r in 1..5) {
   $forwarded = $p2.HasExited
   Stop-Process -Id $p1.Id -Force -ErrorAction SilentlyContinue; $null = $p1.WaitForExit(10000)
   $env:APPDATA = $origApp; $env:LOCALAPPDATA = $origLocal
-  if ($t -ge 5000 -or -not $forwarded) { $failed += "T3-run$r"; Write-Host "::error::T3 run $($r): no forwarded window" ; continue }
+  if ($t -ge 5000 -or -not $forwarded) { Write-Host "::warning::T3 run $($r): no forwarded window (report only, A-5)" ; continue }
   $t3s += [math]::Round($t, 1)
 }
 if ($t3s.Count -gt 0) {
@@ -150,6 +161,10 @@ foreach ($k in 'split', 'live') {
   Probe "M5-$k" $dev @('--doc', "$ed/m5-$k.md", '--runs', '1', '--settle-ms', '16000', '--arg', '--script', '--arg', "$perf/m5-$k.yds", '--budget-pws-mib', '9.6')
 }
 function T5([string]$name, [string]$doc) {
+  # A-5: report only, one attempt.
+  if (-not (T5Once $name $doc 1)) { Write-Host "::warning::$name over budget or failed (report only, A-5)" }
+}
+function T5Once([string]$name, [string]$doc, [int]$a) {
   $saveApp = $env:APPDATA; $saveLocal = $env:LOCALAPPDATA
   $prof = (New-Item -ItemType Directory -Force -Path "$m/prof-$name").FullName
   $env:APPDATA = $prof; $env:LOCALAPPDATA = $prof
@@ -158,17 +173,34 @@ function T5([string]$name, [string]$doc) {
   $null = $p.Handle
   $done = $p.WaitForExit(180000)
   $env:APPDATA = $saveApp; $env:LOCALAPPDATA = $saveLocal
-  if (-not $done) { $p.Kill(); $script:failed += $name; Write-Host "::error::$name timed out"; return }
+  if (-not $done) { $p.Kill(); Write-Host "::warning::$name attempt $a timed out"; return $false }
   $log = if (Test-Path "$s.log") { Get-Content "$s.log" -Raw } else { '' }
   if (Test-Path "$s.log") { Copy-Item "$s.log" "$m/$name.log" }
   $p99 = if ($log -match '"t5_p99_ms":([0-9.]+)') { $Matches[1] } else { 'n/a' }
   $n = if ($log -match '"t5_n":([0-9.]+)') { $Matches[1] } else { 'n/a' }
-  Write-Host "$name p99 = $p99 ms ($n samples)"
-  "$name t5_p99_ms $p99 samples $n" | Out-File -Append "$m/T5.txt"
-  if ($p.ExitCode -ne 0) { $script:failed += $name; Write-Host "::error::$name over budget or failed (exit $($p.ExitCode))" }
+  Write-Host "$name attempt $a p99 = $p99 ms ($n samples)"
+  "$name attempt $a t5_p99_ms $p99 samples $n" | Out-File -Append "$m/T5.txt"
+  return ($p.ExitCode -eq 0)
 }
 T5 't5-split' "$ed/t5-large.md"
 T5 't5-live' "$ed/typical.md"
+# T10 (prompt 008 §6): headless --export-pdf of large-1mb.md through "Microsoft Print to PDF",
+# time and page count (reported, no budget); skipped with a note when the printer is missing.
+$pdfPrinter = Get-CimInstance Win32_Printer -Filter "Name='Microsoft Print to PDF'" -ErrorAction SilentlyContinue
+if ($pdfPrinter) {
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  $p = Start-Process $rel -ArgumentList '--export-pdf', "`"$large`"", '-o', "`"$m/large-1mb.pdf`"" -PassThru -RedirectStandardOutput "$m/T10.out"
+  $null = $p.Handle
+  $done = $p.WaitForExit(600000)
+  $sw.Stop()
+  if (-not $done) { $p.Kill(); Write-Host '::warning::T10 timed out after 600 s (reported, no budget)' }
+  $pages = if ((Get-Content "$m/T10.out" -Raw) -match 'pages ([0-9]+)') { $Matches[1] } else { 'n/a' }
+  $code = if ($done) { $p.ExitCode } else { 'timeout' }
+  "T10 export-pdf large-1mb.md exit $code ms $($sw.ElapsedMilliseconds) pages $pages bytes $((Get-Item "$m/large-1mb.pdf" -ErrorAction SilentlyContinue).Length)" | Tee-Object -FilePath "$m/T10.txt"
+  Remove-Item -Force "$m/large-1mb.pdf" -ErrorAction SilentlyContinue
+} else {
+  'T10 skipped: Microsoft Print to PDF is not installed on this runner' | Tee-Object -FilePath "$m/T10.txt"
+}
 # 150 % scale screenshot is covered by the goldens (scale 1.5).
 Get-ChildItem $m | Format-Table Name, Length -AutoSize
 if ($failed.Count -gt 0) { Write-Host "::error::gates failed: $($failed -join ', ')"; exit 1 }

@@ -78,6 +78,11 @@ pub enum Cmd {
     Snapshot(String),
     /// Resize the client area to `w × h` DIPs.
     Resize(f32, f32),
+    /// Export the document as HTML to a file relative to the script folder (R-EXP-02); the
+    /// `out_*` state fields describe the written file.
+    ExportHtml(String),
+    /// Export the first table of the document as CSV to a file (R-EXP-04); `out_*` fields.
+    ExportCsv(String),
 }
 
 /// Virtual-key code for a key name.
@@ -192,6 +197,8 @@ pub fn parse_line(line: &str) -> Result<Option<Cmd>, String> {
         "open" if !rest.is_empty() => Cmd::Open(unquote(rest)),
         "launch" if !rest.is_empty() => Cmd::Launch(unquote(rest)),
         "snapshot" if !rest.is_empty() => Cmd::Snapshot(unquote(rest)),
+        "export-html" if !rest.is_empty() => Cmd::ExportHtml(unquote(rest)),
+        "export-csv" if !rest.is_empty() => Cmd::ExportCsv(unquote(rest)),
         "resize" => {
             let mut it = rest.split_whitespace().map(str::parse::<f32>);
             match (it.next(), it.next()) {
@@ -260,6 +267,19 @@ pub fn check(actual: &str, op: Op, expected: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn export_commands_parse() {
+        assert_eq!(
+            parse_line("export-html out.tmp.html"),
+            Ok(Some(Cmd::ExportHtml("out.tmp.html".into())))
+        );
+        assert_eq!(
+            parse_line("export-csv \"t.tmp.csv\""),
+            Ok(Some(Cmd::ExportCsv("t.tmp.csv".into())))
+        );
+        assert!(parse_line("export-html").is_err());
+    }
 
     #[test]
     fn parses_commands() {

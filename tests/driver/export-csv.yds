@@ -1,0 +1,10 @@
+# Export table as CSV (prompt 008 §2, §6): UTF-8 BOM, CRLF, RFC 4180, formula guard
+write-file c1.tmp.md "# CSV\n\n| name | note |\n|---|---|\n| Ada | say \"hi\" |\n| =1+1 | a, b |\n"
+open c1.tmp.md
+wait-idle
+export-csv c1.tmp.csv
+assert out_hex contains efbbbf
+assert out_text contains name,note\r\n
+assert out_text contains "say ""hi"""
+assert out_text contains '=1+1
+assert out_text contains "a, b"\r\n

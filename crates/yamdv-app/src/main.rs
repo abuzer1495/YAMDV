@@ -8,7 +8,15 @@ mod cli;
 #[cfg(windows)]
 fn main() {
     // S-PROC-01..04: hardening is the very first thing the process does.
-    let _steps = yamdv_platform_win::hardening::apply();
+    // Printing processes (driver code runs in-process) skip StrictHandleCheck and ACG (ADR-0018).
+    let printing = std::env::args_os()
+        .nth(1)
+        .is_some_and(|a| a == "--export-pdf" || a == "--print-job");
+    let _steps = if printing {
+        yamdv_platform_win::hardening::apply_for_print()
+    } else {
+        yamdv_platform_win::hardening::apply()
+    };
     yamdv_platform_win::crash::install(cli::VERSION);
     use yamdv_platform_win::console::{Stream, write};
     let code = match cli::parse(
@@ -28,9 +36,28 @@ fn main() {
             write(Stream::Err, &msg);
             cli::EXIT_USAGE
         }
-        cli::Command::DialogHost { kind, owner, nonce } => {
-            yamdv_platform_win::dialog_host::run_host(&kind, owner, nonce)
-        }
+        cli::Command::DialogHost {
+            kind,
+            owner,
+            nonce,
+            arg,
+        } => yamdv_platform_win::dialog_host::run_host(&kind, owner, nonce, arg.as_deref()),
+        cli::Command::ExportHtml {
+            input,
+            out,
+            theme,
+            dark,
+        } => yamdv_platform_win::export::cli_html(&input, out.as_deref(), theme.as_deref(), dark),
+        cli::Command::ExportPdf {
+            input,
+            out,
+            theme,
+            dark,
+        } => yamdv_platform_win::print::cli_pdf(&input, out.as_deref(), theme.as_deref(), dark),
+        cli::Command::PrintJob(file) => yamdv_platform_win::print::cli_print_job(&file),
+        cli::Command::Install { launch } => yamdv_platform_win::install::install(launch),
+        cli::Command::Uninstall { keep } => yamdv_platform_win::install::uninstall(keep),
+        cli::Command::UninstallHelper(pid) => yamdv_platform_win::install::uninstall_helper(pid),
         cli::Command::Register => i32::from(!yamdv_platform_win::shell::register()),
         cli::Command::Unregister => {
             yamdv_platform_win::shell::unregister();

@@ -17,13 +17,19 @@ pub mod dialog_host;
 #[cfg(windows)]
 pub mod dwrite;
 #[cfg(windows)]
+pub mod export;
+#[cfg(windows)]
 pub mod hardening;
 #[cfg(windows)]
 pub mod images;
 #[cfg(windows)]
+pub mod install;
+#[cfg(windows)]
 pub mod log;
 #[cfg(windows)]
 pub mod perf;
+#[cfg(windows)]
+pub mod print;
 #[cfg(windows)]
 pub mod reentry;
 #[cfg(windows)]

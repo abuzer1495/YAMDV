@@ -4,7 +4,7 @@ name: ci
 on:
   push:
     branches: [main]
-    tags: ['phase-*']
+    tags: ['phase-*', 'v*']
   pull_request:
   workflow_dispatch:
 
@@ -99,15 +99,19 @@ jobs:
             if ($p.ExitCode -ne 0) { Write-Host "::error::$($s.Name) failed (exit $($p.ExitCode))"; $fail = 1 } else { Write-Host "$($s.Name): PASS" }
           }
           exit $fail
+      - name: V1-D headless export, PDF and install/uninstall checks (prompt 008 §6)
+        if: ${{ !cancelled() && steps.devbuild.outcome == 'success' }}
+        shell: pwsh
+        run: ./.github/scripts/v1d-checks.ps1
       - name: check-imports (S-NET-03, S-TEST-03)
         # Gates after the builds run even if an earlier gate failed, so one red gate never hides the others.
         if: ${{ !cancelled() && steps.devbuild.outcome == 'success' }}
         run: cargo xtask check-imports target/release/yamdv.exe
-      - name: size (B-SIZE)
-        # Gates after the builds run even if an earlier gate failed, so one red gate never hides the others.
+      - name: size (B-SIZE, report only per A-5)
         if: ${{ !cancelled() && steps.devbuild.outcome == 'success' }}
+        continue-on-error: true
         run: cargo xtask size target/release/yamdv.exe
-      - name: measurements + soft-budget gate (memprobe)
+      - name: measurements (gates M0, M1, T4 typical per A-5; rest report-only)
         # Gates after the builds run even if an earlier gate failed, so one red gate never hides the others.
         if: ${{ !cancelled() && steps.devbuild.outcome == 'success' }}
         shell: pwsh
@@ -149,3 +153,57 @@ jobs:
           name: owner-kit
           path: kit/
           retention-days: 14
+
+  release:
+    # Prompt 008 §5.3 + A-5: on tag v1.0.0 build the zip + SHA-256 and create a DRAFT release.
+    # Never published from CI (the owner publishes); the only job with write access.
+    name: draft release (never published)
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [pure, windows]
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            target
+          key: rel-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+      - run: cargo build --release --locked -p yamdv-app
+      - name: assemble zip + SHA-256
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          if ("v$v" -ne $env:GITHUB_REF_NAME) { Write-Host "::error::tag $env:GITHUB_REF_NAME does not match version $v"; exit 1 }
+          $name = "YAMDV-$v-win-x64"
+          New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
+          Copy-Item target/release/yamdv.exe, README.md, LICENSE, CHANGELOG.md "dist/$name/"
+          Copy-Item docs/FUTURE.md "dist/$name/FUTURE.md"
+          Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$name.zip" -Force
+          $h = (Get-FileHash "dist/$name.zip" -Algorithm SHA256).Hash.ToLower()
+          "$h  $name.zip" | Out-File -Encoding ascii "dist/$name.zip.sha256"
+          Get-Content "dist/$name.zip.sha256"
+          $cl = Get-Content CHANGELOG.md -Raw
+          $notes = if ($cl -match "(?s)## \[$([regex]::Escape($v))\][^\n]*\n(.*?)(?=\n## \[|$)") { $Matches[1] } else { "YAMDV $v" }
+          "$notes`n`nSHA-256: ``$h``" | Out-File -Encoding utf8 dist/notes.md
+          "ZIP=dist/$name.zip" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - name: draft release (owner publishes)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A-5 (owner, 2026-10-17): the repository is public by owner decision; the release stays a
+          # DRAFT (visible to collaborators only) until the owner publishes it. Never --draft=false here.
+          $tag = $env:GITHUB_REF_NAME
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $env:ZIP "$($env:ZIP).sha256" --clobber --repo $env:GITHUB_REPOSITORY
+          } else {
+            gh release create $tag $env:ZIP "$($env:ZIP).sha256" --draft --verify-tag --title "YAMDV $tag" --notes-file dist/notes.md --repo $env:GITHUB_REPOSITORY
+          }
+          exit $LASTEXITCODE

@@ -425,11 +425,32 @@ impl Renderer {
         text_color: u32,
         draw: &mut dyn FnMut(&Band<'_>),
     ) -> Vec<u8> {
+        let stride = usize::try_from(self.w.max(1)).unwrap_or(0) * 4;
+        let mut out = vec![0u8; stride * usize::try_from(h_px.max(0)).unwrap_or(0)];
+        self.render_bands(h_px, text_color, draw, &mut |y, rows, src| {
+            let start = usize::try_from(y).unwrap_or(0) * stride;
+            let n = stride * usize::try_from(rows).unwrap_or(0);
+            if let (Some(dst), Some(src)) = (out.get_mut(start..start + n), src.get(..n)) {
+                dst.copy_from_slice(src);
+            }
+        });
+        out
+    }
+
+    /// Renders `h_px` rows band by band; `sink(y, rows, bits)` receives each band's top-down
+    /// BGRA rows (`width() * 4` bytes per row) right after it is drawn. No full-height bitmap is
+    /// allocated (printing, R-EXP-03).
+    pub fn render_bands(
+        &self,
+        h_px: i32,
+        text_color: u32,
+        draw: &mut dyn FnMut(&Band<'_>),
+        sink: &mut dyn FnMut(i32, i32, &[u8]),
+    ) {
         let Some((bits, w, h)) = self.bits() else {
-            return Vec::new();
+            return;
         };
         let stride = usize::try_from(w).unwrap_or(0) * 4;
-        let mut out = vec![0u8; stride * usize::try_from(h_px.max(0)).unwrap_or(0)];
         let mut y = 0;
         while y < h_px {
             let bh = band_rows(self.w).min(h_px - y);
@@ -448,15 +469,27 @@ impl Renderer {
             draw(&band);
             band.cpu_begin();
             let rows = usize::try_from(bh).unwrap_or(0);
-            let start = usize::try_from(y).unwrap_or(0) * stride;
             // SAFETY: the DIB holds `h ≥ bh` rows of `stride` bytes.
             let src = unsafe { std::slice::from_raw_parts(bits, stride * rows) };
-            if let Some(dst) = out.get_mut(start..start + stride * rows) {
-                dst.copy_from_slice(src);
-            }
+            sink(y, bh, src);
             y += bh;
         }
-        out
+    }
+
+    /// Grayscale antialiasing (print / PDF: no ClearType colour fringes on paper).
+    pub fn set_grayscale(&mut self, dw: &DWrite) {
+        // SAFETY: plain factory call; the new params replace the old ones (released by Drop).
+        if let Ok(p) = unsafe {
+            dw.factory.CreateCustomRenderingParams(
+                1.8,
+                0.5,
+                0.0,
+                windows::Win32::Graphics::DirectWrite::DWRITE_PIXEL_GEOMETRY_FLAT,
+                windows::Win32::Graphics::DirectWrite::DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
+            )
+        } {
+            self.params = p;
+        }
     }
 }
 

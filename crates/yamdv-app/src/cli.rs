@@ -24,7 +24,46 @@ pub enum Command {
         owner: isize,
         /// Per-launch nonce (decimal).
         nonce: u64,
+        /// Optional hex-encoded default file name (save kinds).
+        arg: Option<String>,
     },
+    /// `--export-html <in.md> [-o out.html] [--theme <scheme>] [--mode light|dark]` (R-EXP-05).
+    ExportHtml {
+        /// Input document.
+        input: String,
+        /// Output file (default `<stem>.html` next to the input).
+        out: Option<String>,
+        /// Color scheme.
+        theme: Option<String>,
+        /// `Some(true)` = dark.
+        dark: Option<bool>,
+    },
+    /// `--export-pdf <in.md> [-o out.pdf] [--theme s] [--mode m]` (R-EXP-05, through
+    /// "Microsoft Print to PDF").
+    ExportPdf {
+        /// Input document.
+        input: String,
+        /// Output file (default `<stem>.pdf` next to the input).
+        out: Option<String>,
+        /// Color scheme.
+        theme: Option<String>,
+        /// `Some(true)` = dark.
+        dark: Option<bool>,
+    },
+    /// `--install [--no-launch]` (R-SYS-05).
+    Install {
+        /// Start the installed copy afterwards.
+        launch: bool,
+    },
+    /// `--uninstall [--keep-settings|--remove-settings]` (R-SYS-05); no flag = ask in-window.
+    Uninstall {
+        /// `Some(true)` keep settings, `Some(false)` remove them, `None` ask.
+        keep: Option<bool>,
+    },
+    /// `--uninstall-helper <pid>` (internal: the temp copy that deletes the install folder).
+    UninstallHelper(u32),
+    /// `--print-job <file>` (internal: the print worker started by Print… / Export PDF…).
+    PrintJob(String),
     /// `--register` (R-SYS-01; explicit action, S-REG-03).
     Register,
     /// `--unregister` (S-REG-02).
@@ -89,19 +128,64 @@ pub fn parse_with<I: IntoIterator<Item = String>>(args: I, dev_tools: bool) -> C
     let args: Vec<String> = args.into_iter().collect();
     if args.first().map(String::as_str) == Some("--dialog-host") {
         // Exactly `--dialog-host open <owner> <nonce>`; anything else is a usage error (exit 2).
-        return match args.as_slice() {
-            [_, k, o, n] if k == "open" || k == "font" || k == "save" => {
-                match (o.parse::<isize>(), n.parse::<u64>()) {
-                    (Ok(owner), Ok(nonce)) if owner != 0 => Command::DialogHost {
-                        kind: k.clone(),
-                        owner,
-                        nonce,
-                    },
-                    _ => usage("--dialog-host"),
-                }
+        const KINDS: [&str; 7] = [
+            "open",
+            "font",
+            "save",
+            "save-html",
+            "save-pdf",
+            "save-csv",
+            "print",
+        ];
+        let (k, o, n, arg) = match args.as_slice() {
+            [_, k, o, n] => (k, o, n, None),
+            [_, k, o, n, a]
+                if k.starts_with("save")
+                    && a.len() <= 1024
+                    && a.bytes().all(|b| b.is_ascii_hexdigit()) =>
+            {
+                (k, o, n, Some(a.clone()))
             }
+            _ => return usage("--dialog-host"),
+        };
+        if !KINDS.contains(&k.as_str()) {
+            return usage("--dialog-host");
+        }
+        return match (o.parse::<isize>(), n.parse::<u64>()) {
+            (Ok(owner), Ok(nonce)) if owner != 0 => Command::DialogHost {
+                kind: k.clone(),
+                owner,
+                nonce,
+                arg,
+            },
             _ => usage("--dialog-host"),
         };
+    }
+    if let Some(first) = args.first().map(String::as_str)
+        && (first == "--export-html" || first == "--export-pdf")
+    {
+        return parse_export(&args);
+    }
+    let strs: Vec<&str> = args.iter().map(String::as_str).collect();
+    match strs.as_slice() {
+        ["--install"] => return Command::Install { launch: true },
+        ["--install", "--no-launch"] => return Command::Install { launch: false },
+        ["--uninstall"] => return Command::Uninstall { keep: None },
+        ["--uninstall", "--keep-settings"] => return Command::Uninstall { keep: Some(true) },
+        ["--uninstall", "--remove-settings"] => return Command::Uninstall { keep: Some(false) },
+        ["--uninstall-helper", pid] => {
+            return pid
+                .parse::<u32>()
+                .map_or_else(|_| usage("--uninstall-helper"), Command::UninstallHelper);
+        }
+        ["--print-job", f] => return Command::PrintJob((*f).to_string()),
+        [
+            f @ ("--install" | "--uninstall" | "--uninstall-helper" | "--print-job"),
+            ..,
+        ] => {
+            return usage(f);
+        }
+        _ => {}
     }
     let mut paths = Vec::new();
     let mut only_paths = false;
@@ -169,6 +253,76 @@ pub fn parse_with<I: IntoIterator<Item = String>>(args: I, dev_tools: bool) -> C
     Command::Run { paths, dev }
 }
 
+/// `--export-html` / `--export-pdf` arguments (exit 2 on anything unexpected).
+fn parse_export(args: &[String]) -> Command {
+    let html = args.first().map(String::as_str) == Some("--export-html");
+    let mut input = None;
+    let (mut out, mut theme, mut dark) = (None, None, None);
+    let mut it = args.iter().skip(1);
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "-o" | "--output" => match it.next() {
+                Some(v) => out = Some(v.clone()),
+                None => return Command::Usage(format!("yamdv: {a} needs a value\n")),
+            },
+            "--theme" => match it.next() {
+                Some(v) if yamdv_core_schemes().contains(&v.as_str()) => theme = Some(v.clone()),
+                _ => return usage(a),
+            },
+            "--mode" => match it.next().map(String::as_str) {
+                Some("light") => dark = Some(false),
+                Some("dark") => dark = Some(true),
+                _ => return usage(a),
+            },
+            s if s.starts_with('-') && s.len() > 1 => return usage(s),
+            _ if input.is_none() => input = Some(a.clone()),
+            _ => return usage(a),
+        }
+    }
+    let Some(input) = input else {
+        return Command::Usage(format!(
+            "yamdv: {} needs an input file\n",
+            if html {
+                "--export-html"
+            } else {
+                "--export-pdf"
+            }
+        ));
+    };
+    if html {
+        Command::ExportHtml {
+            input,
+            out,
+            theme,
+            dark,
+        }
+    } else {
+        Command::ExportPdf {
+            input,
+            out,
+            theme,
+            dark,
+        }
+    }
+}
+
+/// The 11 color scheme names (R-THEME-02).
+fn yamdv_core_schemes() -> [&'static str; 11] {
+    [
+        "default",
+        "github",
+        "glacier",
+        "forest",
+        "sunset",
+        "typewriter",
+        "editorial",
+        "violet",
+        "lychee",
+        "mint",
+        "neon",
+    ]
+}
+
 /// `--version` text.
 pub fn version_text() -> String {
     format!("yamdv {VERSION}\n")
@@ -184,6 +338,10 @@ pub fn help_text() -> String {
          yamdv --unregister   remove that registration\n  \
          yamdv --set-default  register and open Windows default-app settings\n  \
          yamdv --context-menu on|off  \"Open with YAMDV\" in Explorer\n  \
+         yamdv --install [--no-launch]  install for the current user (Start menu, Apps & features)\n  \
+         yamdv --uninstall [--keep-settings|--remove-settings]  remove the installation\n  \
+         yamdv --export-html <in.md> [-o out.html] [--theme <scheme>] [--mode light|dark]\n  \
+         yamdv --export-pdf <in.md> [-o out.pdf] [--theme <scheme>] [--mode light|dark]\n  \
          yamdv --help         show this help\n  yamdv --version      show the version\n\n\
          Exit codes: 0 success, 1 runtime error, 2 usage error.\n"
     )
@@ -221,7 +379,7 @@ mod tests {
         assert_eq!(p(&["--help"]), Command::Help);
         assert_eq!(p(&["-h"]), Command::Help);
         assert_eq!(p(&["--version"]), Command::Version);
-        assert!(version_text().starts_with("yamdv 0."));
+        assert!(version_text().starts_with("yamdv 1."));
         assert!(help_text().contains("--version"));
     }
 
@@ -232,12 +390,28 @@ mod tests {
             Command::DialogHost {
                 kind: "open".into(),
                 owner: 1234,
-                nonce: 99
+                nonce: 99,
+                arg: None,
             }
         );
+        assert_eq!(
+            p(&["--dialog-host", "save-html", "5", "6", "612e68746d6c"]),
+            Command::DialogHost {
+                kind: "save-html".into(),
+                owner: 5,
+                nonce: 6,
+                arg: Some("612e68746d6c".into()),
+            }
+        );
+        assert!(matches!(
+            p(&["--dialog-host", "print", "1", "2"]),
+            Command::DialogHost { .. }
+        ));
         for bad in [
             &["--dialog-host"][..],
-            &["--dialog-host", "print", "1", "2"],
+            &["--dialog-host", "print", "1", "2", "ab"],
+            &["--dialog-host", "save", "1", "2", "zz"],
+            &["--dialog-host", "bogus", "1", "2"],
             &["--dialog-host", "open", "0", "2"],
             &["--dialog-host", "open", "x", "2"],
             &["--dialog-host", "open", "1", "2", "extra"],
@@ -245,6 +419,69 @@ mod tests {
         ] {
             assert!(matches!(p(bad), Command::Usage(_)), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn r_exp_05_export_flags() {
+        assert_eq!(
+            p(&[
+                "--export-html",
+                "a.md",
+                "-o",
+                "b.html",
+                "--theme",
+                "glacier",
+                "--mode",
+                "dark"
+            ]),
+            Command::ExportHtml {
+                input: "a.md".into(),
+                out: Some("b.html".into()),
+                theme: Some("glacier".into()),
+                dark: Some(true),
+            }
+        );
+        assert_eq!(
+            p(&["--export-pdf", "a.md"]),
+            Command::ExportPdf {
+                input: "a.md".into(),
+                out: None,
+                theme: None,
+                dark: None,
+            }
+        );
+        for bad in [
+            &["--export-html"][..],
+            &["--export-html", "a.md", "--theme", "nope"],
+            &["--export-html", "a.md", "--mode", "grey"],
+            &["--export-pdf", "a.md", "--theme", "nope"],
+            &["--export-pdf", "a.md", "b.md"],
+            &["--export-pdf", "a.md", "-o"],
+        ] {
+            assert!(matches!(p(bad), Command::Usage(_)), "{bad:?}");
+        }
+        assert_eq!(p(&["--install"]), Command::Install { launch: true });
+        assert_eq!(
+            p(&["--install", "--no-launch"]),
+            Command::Install { launch: false }
+        );
+        assert_eq!(p(&["--uninstall"]), Command::Uninstall { keep: None });
+        assert_eq!(
+            p(&["--uninstall", "--keep-settings"]),
+            Command::Uninstall { keep: Some(true) }
+        );
+        assert_eq!(
+            p(&["--uninstall-helper", "42"]),
+            Command::UninstallHelper(42)
+        );
+        assert!(matches!(p(&["--uninstall", "x.md"]), Command::Usage(_)));
+        assert!(matches!(p(&["--uninstall-helper", "x"]), Command::Usage(_)));
+        assert_eq!(
+            p(&["--print-job", "C:\\t\\a.job"]),
+            Command::PrintJob("C:\\t\\a.job".into())
+        );
+        assert!(matches!(p(&["--print-job"]), Command::Usage(_)));
+        assert!(help_text().contains("--export-pdf"));
     }
 
     #[test]

@@ -34,11 +34,11 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-EDIT-12 | 006 | implemented (006 V1-B): read-only / lossy / plain dialogs |
 | R-EDIT-13 | 006 | deferred (FUT-45) |
 | R-EDIT-14 | 006 | implemented (006 V1-B) |
-| R-EXP-01 | 011 | deferred (FUT-39) |
-| R-EXP-02 | 011 | deferred (FUT-21) |
-| R-EXP-03 | 011 | planned |
-| R-EXP-04 | 011 | planned |
-| R-EXP-05 | 011 | planned |
+| R-EXP-01 | 011 | partial (008 V1-D): PDF via the print path (print.rs, CI v1d-checks); native writer deferred (FUT-39) |
+| R-EXP-02 | 011 | implemented (008 V1-D): static HTML, math/diagrams as PNG data URIs (html::document, r_exp_02_static_document, driver export-html); scripted parts deferred (FUT-21) |
+| R-EXP-03 | 011 | implemented (008 V1-D): PrintDlgExW in the dialog host, paginate.rs (r_exp_03_*) |
+| R-EXP-04 | 011 | implemented (008 V1-D): context menu, csv.rs (r_exp_04_*), driver export-csv |
+| R-EXP-05 | 011 | implemented (008 V1-D): --export-html / --export-pdf (r_exp_05_export_flags, CI v1d-checks) |
 | R-EXP-06 | 011 | deferred (FUT-23) |
 | R-EXT-01 | 005 | implemented (005 V1-A) |
 | R-EXT-02 | 005 | deferred (FUT-10) |
@@ -166,9 +166,9 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-SYS-02 | 005 | implemented (005 V1-A) |
 | R-SYS-03 | 005 | implemented (005 V1-A) |
 | R-SYS-04 | 005 | partial (001): --help/--version/usage error |
-| R-SYS-05 | 005 | planned |
+| R-SYS-05 | 005 | implemented (008 V1-D): install.rs (r_sys_05_*, CI v1d-checks) |
 | R-SYS-06 | 005 | implemented (005 V1-A) |
-| R-SYS-07 | 005 | partial (001): app and document icons |
+| R-SYS-07 | 005 | implemented (008 V1-D): icons (001), version resource 1.0.0 |
 | R-SYS-08 | 005 | deferred (FUT-25) |
 | R-SYS-09 | 005 | deferred (FUT-25) |
 | R-TBL-01 | 003/008 | deferred (FUT-44) |
@@ -200,10 +200,10 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | S-EXEC-02 | 003/005 | planned |
 | S-EXEC-03 | 003/005 | implemented (005 V1-A) |
 | S-EXEC-04 | 003/005 | implemented (003): ShellExecuteExW, no NOZONECHECKS |
-| S-EXP-01 | 011 | planned |
-| S-EXP-02 | 011 | deferred (FUT-21) |
-| S-EXP-03 | 011 | planned |
-| S-EXP-04 | 011 | planned |
+| S-EXP-01 | 011 | implemented (008 V1-D): write_atomic to the dialog path only |
+| S-EXP-02 | 011 | implemented (008 V1-D) without script (CSP drops script-src; s_test_02_xss_exported_html); scripted parts deferred (FUT-21) |
+| S-EXP-03 | 011 | implemented (008 V1-D): raster print-path PDF has no script, actions, files or forms |
+| S-EXP-04 | 011 | implemented (008 V1-D): s_exp_04_formula_guard |
 | S-FILE-01 | 002/005 | implemented (006 V1-B): document writes only from edit modes + opt-in task toggle |
 | S-FILE-02 | 002/005 | planned |
 | S-FILE-03 | 002/005 | implemented (006 V1-B): shell::save_document (ReplaceFileW / MoveFileExW) |
@@ -243,7 +243,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | S-PRIV-03 | 004 | planned |
 | S-PRIV-04 | 004 | planned |
 | S-PRIV-05 | 004 | planned |
-| S-PRIV-06 | 004 | planned |
+| S-PRIV-06 | 004 | partial (008 V1-D): HTML/PDF title = first heading or file name; PDF Producer is set by the print driver |
 | S-PROC-01 | 001 | implemented (001): hardening.rs |
 | S-PROC-02 | 001 | implemented (001): hardening.rs |
 | S-PROC-03 | 001 | implemented (001): hardening.rs |

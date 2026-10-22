@@ -12,6 +12,7 @@
 | Show outline | `Ctrl+\` |
 | Add to / remove from favorites | `Ctrl+D` |
 | Open in external editor | `F4`, `Ctrl+E` |
+| Export PDF… / Print… | `Ctrl+Shift+E` / `Ctrl+P` (Export HTML…: context menu ▸ Export) |
 | Font size | `Ctrl+wheel`, `Ctrl+=` / `Ctrl+-` / `Ctrl+0`, `Ctrl+↑` / `Ctrl+↓` |
 | Column width | `Alt+wheel`, `Alt+↑` / `Alt+↓`, `Alt+0` |
 | Back / forward | `Alt+←` / `Alt+→`, mouse buttons 4 / 5 |

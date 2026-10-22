@@ -222,3 +222,60 @@ fn fuzz_regressions_cf_html_safe() {
         assert_eq!(forbidden(&tags_only(&out)), None, "{}", p.display());
     }
 }
+
+/// Host that embeds every image, formula and diagram (worst case for the exported document).
+struct EmbedAll;
+impl yamdv_export::html::ExportHost for EmbedAll {
+    fn image(
+        &self,
+        _img: &yamdv_core::doc::detail::ImageRef,
+    ) -> Option<(&'static str, Vec<u8>, u32, u32)> {
+        Some(("image/png", b"<script>alert(1)</script>".to_vec(), 1, 1))
+    }
+    fn math(&self, _tex: &str, _display: bool) -> Option<yamdv_export::html::Png> {
+        Some(yamdv_export::html::Png {
+            w: 2,
+            h: 2,
+            descent: 0,
+            bytes: b"javascript:alert(1)".to_vec(),
+        })
+    }
+    fn diagram(&self, _source: &str) -> Option<yamdv_export::html::Png> {
+        self.math("", true)
+    }
+}
+
+/// Fourth context (prompt 008 §6): the exported static HTML document. No script at all, the CSP
+/// is present, no active content in markup, every `src` is a `data:image/` URI.
+#[test]
+fn s_test_02_xss_exported_html() {
+    let opts = yamdv_export::html::DocOpts {
+        title: "<script>alert(1)</script>".into(),
+        pal: yamdv_core::theme::palette("default", false),
+        dark: false,
+        toc: true,
+    };
+    for v in VECTORS {
+        for src in [
+            v.to_string(),
+            format!("# {v}\n\ntext {v} more $x$ ![i]({v})\n\n```mermaid\n{v}\n```\n"),
+            format!(
+                "> [!NOTE] {v}\n> {v}\n\n| {v} | b |\n|---|---|\n| c | d |\n\n- [ ] {v}[^n]\n\n[^n]: {v}\n"
+            ),
+        ] {
+            let doc = Document::new(src.clone(), ReadOpts::default());
+            let out = yamdv_export::html::document(&doc, &EmbedAll, &opts);
+            assert!(
+                !out.to_ascii_lowercase().contains("<script"),
+                "{v:?}\n{out}"
+            );
+            assert!(out.contains(yamdv_export::html::EXPORT_CSP), "{v:?}");
+            // The CSP itself names `img-src data:`; everything else must be clean.
+            let body = out.replace(yamdv_export::html::EXPORT_CSP, "");
+            assert_eq!(forbidden(&tags_only(&body)), None, "vector {v:?}\n{out}");
+            for (i, _) in out.match_indices(" src=\"") {
+                assert!(out[i + 6..].starts_with("data:image/"), "{v:?}");
+            }
+        }
+    }
+}

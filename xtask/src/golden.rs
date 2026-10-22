@@ -215,7 +215,8 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
 /// driver script `tests/golden/v1a/shots.yds` through the same draw path as `WM_PAINT`.
 /// V1-B adds the Split Edit and Live Edit (active source block) shots (prompt 006 §2.7).
 pub const SHELL_SHOTS: [&str; 7] = [
-    "welcome-light.png",
+    // V1-D: the welcome page gained [Install YAMDV for this user] (prompt 008 §4).
+    "welcome-install-light.png",
     "doc-sidebar-light.png",
     "doc-sidebar-dark.png",
     "find-light.png",

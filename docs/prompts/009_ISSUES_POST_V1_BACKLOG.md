@@ -1,0 +1,179 @@
+# 009_ISSUES_POST_V1_BACKLOG — Record all post-v1 work as GitHub issues
+
+> **Prompt 009 (small, administrative).** The Grok quota is at about 90 % and GitHub Actions minutes are exhausted. Work on V1-D is **paused**; it resumes later with prompt 010. This prompt only makes the future-work list **permanent** as GitHub issues. **Use as few steps as possible.** Do **not** write product code, do not run CI and do not run the gates.
+
+## Steps (do exactly these, nothing else)
+
+1. **Save the paused V1-D work.** On your current branch (`phase/v1d-release`, or whichever you are on), if `git status` shows changes:
+```bash
+git add -A && git commit -m "wip(v1d): pause before quota reset [skip ci]" && git push -u origin HEAD
+```
+   No checks are needed for this WIP commit. `[skip ci]` keeps Actions from running.
+2. **Store this prompt.** Save it as `docs/prompts/009_ISSUES_POST_V1_BACKLOG.md`: copy the attached file if you have it, otherwise write it as received.
+3. **Extract the two embedded files.** Run this from the repository root (it writes `tools/backlog/issues.jsonl` and `tools/backlog/create_issues.py`):
+```bash
+python3 - docs/prompts/009_ISSUES_POST_V1_BACKLOG.md <<'PY'
+import re, sys, pathlib
+t = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").replace("\r\n", "\n")
+for path, body in re.findall(r"<!-- FILE: (\S+) -->\n````[a-z]*\n(.*?)\n````", t, re.S):
+    p = pathlib.Path(path); p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(body + "\n", encoding="utf-8"); print("wrote", p, len(body))
+PY
+```
+4. **Create the issues** (needs only `gh`; no Actions minutes are used):
+```bash
+python3 tools/backlog/create_issues.py tools/backlog/issues.jsonl
+```
+   - It creates 7 labels (`future`, `hardening`, `performance`, `bug`, `qa`, `decision`, `idea`), the milestone `post-v1`, and **67 issues**: FUT-01…FUT-50 (41 rows), HARD-01…04, PERF-01…07, BUG-01…09, QA-01, DEC-01 and IDEA-01…04.
+   - It skips any issue whose ID prefix (the text before the first `:`) already exists, so re-running is safe.
+   - If it stops on a rate limit, wait a minute and run it again.
+5. **Commit** `docs/prompts/009_ISSUES_POST_V1_BACKLOG.md` and `tools/backlog/` to the current branch with a commit message ending in `[skip ci]`, then push.
+6. **Report** in ≤ 25 lines, without writing a report file:
+   - the script's `created N, skipped M` line;
+   - the output of `gh issue list --milestone post-v1 --state all --limit 200 --json number -q length`;
+   - FUT issues that already existed under a different title format (possible duplicates) — list them only, do not close anything;
+   - **V1-D snapshot for prompt 010:** current branch, last commit hash, whether a PR is open, and one line per prompt-008 section (F-22, §2.1 HTML, §2.2 CSV, §2.3 CLI, §3 print/PDF, §4 install/uninstall, §5.1 README, §5.3 release workflow, §6 tests) marked done / partial / not started, from what you already know (do no new analysis).
+
+**END OF STEPS.** Stop after the report.
+
+---
+
+## Embedded files (extracted in step 3 — do not re-type them)
+
+<!-- FILE: tools/backlog/create_issues.py -->
+````python
+#!/usr/bin/env python3
+"""Create the YAMDV post-v1 backlog as GitHub issues (idempotent).
+
+Usage (from the repository root, with an authenticated gh CLI):
+    python3 tools/backlog/create_issues.py tools/backlog/issues.jsonl
+An issue is skipped when an existing issue (open or closed) has the same ID prefix
+before the first ':' (e.g. "FUT-07", "PERF-02"), so the script can be re-run safely.
+"""
+import json
+import subprocess
+import sys
+import time
+
+LABELS = {
+    "future": ("0e8a16", "Deferred from v1 (docs/FUTURE.md)"),
+    "hardening": ("b60205", "Security hardening after v1"),
+    "performance": ("fbca04", "Memory / speed optimization after v1"),
+    "bug": ("d73a4a", "Known deviation or defect"),
+    "qa": ("5319e7", "Needs verification on real hardware"),
+    "decision": ("0052cc", "Needs an owner decision"),
+    "idea": ("c5def5", "Improvement not in the original spec"),
+}
+MILESTONE = "post-v1"
+
+
+def gh(*args, check=True):
+    r = subprocess.run(["gh", *args], capture_output=True, text=True)
+    if check and r.returncode != 0:
+        sys.exit(f"gh {' '.join(args[:3])} ... failed: {r.stderr.strip()}")
+    return r
+
+
+def main(path):
+    for name, (color, desc) in LABELS.items():
+        gh("label", "create", name, "--color", color, "--description", desc, "--force")
+    titles = gh("api", "repos/{owner}/{repo}/milestones?state=all&per_page=100",
+                "--jq", ".[].title").stdout.split("\n")
+    if MILESTONE not in titles:
+        gh("api", "repos/{owner}/{repo}/milestones", "-f", f"title={MILESTONE}",
+           "-f", "description=Work planned after YAMDV v1.0.0")
+    existing = json.loads(gh("issue", "list", "--state", "all", "--limit", "1000",
+                             "--json", "title").stdout)
+    have = {t["title"].split(":")[0].strip() for t in existing}
+    created = skipped = 0
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            item = json.loads(line)
+            key = item["title"].split(":")[0].strip()
+            if key in have:
+                skipped += 1
+                continue
+            gh("issue", "create", "--title", item["title"], "--body", item["body"],
+               "--label", ",".join(item["labels"]), "--milestone", MILESTONE)
+            have.add(key)
+            created += 1
+            time.sleep(2)  # stay well below GitHub's content-creation rate limits
+    print(f"created {created}, skipped {skipped} (already present)")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1])
+````
+
+<!-- FILE: tools/backlog/issues.jsonl -->
+````json
+{"title": "FUT-01: Highlighting for languages beyond the 30 existing lexers", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Highlighting for languages beyond the 30 existing lexers\n- **v1 instead:** 30 lexers + aliases\n- **Spec IDs:** R-CODE-01\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-02: Floating sidebar positions", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Floating sidebar positions\n- **v1 instead:** left / right docked\n- **Spec IDs:** R-NAV-02\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-03: Favorites drag-to-reorder", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Favorites drag-to-reorder\n- **v1 instead:** add / remove\n- **Spec IDs:** R-NAV-09\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-04: In-app custom-color editor with picker", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** In-app custom-color editor with picker\n- **v1 instead:** `custom-theme.ini` + hot reload\n- **Spec IDs:** R-THEME-06\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-05: Shortcut presets and in-app rebinding UI", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Shortcut presets and in-app rebinding UI\n- **v1 instead:** overrides in `settings.ini`\n- **Spec IDs:** R-SET-06, F.6\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-06: Table fullscreen viewer", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Table fullscreen viewer\n- **v1 instead:** not available\n- **Spec IDs:** R-READ-08, R-REN-07\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-08: Heading jump palette; `[TOC]` placeholder", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Heading jump palette; `[TOC]` placeholder\n- **v1 instead:** sidebar outline\n- **Spec IDs:** R-READ-12, R-MD-19\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-09: \"Reopen with encoding\" menu", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** \"Reopen with encoding\" menu\n- **v1 instead:** automatic detection\n- **Spec IDs:** R-OPEN-06\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-10: Editor auto-detection beyond VS Code, Notepad++, Notepad", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Editor auto-detection beyond VS Code, Notepad++, Notepad\n- **v1 instead:** custom command\n- **Spec IDs:** R-EXT-02\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-12: Duplicate/select/move line, auto-pairing", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Duplicate/select/move line, auto-pairing\n- **v1 instead:** core Markdown keys\n- **Spec IDs:** R-EDIT-07\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-15: HTML clipboard → Markdown on paste", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** HTML clipboard → Markdown on paste\n- **v1 instead:** plain-text paste\n- **Spec IDs:** R-EDIT-05\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-17: Math beyond the core subset; macros", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Math beyond the core subset; macros\n- **v1 instead:** core subset (V1-C)\n- **Spec IDs:** R-MATH-02, R-MATH-07\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-18: Mermaid gantt, pie and all other types; `%%{init}%%`; visual editing; Copy as PNG; extra shapes; `o`/`x` edges; `linkStyle`", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Mermaid gantt, pie and all other types; `%%{init}%%`; visual editing; Copy as PNG; extra shapes; `o`/`x` edges; `linkStyle`\n- **v1 instead:** flowchart + sequence (V1-C)\n- **Spec IDs:** R-MMD-01…10, R-F2-11\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-20: SVG images; animated GIF", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** SVG images; animated GIF\n- **v1 instead:** placeholder; first frame\n- **Spec IDs:** R-IMG-01\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-21: Interactive HTML export (scripted features)", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Interactive HTML export (scripted features)\n- **v1 instead:** static HTML, no script\n- **Spec IDs:** R-EXP-02, S-EXP-02\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-23: Copy document as rich HTML; PNG export of diagrams", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Copy document as rich HTML; PNG export of diagrams\n- **v1 instead:** not available\n- **Spec IDs:** R-EXP-06\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-25: Jump list; custom app/document icons", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Jump list; custom app/document icons\n- **v1 instead:** not available\n- **Spec IDs:** R-SYS-08, R-SYS-09\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-26: Settings search; F2 image resize handles", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Settings search; F2 image resize handles\n- **v1 instead:** not available\n- **Spec IDs:** R-SET-02, R-F2-12\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-27: VS Code / Sublime live-preview plugins", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** VS Code / Sublime live-preview plugins\n- **v1 instead:** not available\n- **Spec IDs:** A.0\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-28: macOS / Linux ports", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** macOS / Linux ports\n- **v1 instead:** Windows only\n- **Spec IDs:** E.14\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-29: UI languages beyond English and Turkish", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** UI languages beyond English and Turkish\n- **v1 instead:** EN, TR\n- **Spec IDs:** R-I18N-01\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-30: Custom-drawn title bar with ⚙/⋯ buttons and Snap-Layouts hit testing", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Custom-drawn title bar with ⚙/⋯ buttons and Snap-Layouts hit testing\n- **v1 instead:** system title bar (dark-mode aware)\n- **Spec IDs:** B.4, R-WIN-05\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-31: Settings panel UI", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Settings panel UI\n- **v1 instead:** settings in the context menu + \"Edit settings file\"\n- **Spec IDs:** R-SET-01…04, B.8.1\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-32: Color-scheme cards with hover preview", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Color-scheme cards with hover preview\n- **v1 instead:** radio list in the menu\n- **Spec IDs:** R-THEME-03, B.7.3\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-33: Files tab in the sidebar", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Files tab in the sidebar\n- **v1 instead:** not available\n- **Spec IDs:** R-NAV-10\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-34: Heading folding (incl. Alt+click fold-all)", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Heading folding (incl. Alt+click fold-all)\n- **v1 instead:** not available\n- **Spec IDs:** R-READ-06\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-35: Word-count badge", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Word-count badge\n- **v1 instead:** not available\n- **Spec IDs:** R-READ-07\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-36: Fullscreen viewers and ⛶ badges (image, table, diagram)", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Fullscreen viewers and ⛶ badges (image, table, diagram)\n- **v1 instead:** images/diagrams fit the column\n- **Spec IDs:** R-IMG-05, R-READ-08, R-MMD-02\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-37: Mind-map view", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Mind-map view\n- **v1 instead:** not available\n- **Spec IDs:** R-MAP-01, R-MAP-02\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-39: Native PDF writer with selectable text, bookmarks, links", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Native PDF writer with selectable text, bookmarks, links\n- **v1 instead:** PDF via the print path to \"Microsoft Print to PDF\"\n- **Spec IDs:** R-EXP-01\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-40: Tooltip, anchored popover and banner components (link titles, abbr, footnote preview, MotW/elevation/lossy banners)", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Tooltip, anchored popover and banner components (link titles, abbr, footnote preview, MotW/elevation/lossy banners)\n- **v1 instead:** in-window dialog for confirmations, toast for notices; MotW still forces *Ask*\n- **Spec IDs:** B.10.4–B.10.6, R-REN-10 (tooltip), S-UI-03\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-41: Inline objects for sup/sub/footnote refs (baseline shift)", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Inline objects for sup/sub/footnote refs (baseline shift)\n- **v1 instead:** smaller text without shift\n- **Spec IDs:** R-REN-03\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-42: Table row laziness; code-toolbar fade; DIB vs DDB measurement", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Table row laziness; code-toolbar fade; DIB vs DDB measurement\n- **v1 instead:** not available\n- **Spec IDs:** R-REN-07, B.15, D.4\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-43: Obsidian-style inline marker reveal in F2; table cell editing in F2", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Obsidian-style inline marker reveal in F2; table cell editing in F2\n- **v1 instead:** block-level source reveal\n- **Spec IDs:** R-F2-02, R-F2-03\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-44: Table editing operations and toolbar", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Table editing operations and toolbar\n- **v1 instead:** edit tables as source\n- **Spec IDs:** R-TBL-01…08\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-45: Snippets; image/file paste into the document; recovery journal; find & replace; regex; F2 format toolbar", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Snippets; image/file paste into the document; recovery journal; find & replace; regex; F2 format toolbar\n- **v1 instead:** formatting shortcuts\n- **Spec IDs:** R-EDIT-06, R-EDIT-08, R-EDIT-10, R-EDIT-13, R-F2-04, R-F3-07\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-46: F11 distraction-free fullscreen", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** F11 distraction-free fullscreen\n- **v1 instead:** not available\n- **Spec IDs:** R-WIN-06\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-47: High Contrast mode and full UI Automation", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** High Contrast mode and full UI Automation\n- **v1 instead:** not available\n- **Spec IDs:** R-THEME-08, R-A11Y-03\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-48: ICO and WebP decoding under ACG", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** ICO and WebP decoding under ACG\n- **v1 instead:** \"unsupported format\" placeholder\n- **Spec IDs:** R-IMG-01\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-49: Code-font picker", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Code-font picker\n- **v1 instead:** body font via the system font dialog\n- **Spec IDs:** R-THEME-04\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "FUT-50: Security hardening phase and optimization phase (final budgets)", "labels": ["future"], "body": "**Deferred from YAMDV v1** — see `docs/FUTURE.md` in this repository.\n\n- **Feature:** Security hardening phase and optimization phase (final budgets)\n- **v1 instead:** soft budgets\n- **Spec IDs:** Appendix C review, Appendix D final\n\nOwner decision 2026-10-17: v1 ships without this; implement after v1."}
+{"title": "HARD-01: Security review of v1 against SECURITY.md (Appendix C)", "labels": ["hardening"], "body": "**Source:** Original roadmap phase 012 (postponed by owner decision 2026-10-17)\n\n**Current state (v1):** Rules were applied phase by phase; no end-to-end audit has been done.\n\n**Proposed work:** Walk every S-* rule, record evidence or gaps, fix gaps, and complete `docs/THREAT_MODEL.md` (S-TEST-04)."}
+{"title": "HARD-02: Long fuzzing campaign for every parser", "labels": ["hardening"], "body": "**Source:** S-TEST-01; phases 002–V1-C ran 5–10 minutes per target\n\n**Current state (v1):** Targets parse_layout, ini, html, url, highlight, math and mermaid exist; each ran only minutes.\n\n**Proposed work:** Run each target for ≥ 1 hour (nightly or a manual workflow); turn every crash into a regression test."}
+{"title": "HARD-03: Re-verify ACG and binary hardening on real Windows", "labels": ["hardening", "qa"], "body": "**Source:** F-06 (Phase 002) and ADR-0001; items marked NOT VERIFIED\n\n**Current state (v1):** ProcessDynamicCodePolicy is on. Not verified on a real PC: shell-extension-heavy folders in the Open dialog, drag & drop, IME composition. ICO/WebP fail under ACG (FUT-48).\n\n**Proposed work:** Test on real Windows 10 and 11 machines; adjust the policy or record exceptions in an ADR."}
+{"title": "HARD-04: Keyboard reachability of every control", "labels": ["hardening"], "body": "**Source:** R-A11Y-01; Phase 003b report\n\n**Current state (v1):** Tab focus order covers links only; code-toolbar buttons and other interactive elements are not reachable by keyboard.\n\n**Proposed work:** Add every interactive element (code toolbar, task boxes, callout fold, front-matter toggle, details summary, sidebar items) to the focus order with a visible focus ring. UIA and High Contrast are FUT-47."}
+{"title": "PERF-01: Meet the final memory budgets (Appendix D, final column)", "labels": ["performance"], "body": "**Source:** Original roadmap phase 013 (postponed); D.2\n\n**Current state (v1):** CI soft-budget values: M0 2.28 MiB, M1 4.65 MiB (final ≤ 5.0), M2 5.60 MiB, M5 F3 5.70 MiB (final ≤ 6.0). Measured only on a GPU-less CI VM.\n\n**Proposed work:** Measure on real hardware; make the final column hard CI gates; reduce image memory (DIB vs DDB study, FUT-42)."}
+{"title": "PERF-02: Open-file dialog latency (T-DLG ≤ 400 ms)", "labels": ["performance"], "body": "**Source:** F-09 dialog host (Phase 003)\n\n**Current state (v1):** 484–583 ms on CI runners: process start plus comdlg32/shell start-up in the out-of-process dialog host.\n\n**Proposed work:** Measure on real hardware; consider pre-spawning the host at idle (watch the RAM cost)."}
+{"title": "PERF-03: Cold scroll p99 on typical documents", "labels": ["performance"], "body": "**Source:** Phases V1-A–V1-C measurements\n\n**Current state (v1):** Warm p99 is about 14 ms (gate 16 ms); cold p99 reached 37.2 ms (target ≤ 33 ms).\n\n**Proposed work:** Cache scaled image bitmaps and code-block rasters; paint only intersecting rects; re-measure on real hardware."}
+{"title": "PERF-04: Mermaid scroll p99 close to the gate", "labels": ["performance"], "body": "**Source:** Phase V1-C report\n\n**Current state (v1):** Warm p99 15.47 ms (gate 16 ms), cold 24.09 ms on `mermaid-heavy.md`.\n\n**Proposed work:** Cache rasters of visible diagrams inside the image LRU budget."}
+{"title": "PERF-05: Binary size and opt-level review", "labels": ["performance"], "body": "**Source:** D.2 B-SIZE; release profile note \"revisit opt-level\"\n\n**Current state (v1):** yamdv.exe is 2.50 MiB (final ≤ 3.0 MiB, stretch 2.0 MiB) with opt-level \"s\".\n\n**Proposed work:** Run `cargo bloat`; compare opt-level s/z/3 for size, speed and memory; trim tables if needed."}
+{"title": "PERF-06: Incremental re-render for live reload", "labels": ["performance"], "body": "**Source:** R-REN-18, R-READ-01; Phase V1-A\n\n**Current state (v1):** An external file change triggers a full re-parse (scroll anchor kept). Editing already uses incremental reparse.\n\n**Proposed work:** Reuse the editor's splice path for external changes so only changed blocks are re-parsed and re-laid out."}
+{"title": "PERF-07: Flaky performance gates on GitHub-hosted runners", "labels": ["performance"], "body": "**Source:** Phases V1-A–V1-D CI history\n\n**Current state (v1):** Hosted runners vary a lot: T4 spikes to 26 ms, occasional T7/M0/M1 failures on unchanged code. Mitigated by the two-attempt retry rule.\n\n**Proposed work:** Measure on stable hardware (real PC or self-hosted runner on a private fork) or switch to relative thresholds."}
+{"title": "BUG-01: Ctrl+click on a link with #fragment opens the new window at the top", "labels": ["bug"], "body": "**Source:** Phase 003b report\n\n**Current state (v1):** The new window ignores the `#fragment` of the target.\n\n**Proposed work:** Scroll the new window to the anchor after load."}
+{"title": "BUG-02: Single-line `$$…$$` with an error is not shown as display math", "labels": ["bug"], "body": "**Source:** Phase V1-C report\n\n**Current state (v1):** `$$\\frac{a}{$$` on one line is not recognised as display math, so it renders as plain text instead of in the error style.\n\n**Proposed work:** Handle the single-line error case in the Markdown front end."}
+{"title": "BUG-03: Copy as Markdown is not exact for reference links and autolinks", "labels": ["bug"], "body": "**Source:** Phase 003 report\n\n**Current state (v1):** Copy as Markdown expands the selection by markers, not by the AST.\n\n**Proposed work:** Map the selection through the parser's source ranges so the copied slice is exact."}
+{"title": "BUG-04: HTML: only a common subset of named entities is decoded", "labels": ["bug"], "body": "**Source:** Phase 003 report\n\n**Current state (v1):** Numeric entities all work; named entities are a common subset.\n\n**Proposed work:** Generate the full HTML5 named-entity table at build time (static data)."}
+{"title": "BUG-05: HTML tables: rowspan is treated as 1", "labels": ["bug"], "body": "**Source:** Phase 003 report (allowed as MAY)\n\n**Current state (v1):** `colspan` works, `rowspan` is ignored.\n\n**Proposed work:** Support rowspan in the HTML table model."}
+{"title": "BUG-06: Tables: multi-line cell content aligns the cell box, not each line", "labels": ["bug"], "body": "**Source:** Phase 003 report\n\n**Current state (v1):** Per-column alignment is applied to the cell box.\n\n**Proposed work:** Apply the column alignment to every line inside wrapped cells."}
+{"title": "BUG-07: `==highlight==` cannot cross emphasis; escaped text skips inline extensions", "labels": ["bug"], "body": "**Source:** Phase 003 report\n\n**Current state (v1):** Highlight pairs cannot cross emphasis boundaries; text containing escapes or entities skips the inline extension pass.\n\n**Proposed work:** Run the extension pass on the event stream with source ranges instead of plain text runs."}
+{"title": "BUG-08: Wide flowcharts become too small to read", "labels": ["bug"], "body": "**Source:** Phase V1-C report\n\n**Current state (v1):** Diagrams are scaled down to fit the column; a 9-node LR row becomes tiny. The fullscreen viewer is FUT-36.\n\n**Proposed work:** Stop shrinking below a minimum scale and scroll the card horizontally instead."}
+{"title": "BUG-09: Popup menu does not match B.7.1 styling", "labels": ["bug"], "body": "**Source:** Phase V1-A report\n\n**Current state (v1):** Menus are Win32 owner-drawn menus: no rounded corners, custom shadow or fade from B.7.1.\n\n**Proposed work:** Implement the layered custom popup menu from B.7.1 (cosmetic)."}
+{"title": "QA-01: Real-hardware QA of v1 (items never verified on a real PC)", "labels": ["qa"], "body": "**Source:** NOT VERIFIED items in the phase 001–V1-D reports\n\n**Current state (v1):** All automated checks ran on a GPU-less Windows Server VM at 1024×768.\n\n**Proposed work:** Verify on a real Windows 10/11 PC: per-monitor DPI and 150 % scaling (document, split view, formulas, diagrams); live dark/light switch; default-app switch through Windows Settings; Explorer \"Open with YAMDV\"; drag & drop; Turkish Q layout incl. AltGr and dead keys; CJK IME; Save-as from the conflict dialog; ClearType in Cambria Math; WebP/ICO codec availability; Export PDF via Microsoft Print to PDF; install / uninstall."}
+{"title": "DEC-01: Choose a license for the public repository", "labels": ["decision"], "body": "**Source:** LICENSE placeholder since Phase 001; repository made public 2026-10-17\n\n**Current state (v1):** LICENSE says \"All rights reserved\": the code is visible but others may not use it.\n\n**Proposed work:** Owner decides: keep proprietary, or an open-source license (e.g. MIT, Apache-2.0, GPL-3.0)."}
+{"title": "IDEA-01: Code signing to avoid SmartScreen warnings", "labels": ["idea"], "body": "**Source:** SmartScreen notes in OWNER_KIT.md and README\n\n**Current state (v1):** The exe is unsigned, so Windows shows SmartScreen warnings on first run.\n\n**Proposed work:** Evaluate a signing certificate or a managed signing service; sign release builds in the release job."}
+{"title": "IDEA-02: Distribution via a winget manifest", "labels": ["idea"], "body": "**Source:** Not in the original spec\n\n**Current state (v1):** Users download a zip from a GitHub release.\n\n**Proposed work:** Publish a winget manifest pointing at the release zip (after signing and licensing are decided)."}
+{"title": "IDEA-03: Windows ARM64 build", "labels": ["idea"], "body": "**Source:** Hard rule H4 (\"x64 only\")\n\n**Current state (v1):** Only x86_64-pc-windows-msvc is built.\n\n**Proposed work:** Add an aarch64-pc-windows-msvc build and test it on ARM hardware."}
+{"title": "IDEA-04: Offline spell checking with the Windows spell-checker API", "labels": ["idea"], "body": "**Source:** Non-goal in SPEC A.0 (\"maybe later\")\n\n**Current state (v1):** No spell checking in F2/F3.\n\n**Proposed work:** Use ISpellChecker (offline, OS-provided) for squiggles and suggestions in edit modes."}
+````

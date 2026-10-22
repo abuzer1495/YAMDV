@@ -349,6 +349,13 @@ mod cmd {
     pub const EFONT_CODE: u32 = 132;
     pub const ELINES: u32 = 133;
     pub const EWRAP: u32 = 134;
+    // V1-D export, print, packaging (prompt 008 §2–§4).
+    pub const EXPORT_HTML: u32 = 140;
+    pub const EXPORT_PDF: u32 = 141;
+    pub const PRINT: u32 = 142;
+    pub const CSV_COPY: u32 = 143;
+    pub const CSV_EXPORT: u32 = 144;
+    pub const INSTALL: u32 = 145;
 }
 pub(super) use cmd::*;
 
@@ -416,6 +423,8 @@ pub(super) struct MenuCtx {
     pub path: Option<String>,
     /// Edit mode: 0 = read, 1 = Live Edit (F2), 2 = Split Edit (F3).
     pub edit: u8,
+    /// A table is under the cursor (Copy / Export table as CSV, R-EXP-04).
+    pub table: bool,
 }
 
 fn build(lang: Lang, c: &MenuCtx) -> HMENU {
@@ -458,6 +467,10 @@ fn build(lang: Lang, c: &MenuCtx) -> HMENU {
     b.msg(m, COPY_MD, Msg::MCopyMd, "Ctrl+Shift+C", 0);
     if c.link.is_some() {
         b.msg(m, COPY_LINK, Msg::MCopyLink, "", 0);
+    }
+    if c.table {
+        b.msg(m, CSV_COPY, Msg::MCopyTableCsv, "", 0);
+        b.msg(m, CSV_EXPORT, Msg::MExportTableCsv, "", 0);
     }
     b.msg(m, SELECT_ALL, Msg::MSelectAll, "Ctrl+A", 0);
     b.sep(m);
@@ -562,6 +575,12 @@ fn build(lang: Lang, c: &MenuCtx) -> HMENU {
         b.msg(f, RELOAD, Msg::MReload, "F5", 0);
         b.msg(f, EXPLORER, Msg::MShowExplorer, "", 0);
         b.msg(f, COPY_PATH, Msg::MCopyPath, "", 0);
+    }
+    if c.has_doc {
+        let x = b.sub(m, Msg::MExport);
+        b.msg(x, EXPORT_HTML, Msg::MExportHtml, "", 0);
+        b.msg(x, EXPORT_PDF, Msg::MExportPdf, "Ctrl+Shift+E", 0);
+        b.msg(x, PRINT, Msg::MPrint, "Ctrl+P", 0);
     }
     let st = b.sub(m, Msg::MSettings);
     let lang_v = get("general.language");
@@ -895,6 +914,24 @@ pub(super) fn run_command(hwnd: HWND, id: u32, link: Option<String>) -> Vec<Acti
         EDITOR => with_win(hwnd, |w, _| w.open_editor()),
         FAVORITE => with_win(hwnd, |w, _| w.toggle_favorite()),
         OPEN => out.push(Action::OpenDialog),
+        EXPORT_HTML => out.push(Action::Export(super::ExportKind::Html)),
+        EXPORT_PDF => out.push(Action::Export(super::ExportKind::Pdf)),
+        PRINT => out.push(Action::Export(super::ExportKind::Print)),
+        CSV_COPY => with_win(hwnd, |w, _| {
+            if let Some(t) = w.ctx_table.clone()
+                && sys::copy_text(w.hwnd, &t)
+            {
+                w.toast(Msg::Copied);
+            }
+        }),
+        CSV_EXPORT => {
+            let mut t = None;
+            with_win(hwnd, |w, _| t = w.ctx_table.clone());
+            if let Some(t) = t {
+                out.push(Action::Export(super::ExportKind::Csv(t)));
+            }
+        }
+        INSTALL => out.push(Action::Install),
         RELOAD => with_win(hwnd, |w, sh| w.reload(sh)),
         EXPLORER => with_win(hwnd, |w, _| {
             if let View::Doc(d) = &w.view
@@ -1414,6 +1451,7 @@ impl Win {
                 has_doc: !d.virt,
                 path: Some(d.path.clone()),
                 edit: self.edit_mode_id(),
+                table: self.ctx_table.is_some(),
             },
             _ => MenuCtx::default(),
         }

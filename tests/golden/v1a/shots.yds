@@ -3,7 +3,7 @@ resize 1000 700
 wait-idle
 command mode light
 wait-idle
-snapshot welcome-light.png
+snapshot welcome-install-light.png
 open ../../driver/a.md
 wait-idle
 snapshot doc-sidebar-light.png

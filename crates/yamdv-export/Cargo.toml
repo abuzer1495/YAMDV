@@ -13,3 +13,5 @@ workspace = true
 
 [dependencies]
 yamdv-core = { path = "../yamdv-core" }
+yamdv-layout = { path = "../yamdv-layout" }
+yamdv-highlight = { path = "../yamdv-highlight" }
