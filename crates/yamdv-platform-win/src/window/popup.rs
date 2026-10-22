@@ -176,7 +176,10 @@ fn menu_size(sh: &Shared, entries: &[Entry]) -> (f32, f32) {
             w = w.max(44.0 + lw + kw + 32.0);
         }
     }
-    (w.min(360.0).ceil(), 2.0 * PAD + heights(entries).sum::<f32>())
+    (
+        w.min(360.0).ceil(),
+        2.0 * PAD + heights(entries).sum::<f32>(),
+    )
 }
 
 /// Entry index at popup-local DIP y.
@@ -258,12 +261,8 @@ fn create(owner: HWND, rect: ch::Px, rounded: bool, border: u32, instant: bool) 
             (&raw const color).cast(),
             size_of_val(&color) as u32,
         );
-        let _ = SetLayeredWindowAttributes(
-            hwnd,
-            COLORREF(0),
-            if instant { 255 } else { 0 },
-            LWA_ALPHA,
-        );
+        let _ =
+            SetLayeredWindowAttributes(hwnd, COLORREF(0), if instant { 255 } else { 0 }, LWA_ALPHA);
     }
     Some(hwnd)
 }
@@ -279,7 +278,8 @@ fn show(hwnd: HWND) {
             0,
             0,
             0,
-            SWP_NA | windows::Win32::UI::WindowsAndMessaging::SWP_NOMOVE
+            SWP_NA
+                | windows::Win32::UI::WindowsAndMessaging::SWP_NOMOVE
                 | windows::Win32::UI::WindowsAndMessaging::SWP_NOSIZE,
         );
     }
@@ -330,7 +330,11 @@ pub(super) fn open_menu(
     };
     let (wd, hd) = menu_size(&sh, entries);
     let (wp, hp) = ((wd * b.scale).round() as i32, (hd * b.scale).round() as i32);
-    let a = if right { (anchor.0 - wp, anchor.1) } else { anchor };
+    let a = if right {
+        (anchor.0 - wp, anchor.1)
+    } else {
+        anchor
+    };
     let (x, y) = ch::place(
         a,
         (wp, hp),
@@ -382,10 +386,7 @@ pub(super) fn open_cards(owner: HWND, anchor: (i32, i32)) {
         return;
     };
     let orig = app::get("appearance.scheme");
-    let sel = app::SCHEMES
-        .iter()
-        .position(|s| s.0 == orig)
-        .unwrap_or(0);
+    let sel = app::SCHEMES.iter().position(|s| s.0 == orig).unwrap_or(0);
     let (wd, hd) = ch::cards_size(app::SCHEMES.len());
     let (wp, hp) = ((wd * b.scale).round() as i32, (hd * b.scale).round() as i32);
     let (x, y) = ch::place(
@@ -507,7 +508,8 @@ fn run(d: Do) {
             LINK.with(|l| *l.borrow_mut() = p.link.clone());
             destroy(p);
             // SAFETY: valid owner hwnd; the command runs from its message loop.
-            let _ = unsafe { PostMessageW(Some(owner), WM_APP_MENU, WPARAM(id as usize), LPARAM(0)) };
+            let _ =
+                unsafe { PostMessageW(Some(owner), WM_APP_MENU, WPARAM(id as usize), LPARAM(0)) };
         }
         Do::OpenSub(lvl, i, kbd) => open_sub(lvl, i, kbd),
         Do::Preview(i) => {
@@ -522,7 +524,9 @@ fn run(d: Do) {
                 }
                 *preview = i;
                 Some(match i {
-                    Some(k) => app::SCHEMES.get(k).map_or(orig.clone(), |s| s.0.to_string()),
+                    Some(k) => app::SCHEMES
+                        .get(k)
+                        .map_or(orig.clone(), |s| s.0.to_string()),
                     None => orig.clone(),
                 })
             });
@@ -548,7 +552,10 @@ fn repaint_all() {
     let hs: Vec<HWND> = POPUP.with(|p| {
         p.try_borrow()
             .ok()
-            .and_then(|p| p.as_ref().map(|p| p.levels.iter().map(|l| l.hwnd).collect()))
+            .and_then(|p| {
+                p.as_ref()
+                    .map(|p| p.levels.iter().map(|l| l.hwnd).collect())
+            })
             .unwrap_or_default()
     });
     for h in hs {
@@ -567,7 +574,10 @@ fn open_sub(lvl: usize, i: usize, kbd: bool) {
         let Some(p) = p.as_mut() else {
             return Vec::new();
         };
-        p.levels.drain((lvl + 1).min(p.levels.len())..).map(|l| l.hwnd).collect()
+        p.levels
+            .drain((lvl + 1).min(p.levels.len())..)
+            .map(|l| l.hwnd)
+            .collect()
     });
     for h in extra {
         // SAFETY: popup window of this thread, already removed from the state.
@@ -586,8 +596,18 @@ fn open_sub(lvl: usize, i: usize, kbd: bool) {
         let (wd, hd) = menu_size(&sh, sub);
         let (wp, hp) = ((wd * p.scale).round() as i32, (hd * p.scale).round() as i32);
         let top = l.rect.1 + ((entry_top(entries, i) - PAD) * p.scale).round() as i32;
-        let row = (l.rect.0, top, l.rect.2, top + (ITEM_H * p.scale).round() as i32);
-        let (x, y) = ch::place((row.2, row.1), (wp, hp), work_area(POINT { x: row.2, y: row.1 }), Some(row));
+        let row = (
+            l.rect.0,
+            top,
+            l.rect.2,
+            top + (ITEM_H * p.scale).round() as i32,
+        );
+        let (x, y) = ch::place(
+            (row.2, row.1),
+            (wp, hp),
+            work_area(POINT { x: row.2, y: row.1 }),
+            Some(row),
+        );
         Some((
             *s,
             (x, y, x + wp, y + hp),
@@ -597,7 +617,9 @@ fn open_sub(lvl: usize, i: usize, kbd: bool) {
             p.instant,
             ch::tokens(p.dark).menu_border,
             p.scale,
-            sub.iter().map(|e| matches!(e, Entry::Item { .. })).collect::<Vec<bool>>(),
+            sub.iter()
+                .map(|e| matches!(e, Entry::Item { .. }))
+                .collect::<Vec<bool>>(),
         ))
     });
     let Some((menu, rect, wd, owner, rd, inst, border, scale, selectable)) = plan else {
@@ -614,7 +636,11 @@ fn open_sub(lvl: usize, i: usize, kbd: bool) {
             menu,
             hwnd,
             rect,
-            sel: if kbd { ch::step(&selectable, None, 1) } else { None },
+            sel: if kbd {
+                ch::step(&selectable, None, 1)
+            } else {
+                None
+            },
             renderer,
             opened: Instant::now(),
             alpha: if inst { 255 } else { 0 },
@@ -776,7 +802,10 @@ fn close_above(lvl: usize) {
         let Some(p) = p.as_mut() else {
             return Vec::new();
         };
-        p.levels.drain((lvl + 1).min(p.levels.len())..).map(|l| l.hwnd).collect()
+        p.levels
+            .drain((lvl + 1).min(p.levels.len())..)
+            .map(|l| l.hwnd)
+            .collect()
     });
     for h in extra {
         // SAFETY: popup window of this thread, already removed from the state.
@@ -804,7 +833,10 @@ fn mouse(pt: POINT, ev: u32) -> Do {
                 return Do::Close;
             }
             // Leaving the flyout reverts the preview (B.7.3).
-            if let Kind::Cards { preview: Some(_), .. } = &p.kind {
+            if let Kind::Cards {
+                preview: Some(_), ..
+            } = &p.kind
+            {
                 return Do::Preview(None);
             }
             return Do::Nothing;
@@ -834,7 +866,8 @@ fn mouse(pt: POINT, ev: u32) -> Do {
         let Some(entries) = m.menus.get(l.menu) else {
             return Do::Nothing;
         };
-        let i = entry_at(entries, ly).filter(|&i| matches!(entries.get(i), Some(Entry::Item { .. })));
+        let i =
+            entry_at(entries, ly).filter(|&i| matches!(entries.get(i), Some(Entry::Item { .. })));
         if up {
             return match i {
                 Some(i) => activate(p, lvl, i, false),
@@ -964,9 +997,8 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
             });
             if let Some((owner, true, false)) = ours {
                 // SAFETY: valid owner hwnd.
-                let _ = unsafe {
-                    PostMessageW(Some(owner), WM_APP_POPUP_CLOSE, WPARAM(0), LPARAM(0))
-                };
+                let _ =
+                    unsafe { PostMessageW(Some(owner), WM_APP_POPUP_CLOSE, WPARAM(0), LPARAM(0)) };
             }
             return LRESULT(0);
         }
@@ -990,7 +1022,9 @@ fn paint(hwnd: HWND) {
                 return;
             };
             if let Some(r) = &l.renderer {
-                r.paint(hdc, ps.rcPaint, p.pal.text, &mut |b| draw_level(&sh, p, i, b));
+                r.paint(hdc, ps.rcPaint, p.pal.text, &mut |b| {
+                    draw_level(&sh, p, i, b)
+                });
             }
         });
     }
@@ -1016,7 +1050,12 @@ fn draw_level(sh: &Shared, p: &Popup, lvl: usize, b: &Band<'_>) {
             for (i, e) in entries.iter().enumerate() {
                 match e {
                     Entry::Sep => {
-                        b.fill(Rect::new(12.0, y + 4.0, l.w - 24.0, 1.0), tok.separator, 1.0, 0.0);
+                        b.fill(
+                            Rect::new(12.0, y + 4.0, l.w - 24.0, 1.0),
+                            tok.separator,
+                            1.0,
+                            0.0,
+                        );
                         y += SEP_H;
                     }
                     Entry::Item {
@@ -1081,11 +1120,36 @@ fn draw_cards(sh: &Shared, p: &Popup, l: &Level, orig: &str, b: &Band<'_>) {
         let prev = Rect::new(x, y, w, 56.0);
         b.fill(prev, pal.bg, 1.0, r);
         b.stroke(prev, tok.chrome_border, r, 1.0);
-        b.fill(Rect::new(x + 10.0, y + 12.0, (w * 0.4).round(), 6.0), pal.heading, 1.0, 1.0);
-        b.fill(Rect::new(x + 10.0, y + 24.0, w - 34.0, 4.0), pal.text, 0.35, 1.0);
-        b.fill(Rect::new(x + 10.0, y + 32.0, w - 50.0, 4.0), pal.text, 0.35, 1.0);
-        b.fill(Rect::new(x + 10.0, y + 42.0, 24.0, 3.0), pal.accent, 1.0, 1.0);
-        b.fill(Rect::new(x + w - 40.0, y + 36.0, 30.0, 12.0), pal.code_bg, 1.0, 2.0);
+        b.fill(
+            Rect::new(x + 10.0, y + 12.0, (w * 0.4).round(), 6.0),
+            pal.heading,
+            1.0,
+            1.0,
+        );
+        b.fill(
+            Rect::new(x + 10.0, y + 24.0, w - 34.0, 4.0),
+            pal.text,
+            0.35,
+            1.0,
+        );
+        b.fill(
+            Rect::new(x + 10.0, y + 32.0, w - 50.0, 4.0),
+            pal.text,
+            0.35,
+            1.0,
+        );
+        b.fill(
+            Rect::new(x + 10.0, y + 42.0, 24.0, 3.0),
+            pal.accent,
+            1.0,
+            1.0,
+        );
+        b.fill(
+            Rect::new(x + w - 40.0, y + 36.0, 30.0, 12.0),
+            pal.code_bg,
+            1.0,
+            2.0,
+        );
         let t = shape(sh, name, 12.0, 400, p.pal.text);
         b.text(t.as_ref(), (x + (w - t.width()) / 2.0).round(), y + 62.0);
         let selected = *key == orig;
@@ -1128,10 +1192,9 @@ pub(super) fn probe() -> (bool, usize, usize, usize, &'static str, String) {
         };
         match &p.kind {
             Kind::Menu(m) => {
-                let root = m
-                    .menus
-                    .first()
-                    .map_or(0, |e| e.iter().filter(|e| matches!(e, Entry::Item { .. })).count());
+                let root = m.menus.first().map_or(0, |e| {
+                    e.iter().filter(|e| matches!(e, Entry::Item { .. })).count()
+                });
                 let first = m
                     .menus
                     .first()
@@ -1149,7 +1212,11 @@ pub(super) fn probe() -> (bool, usize, usize, usize, &'static str, String) {
                 p.levels.len(),
                 app::SCHEMES.len(),
                 app::SCHEMES.len(),
-                if preview.is_some() { "cards-preview" } else { "cards" },
+                if preview.is_some() {
+                    "cards-preview"
+                } else {
+                    "cards"
+                },
                 String::new(),
             ),
         }
@@ -1174,10 +1241,7 @@ pub(super) fn drive_hover(i: Option<usize>) {
                 let (x, y, w, h) = ch::card_rect(i);
                 (x + w / 2.0, y + h / 3.0)
             }
-            Kind::Menu(m) => (
-                l.w / 2.0,
-                entry_top(m.menus.get(l.menu)?, i) + ITEM_H / 2.0,
-            ),
+            Kind::Menu(m) => (l.w / 2.0, entry_top(m.menus.get(l.menu)?, i) + ITEM_H / 2.0),
         };
         Some(POINT {
             x: l.rect.0 + (x * p.scale) as i32,
@@ -1202,10 +1266,7 @@ pub(super) fn drive_click(i: usize) {
                 let (x, y, w, h) = ch::card_rect(i);
                 (x + w / 2.0, y + h / 3.0)
             }
-            Kind::Menu(m) => (
-                l.w / 2.0,
-                entry_top(m.menus.get(l.menu)?, i) + ITEM_H / 2.0,
-            ),
+            Kind::Menu(m) => (l.w / 2.0, entry_top(m.menus.get(l.menu)?, i) + ITEM_H / 2.0),
         };
         Some(POINT {
             x: l.rect.0 + (x * p.scale) as i32,

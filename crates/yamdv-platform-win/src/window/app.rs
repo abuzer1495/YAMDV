@@ -377,6 +377,7 @@ pub(super) struct Model {
 
 impl Model {
     /// Items (submenu headers included, separators excluded) of the whole tree.
+    #[cfg_attr(not(feature = "dev-tools"), allow(dead_code))]
     pub(super) fn item_count(&self) -> usize {
         self.menus
             .iter()

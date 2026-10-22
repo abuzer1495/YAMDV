@@ -523,7 +523,13 @@ impl Band<'_> {
     }
 
     /// Draws `icon` (`HICON`) at DIP `(x, y)` with a side of `size` DIPs (title-bar app icon).
-    pub fn icon(&self, icon: windows::Win32::UI::WindowsAndMessaging::HICON, x: f32, y: f32, size: f32) {
+    pub fn icon(
+        &self,
+        icon: windows::Win32::UI::WindowsAndMessaging::HICON,
+        x: f32,
+        y: f32,
+        size: f32,
+    ) {
         if !self.visible(y, size) || icon.is_invalid() {
             return;
         }
@@ -562,8 +568,14 @@ impl Band<'_> {
             && let Some(rc) =
                 tiny_skia::Rect::from_xywh(eff.x, eff.y, eff.w.max(0.0), eff.h.max(0.0))
         {
-            let t =
-                Transform::from_row(self.scale, 0.0, 0.0, self.scale, 0.0, -(self.top_px.get() as f32));
+            let t = Transform::from_row(
+                self.scale,
+                0.0,
+                0.0,
+                self.scale,
+                0.0,
+                -(self.top_px.get() as f32),
+            );
             m.fill_path(&PathBuilder::from_rect(rc), FillRule::Winding, false, t);
         }
         self.clips.borrow_mut().push((eff, mask));
@@ -630,7 +642,14 @@ impl Band<'_> {
         ) else {
             return;
         };
-        let t = Transform::from_row(self.scale, 0.0, 0.0, self.scale, 0.0, -(self.top_px.get() as f32));
+        let t = Transform::from_row(
+            self.scale,
+            0.0,
+            0.0,
+            self.scale,
+            0.0,
+            -(self.top_px.get() as f32),
+        );
         f(&mut pm, t);
     }
 
@@ -924,7 +943,8 @@ impl Band<'_> {
         let x0 = ((clip.x * s).floor().max(0.0) as usize).min(self.w as usize);
         let x1 = ((clip.right() * s).ceil().max(0.0) as usize).min(self.w as usize);
         let y0 = ((clip.y * s).floor() - self.top_px.get() as f32).clamp(0.0, rows as f32) as usize;
-        let y1 = ((clip.bottom() * s).ceil() - self.top_px.get() as f32).clamp(0.0, rows as f32) as usize;
+        let y1 = ((clip.bottom() * s).ceil() - self.top_px.get() as f32).clamp(0.0, rows as f32)
+            as usize;
         // SAFETY: as above; no other reference to the bits exists here.
         let buf = unsafe { std::slice::from_raw_parts_mut(self.bits, len) };
         for row in 0..rows {

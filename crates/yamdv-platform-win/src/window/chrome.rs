@@ -68,6 +68,34 @@ fn app_icon(px: i32) -> HICON {
     h
 }
 
+/// `HTMAXBUTTON` as a plain number (message `wParam` comparisons).
+pub(super) const HT_MAX: u32 = 9;
+
+/// The window (system) menu at screen point `(x, y)`: right-click on the title bar (B.4).
+pub(super) fn system_menu(hwnd: HWND, x: i32, y: i32) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnableMenuItem, GetSystemMenu, MF_BYCOMMAND, MF_ENABLED, MF_GRAYED, SC_MOVE, SC_SIZE,
+        TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu,
+    };
+    // SAFETY: valid hwnd; the system menu belongs to the window and is not destroyed here.
+    unsafe {
+        let m = GetSystemMenu(hwnd, false);
+        if m.is_invalid() {
+            return;
+        }
+        let max = IsZoomed(hwnd).as_bool();
+        let st = |on: bool| if on { MF_ENABLED } else { MF_GRAYED };
+        let _ = EnableMenuItem(m, SC_RESTORE, MF_BYCOMMAND | st(max));
+        let _ = EnableMenuItem(m, SC_MOVE, MF_BYCOMMAND | st(!max));
+        let _ = EnableMenuItem(m, SC_SIZE, MF_BYCOMMAND | st(!max));
+        let _ = EnableMenuItem(m, SC_MAXIMIZE, MF_BYCOMMAND | st(!max));
+        let cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, x, y, None, hwnd, None);
+        if cmd.0 != 0 {
+            let _ = PostMessageW(Some(hwnd), WM_SYSCOMMAND, WPARAM(cmd.0 as usize), LPARAM(0));
+        }
+    }
+}
+
 /// Applies or leaves fullscreen on `hwnd` (deferred: sends messages).
 pub(super) fn apply_fullscreen(hwnd: HWND, on: bool) {
     let key = hwnd.0 as isize;
@@ -81,7 +109,8 @@ pub(super) fn apply_fullscreen(hwnd: HWND, on: bool) {
             };
             let _ = GetWindowPlacement(hwnd, &mut wp);
             SAVED.with(|s| s.borrow_mut().insert(key, (style, wp)));
-            let mon = windows::Win32::Graphics::Gdi::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            let mon =
+                windows::Win32::Graphics::Gdi::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
             let mut mi = MONITORINFO {
                 cbSize: size_of::<MONITORINFO>() as u32,
                 ..Default::default()
@@ -174,7 +203,10 @@ impl Win {
         let mut pt = POINT { x: sx, y: sy };
         // SAFETY: valid hwnd and point.
         let _ = unsafe { ScreenToClient(self.hwnd, &mut pt) };
-        (pt.x as f32 / self.scale, pt.y as f32 / self.scale - self.top)
+        (
+            pt.x as f32 / self.scale,
+            pt.y as f32 / self.scale - self.top,
+        )
     }
 
     /// A content rectangle (device px relative to the content) in client px.
@@ -304,6 +336,17 @@ impl Win {
         }
     }
 
+    /// `WM_MOUSELEAVE`: clear hover, hide a revealed fullscreen bar.
+    pub(super) fn chrome_leave(&mut self) {
+        if self.cap.hover.is_some_and(|p| p != Part::Max) {
+            self.set_hover(None);
+        }
+        if self.fs && self.cap.reveal {
+            self.cap.reveal = false;
+            self.invalidate();
+        }
+    }
+
     pub(super) fn nc_leave(&mut self) {
         self.cap.nc_tracking = false;
         if self.cap.hover == Some(Part::Max) {
@@ -414,7 +457,12 @@ impl Win {
         let w = self.cw;
         b.fill(Rect::new(0.0, 0.0, w, ch::BAR_H), pal.bg, 1.0, 0.0);
         if self.scroll_pos() > 0.5 || self.fs {
-            b.fill(Rect::new(0.0, ch::BAR_H - 1.0, w, 1.0), pal.border_subtle, 1.0, 0.0);
+            b.fill(
+                Rect::new(0.0, ch::BAR_H - 1.0, w, 1.0),
+                pal.border_subtle,
+                1.0,
+                0.0,
+            );
         }
         let fg = if self.cap.inactive {
             blend(pal.bg, pal.text, 0.55)
@@ -439,14 +487,19 @@ impl Win {
             + if dirty { 16.0 } else { 0.0 };
         let avail = (ch::title_right(w) - x - reserve).max(24.0);
         let full = self.title_text(sh);
-        let title = ch::ellipsize_middle(&full, |s| sh.dw.measure(s, 12.0, 400, 10_000.0).0 <= avail);
+        let title =
+            ch::ellipsize_middle(&full, |s| sh.dw.measure(s, 12.0, 400, 10_000.0).0 <= avail);
         let t = self.shape_ui(sh, &title, 12.0, 400, fg, None);
         b.text(t.as_ref(), x, ((ch::BAR_H - t.height()) / 2.0).round());
         x += t.width() + 8.0;
         if let Some((pt, color)) = pill {
             let r = Rect::new(x, 7.0, pt.width() + 16.0, 18.0);
             b.fill(r, color, 0.12, if sh.m.rounded { 9.0 } else { 0.0 });
-            b.text(pt.as_ref(), x + 8.0, (r.y + (r.h - pt.height()) / 2.0).round());
+            b.text(
+                pt.as_ref(),
+                x + 8.0,
+                (r.y + (r.h - pt.height()) / 2.0).round(),
+            );
             x += r.w + 8.0;
         }
         if dirty {
@@ -495,9 +548,18 @@ impl Win {
         match part {
             Part::Min => b.fill(Rect::new(cx - s, cy, size, 1.0), color, 1.0, 0.0),
             Part::Max if max || self.fs => {
-                b.stroke(Rect::new(cx - s, cy - s + 2.0, size - 2.0, size - 2.0), color, 0.0, 1.0);
+                b.stroke(
+                    Rect::new(cx - s, cy - s + 2.0, size - 2.0, size - 2.0),
+                    color,
+                    0.0,
+                    1.0,
+                );
                 b.polyline(
-                    &[(cx - s + 2.0, cy - s), (cx + s, cy - s), (cx + s, cy + s - 2.0)],
+                    &[
+                        (cx - s + 2.0, cy - s),
+                        (cx + s, cy - s),
+                        (cx + s, cy + s - 2.0),
+                    ],
                     color,
                     1.0,
                     false,
@@ -523,8 +585,10 @@ impl Win {
 
     /// Words and characters of the document and of the selection (cached by source length and
     /// selection; computed only while the badge is shown).
-    fn word_counts(&self) -> Option<((usize, usize), Option<(usize, usize)>)> {
-        let View::Doc(d) = &self.view else { return None };
+    fn word_counts(&self) -> Option<WordCounts> {
+        let View::Doc(d) = &self.view else {
+            return None;
+        };
         let src: std::borrow::Cow<'_, str> = match self.edit() {
             Some(e) => std::borrow::Cow::Owned(e.ed.text()),
             None => std::borrow::Cow::Borrowed(d.content.source()),
