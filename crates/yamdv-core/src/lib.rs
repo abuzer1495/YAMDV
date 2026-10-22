@@ -21,6 +21,7 @@ pub mod ipc;
 pub mod link;
 pub mod log;
 pub mod path;
+pub mod progress;
 pub mod reg;
 pub mod settings;
 mod settings_table;
