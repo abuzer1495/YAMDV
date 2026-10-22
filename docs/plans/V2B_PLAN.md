@@ -31,3 +31,6 @@ Branch `phase/v2b-settings`; A-8: no CI, every commit `[skip ci]`, local gates b
   profiles, export-progress WM_NULL poll, goldens report-only, headless export, opt-in install,
   M0/M1 release budget + dev vs baseline delta gate, T7, T4), OWNER_TEST.md (EN+TR, 12 items),
   build-pack.sh (baseline = dev-tools build of 9f6906e). Next: upload draft test-v2b, then §6.
+- 23:15 §5 uploaded: draft pre-release test-v2b (SHA-256 1e142d9f…a7e). §6 done: PR #79 squash-merged
+  as 9119b44, tag phase-v2b, #25 commented, issues closed, docs/reports/v2b_REPORT.md.
+  Next: owner runs the pack (A-8); v1.1.0 tag only after sign-off.
