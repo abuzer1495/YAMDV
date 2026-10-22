@@ -32,6 +32,32 @@ thread_local! {
     static LAST_OUT: RefCell<Option<String>> = const { RefCell::new(None) };
     /// PWS baseline of `ui mem-mark` (`pws_delta_kib`).
     static MEM_MARK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Pages seen by `ui job-wait` / `ui job-done` polls: (samples, last, monotonic).
+    static JOB_SEQ: std::cell::Cell<(u32, u32, bool, u32)> = const { std::cell::Cell::new((0, 0, true, 0)) };
+    static CPU_MARK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Re-runs the current command after `ms` (polling verbs; the message loop keeps running).
+fn again(ms: u64) -> String {
+    SCRIPT.with(|s| {
+        if let Some(s) = s.borrow_mut().as_mut() {
+            s.pc = s.pc.saturating_sub(1);
+            s.resume = Some(std::time::Instant::now() + std::time::Duration::from_millis(ms));
+        }
+    });
+    String::new()
+}
+
+/// Records a page count for the `job_monotonic` check.
+fn job_sample() -> u32 {
+    let (n, t) = super::jobui::state().map_or((0, 0), |(_, n, t, _)| (n, t));
+    JOB_SEQ.with(|q| {
+        let (k, last, mono, total) = q.get();
+        if super::jobui::busy() {
+            q.set((k + 1, n.max(last), mono && n >= last, t.max(total)));
+        }
+    });
+    n
 }
 
 /// Private working set now (no trim: what Task Manager shows).
@@ -536,6 +562,32 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
         v if v.starts_with("settings-") => w
             .panel_drive(sh, verb, arg)
             .unwrap_or_else(|| format!("FAIL ui {verb}: unknown verb")),
+        // BUG-11 export-progress: poll until `job_n >= N` (or the job ended) / until it ended.
+        "job-wait" => {
+            let want: u32 = arg.parse().unwrap_or(1);
+            let n = job_sample();
+            if super::jobui::busy() && n < want {
+                again(40)
+            } else {
+                format!("ok ui job-wait {arg} (pages {n})")
+            }
+        }
+        "job-done" => {
+            job_sample();
+            if super::jobui::busy() {
+                again(100)
+            } else {
+                "ok ui job-done".into()
+            }
+        }
+        "job-reset" => {
+            JOB_SEQ.with(|q| q.set((0, 0, true, 0)));
+            "ok ui job-reset".into()
+        }
+        "cpu-mark" => {
+            CPU_MARK.with(|m| m.set(crate::perf::cpu_ms()));
+            "ok ui cpu-mark".into()
+        }
         "mem-mark" => {
             MEM_MARK.with(|m| m.set(pws_now()));
             "ok ui mem-mark".into()
@@ -878,6 +930,15 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         ("title".into(), V::S(title)),
         ("out_len".into(), V::N(out.len() as f64)),
         (
+            "out_body_bg".into(),
+            V::S(
+                out_text
+                    .split_once("body{margin:0;background:")
+                    .map(|(_, r)| r.chars().take_while(|c| *c != ';').collect())
+                    .unwrap_or_default(),
+            ),
+        ),
+        (
             "out_hex".into(),
             V::S(sys::hex(out.get(..out.len().min(8)).unwrap_or(&[]))),
         ),
@@ -964,6 +1025,19 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
             out.push((format!("theme.{sec}.{k}"), V::S(v.to_string())));
         }
     }
+    let (samples, seen, mono, seen_total) = JOB_SEQ.with(std::cell::Cell::get);
+    out.push(("job_samples".into(), V::N(f64::from(samples))));
+    out.push(("job_seen_n".into(), V::N(f64::from(seen))));
+    out.push(("job_seen_total".into(), V::N(f64::from(seen_total))));
+    out.push((
+        "cpu_delta_ms".into(),
+        V::N(crate::perf::cpu_ms().saturating_sub(CPU_MARK.with(std::cell::Cell::get)) as f64),
+    ));
+    out.push(("job_monotonic".into(), V::N(f64::from(u8::from(mono)))));
+    out.push((
+        "worker".into(),
+        V::N(f64::from(u8::from(super::jobui::process().is_some()))),
+    ));
     let km = app::keymap();
     for a in yamdv_core::keymap::ACTIONS {
         out.push((format!("key.{}", a.id), V::S(km.shown(a.id))));

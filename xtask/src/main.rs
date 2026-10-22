@@ -14,9 +14,19 @@ mod spec;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+/// Repository root: `YAMDV_ROOT`, else the source tree this was built from, else the current
+/// directory (a prebuilt `xtask.exe` in the owner test pack, A-8, runs from the pack root).
 fn root() -> PathBuf {
+    if let Some(r) = std::env::var_os("YAMDV_ROOT") {
+        return PathBuf::from(r);
+    }
     let here = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    here.parent().map(Path::to_path_buf).unwrap_or(here)
+    let src = here.parent().map(Path::to_path_buf).unwrap_or(here);
+    if src.join("Cargo.toml").exists() {
+        src
+    } else {
+        std::env::current_dir().unwrap_or(src)
+    }
 }
 
 /// Default location of the release `yamdv.exe` (native Windows build or cross build).

@@ -1,0 +1,55 @@
+# V2-B export progress (prompt 012 §5.2, BUG-11): needs the "Microsoft Print to PDF" printer;
+# run-tests.ps1 skips this script with a note when it is absent and polls the window from
+# outside (SendMessageTimeout WM_NULL, 100 ms) while it runs.
+command mode light
+wait-idle
+# Run 1: ~30 pages in the background; the pages rise monotonically to N, the view still scrolls.
+open ../fixtures/pages-30.md
+wait-idle
+ui job-reset
+ui export-pdf-bg ep-30.tmp.pdf
+assert job == running
+ui job-wait 3
+wheel -360
+wait-idle
+assert scroll_y > 0
+wheel 360
+ui job-done
+assert job == none
+assert job_last == ok
+assert job_monotonic == 1
+assert job_samples >= 3
+assert job_seen_total >= 25
+assert job_seen_n >= 25
+assert out_exists == 1
+assert worker == 0
+# Run 2: large-1mb.md, cancel after 5 pages: no file, no worker left, memory and CPU back.
+open ../fixtures/large-1mb.md
+wait-idle
+sleep 1500
+ui mem-mark
+ui job-reset
+ui export-pdf-bg ep-large.tmp.pdf
+ui job-wait 5
+assert job == running
+ui job-cancel
+ui job-done
+assert job_last == cancelled
+assert out_exists == 0
+assert worker == 0
+sleep 1500
+assert pws_delta_kib <= 205
+ui cpu-mark
+sleep 3000
+assert cpu_delta_ms <= 15
+# Run 3: dark UI, default "Light" export colors: the output uses the light palette (BUG-10).
+command mode dark
+wait-idle
+open ../fixtures/colors.md
+wait-idle
+export-html ep-colors.tmp.html
+assert out_body_bg == #ffffff
+ui export-pdf-bg ep-colors.tmp.pdf
+ui job-done
+assert job_last == ok
+assert out_exists == 1
