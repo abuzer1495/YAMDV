@@ -69,7 +69,8 @@ Links open only when you click them, after a confirmation, in your default brows
 ## Known limitations
 
 v1 is complete, but some features are planned for later. They are listed in
-[`docs/FUTURE.md`](docs/FUTURE.md) and tracked as issues labeled `future` (milestone `post-v1`).
+[`docs/FUTURE.md`](docs/FUTURE.md) and tracked as issues labeled `future` in milestone
+[`post-v1`](https://github.com/snipeTR/YAMDV/milestone/1).
 Examples: PDF text is a raster image, not selectable (FUT-39); the HTML export is static
 (FUT-21); only Mermaid flowchart and sequence diagrams are supported (FUT-18); SVG, WebP and ICO
 images show a placeholder (FUT-20, FUT-48); there is no settings panel (settings are in the
@@ -90,6 +91,11 @@ Documentation: [`docs/SPEC.md`](docs/SPEC.md), [`docs/ARCHITECTURE.md`](docs/ARC
 [`docs/SECURITY.md`](docs/SECURITY.md), [`docs/PROCESS.md`](docs/PROCESS.md),
 [`CHANGELOG.md`](CHANGELOG.md).
 
+## License
+
+License: to be decided (see issue [DEC-01](https://github.com/snipeTR/YAMDV/issues/71)).
+Until then [`LICENSE`](LICENSE) is a placeholder: all rights reserved.
+
 ## Türkçe
 
 YAMDV, Windows için Rust ile sıfırdan yazılmış, çevrimdışı çalışan küçük bir Markdown
@@ -100,4 +106,4 @@ bir dosya koyun. **Kaldırma:** *Ayarlar ▸ Uygulamalar ▸ YAMDV* veya `yamdv.
 `F2` Canlı Düzenleme, `F3` Bölünmüş Düzenleme, `F4` harici düzenleyici açar. Sağ tık menüsünde
 HTML/PDF dışa aktarma, yazdırma ve tabloyu CSV olarak kopyalama bulunur. YAMDV ağ bağlantısı
 kurmaz ve telemetri göndermez. Arayüz Türkçe ve İngilizcedir; dil, bağlam menüsündeki
-*Ayarlar ▸ Dil* bölümünden değiştirilir.
+*Ayarlar ▸ Dil* bölümünden değiştirilir. Lisans: henüz belirlenmedi (bkz. DEC-01).

@@ -1,7 +1,8 @@
-//! `cargo xtask future-issues` (prompt 008 §5.2): one GitHub issue per `docs/FUTURE.md` row in
-//! THIS private repository, label `future`, milestone `post-v1`. Idempotent: existing titles are
-//! skipped, the label and milestone are created only when missing. Uses the `gh` CLI and its
-//! existing login; refuses to run unless the repository is private (H2: nothing is published).
+//! `cargo xtask future-issues` (prompt 008 §5.2, prompt 010 §1.4): one GitHub issue per
+//! `docs/FUTURE.md` row in this repository, label `future`, milestone `post-v1`. Idempotent: a row
+//! is skipped when any issue title already starts with its ID prefix (`FUT-xx:`), so issues made
+//! by `tools/backlog/create_issues.py` are never duplicated; the label and milestone are created
+//! only when missing. Uses the `gh` CLI and its existing login. Changes no repository settings.
 
 use std::path::Path;
 use std::process::Command;
@@ -31,6 +32,17 @@ pub fn issues(future: &str) -> Vec<(String, String)> {
         out.push((title, body));
     }
     out
+}
+
+/// `FUT-xx:` prefix of an issue title (the ID), or the whole title when it has no colon.
+pub fn id_prefix(title: &str) -> &str {
+    title.split_once(':').map_or(title, |(id, _)| id).trim()
+}
+
+/// True when an existing issue title carries the same ID prefix as `title`.
+pub fn exists(have: &[&str], title: &str) -> bool {
+    let id = id_prefix(title);
+    have.iter().any(|h| id_prefix(h) == id)
 }
 
 fn gh(args: &[&str]) -> Result<String, String> {
@@ -64,13 +76,6 @@ pub fn run(root: &Path) -> Result<(), String> {
         ".nameWithOwner",
     ])?;
     let repo = repo.trim().to_string();
-    let vis = gh(&["repo", "view", "--json", "visibility", "-q", ".visibility"])?;
-    if vis.trim() != "PRIVATE" {
-        return Err(format!(
-            "{repo} is not private ({}); refusing (H2)",
-            vis.trim()
-        ));
-    }
     let labels = gh(&[
         "label", "list", "--limit", "500", "--json", "name", "-q", ".[].name",
     ])?;
@@ -120,7 +125,7 @@ pub fn run(root: &Path) -> Result<(), String> {
     let have: Vec<&str> = have.lines().map(str::trim).collect();
     let (mut created, mut skipped) = (0, 0);
     for (title, body) in &want {
-        if have.contains(&title.as_str()) {
+        if exists(&have, title) {
             skipped += 1;
             continue;
         }
@@ -140,7 +145,7 @@ pub fn run(root: &Path) -> Result<(), String> {
         println!("created: {title}");
     }
     println!(
-        "{} FUT rows: {created} created, {skipped} already present ({repo}, private)",
+        "{} FUT rows: {created} created, {skipped} already present ({repo})",
         want.len()
     );
     Ok(())
@@ -158,6 +163,19 @@ mod tests {
         assert_eq!(v[0].0, "FUT-01: Lexers");
         assert!(v[1].1.contains("**v1 instead:** print path"));
         assert!(v[1].1.contains("R-EXP-01"));
+    }
+
+    #[test]
+    fn skips_by_id_prefix() {
+        let have = [
+            "FUT-01: Lexers (renamed)",
+            "DEC-01: Choose a license",
+            "FUT-100: x",
+        ];
+        assert!(exists(&have, "FUT-01: Lexers"));
+        assert!(!exists(&have, "FUT-10: Something"));
+        assert!(!exists(&have, "FUT-02: Other"));
+        assert_eq!(id_prefix("FUT-07: a: b"), "FUT-07");
     }
 
     #[test]
