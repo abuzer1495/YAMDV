@@ -12,6 +12,7 @@
 use windows::Win32::Foundation::FILETIME;
 use windows::Win32::System::ProcessStatus::{
     GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX,
+    PROCESS_MEMORY_COUNTERS_EX2,
 };
 use windows::Win32::System::SystemInformation::GetSystemTimePreciseAsFileTime;
 use windows::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
@@ -53,6 +54,27 @@ pub fn commit_bytes() -> u64 {
         )
     };
     if r.is_ok() { ex.PrivateUsage as u64 } else { 0 }
+}
+
+/// Private working set (PWS) in bytes; 0 before Windows 10 1809.
+pub fn private_ws_bytes() -> u64 {
+    let mut ex = PROCESS_MEMORY_COUNTERS_EX2 {
+        cb: u32::try_from(size_of::<PROCESS_MEMORY_COUNTERS_EX2>()).unwrap_or(0),
+        ..Default::default()
+    };
+    // SAFETY: correctly sized structure with cb set.
+    let r = unsafe {
+        GetProcessMemoryInfo(
+            GetCurrentProcess(),
+            (&raw mut ex).cast::<PROCESS_MEMORY_COUNTERS>(),
+            ex.cb,
+        )
+    };
+    if r.is_ok() {
+        ex.PrivateWorkingSetSize as u64
+    } else {
+        0
+    }
 }
 
 /// Percentile (nearest-rank) of `v` (sorted copy).

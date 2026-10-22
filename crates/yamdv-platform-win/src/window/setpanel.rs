@@ -2286,6 +2286,14 @@ impl Win {
                     _ => format!("FAIL ui settings-color {arg}"),
                 }
             }
+            "settings-color-reset" => match self.settings.as_mut().and_then(|p| p.color.take()) {
+                Some(c) => {
+                    self.actions
+                        .push(Action::Panel(Op::Color(c.token, c.dark, None)));
+                    "ok ui settings-color-reset".into()
+                }
+                None => "FAIL ui settings-color-reset: popover closed".into(),
+            },
             "settings-font" => match self.settings.as_mut().and_then(|p| p.font.as_mut()) {
                 Some(f) => {
                     f.query.set(arg);
@@ -2309,6 +2317,7 @@ impl Win {
         let Some(p) = &self.settings else {
             return vec![
                 ("settings", "closed".into()),
+                ("settings_focus", "none".into()),
                 ("settings_section", "none".into()),
                 ("settings_rows", "0".into()),
                 ("capture", "none".into()),
@@ -2339,8 +2348,23 @@ impl Win {
             .font
             .as_ref()
             .map_or_else(|| "closed".to_string(), |f| f.shown().len().to_string());
+        let items_k = |k: usize| match items.get(k) {
+            Some(It::Row(i)) => ROWS.get(*i).map_or("?", |r| r.key).to_string(),
+            Some(It::Key(i)) => format!("key:{}", ACTIONS.get(*i).map_or("?", |a| a.id)),
+            Some(It::Color(i)) => format!("color:{}", TOKENS.get(*i).copied().unwrap_or("?")),
+            _ => "?".to_string(),
+        };
+        let focus = match p.focus {
+            Focus::Search => "search".to_string(),
+            Focus::Nav => "nav".to_string(),
+            Focus::Item(k) => items_k(k),
+            Focus::ResetSection => "reset-section".to_string(),
+            Focus::ResetAll => "reset-all".to_string(),
+            Focus::Close => "close".to_string(),
+        };
         vec![
             ("settings", "open".into()),
+            ("settings_focus", focus),
             ("settings_section", section_slug(p.section())),
             ("settings_rows", rows.to_string()),
             ("capture", capture),

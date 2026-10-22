@@ -30,6 +30,17 @@ thread_local! {
     static SCRIPT: RefCell<Option<Script>> = const { RefCell::new(None) };
     /// The file written by the last `export-html` / `export-csv` (V1-D).
     static LAST_OUT: RefCell<Option<String>> = const { RefCell::new(None) };
+    /// PWS baseline of `ui mem-mark` (`pws_delta_kib`).
+    static MEM_MARK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Private working set after a trim (both sides of a `mem-mark` comparison are measured the
+/// same way, so pages the panel touched once and freed do not count).
+fn pws_now() -> u64 {
+    use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
+    // SAFETY: own process; (usize::MAX, usize::MAX) = trim the working set.
+    let _ = unsafe { SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX) };
+    crate::perf::private_ws_bytes()
 }
 
 /// A script is running (popups then ignore the real mouse).
@@ -529,6 +540,10 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
         v if v.starts_with("settings-") => w
             .panel_drive(sh, verb, arg)
             .unwrap_or_else(|| format!("FAIL ui {verb}: unknown verb")),
+        "mem-mark" => {
+            MEM_MARK.with(|m| m.set(pws_now()));
+            "ok ui mem-mark".into()
+        }
         "job-cancel" => {
             super::jobui::cancel_job();
             "ok ui job-cancel".to_string()
@@ -921,6 +936,46 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         ),
         ("disk_scheme".into(), V::S(disk_scheme)),
     ];
+    let pws = pws_now();
+    let mark = MEM_MARK.with(std::cell::Cell::get);
+    out.push(("pws_kib".into(), V::N((pws / 1024) as f64)));
+    out.push((
+        "pws_delta_kib".into(),
+        V::N((pws as f64 - mark as f64) / 1024.0),
+    ));
+    out.push((
+        "code_line_numbers".into(),
+        V::N(f64::from(u8::from(sh.read.code_line_numbers))),
+    ));
+    // `ini.<section>.<key>` = settings.ini on disk; `theme.<light|dark>.<token>` = custom-theme.ini.
+    let ini = yamdv_core::ini::Ini::parse(&disk);
+    for sec in [
+        "reading",
+        "appearance",
+        "typography",
+        "shortcuts",
+        "general",
+        "privacy",
+    ] {
+        for (k, v) in ini.entries(sec) {
+            out.push((format!("ini.{sec}.{k}"), V::S(v.to_string())));
+        }
+    }
+    let th = std::fs::read(app::custom_theme_path()).unwrap_or_default();
+    let th = yamdv_core::ini::Ini::parse(&th);
+    for sec in ["light", "dark"] {
+        for (k, v) in th.entries(sec) {
+            out.push((format!("theme.{sec}.{k}"), V::S(v.to_string())));
+        }
+    }
+    let km = app::keymap();
+    for a in yamdv_core::keymap::ACTIONS {
+        out.push((format!("key.{}", a.id), V::S(km.shown(a.id))));
+    }
+    for t in yamdv_core::colors::TOKENS {
+        let c = yamdv_core::colors::token(&w.pal, t).unwrap_or(0);
+        out.push((format!("pal.{t}"), V::S(yamdv_core::colors::to_hex(c))));
+    }
     out.extend(
         w.panel_state(sh.lang)
             .into_iter()
