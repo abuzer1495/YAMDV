@@ -230,6 +230,13 @@ messages! {
     UninstallBody => "YAMDV, its registration and its Start-menu shortcut will be removed. Keep your settings, favorites and recent files?", "YAMDV, kaydı ve Başlat menüsü kısayolu kaldırılacak. Ayarlarınız, sık kullanılanlarınız ve son dosyalarınız saklansın mı?";
     UninstallKeep => "Uninstall, keep settings", "Kaldır, ayarları sakla";
     UninstallRemove => "Uninstall, remove settings", "Kaldır, ayarları sil";
+    MSchemeCards => "Color scheme…", "Renk şeması…";
+    MWordCount => "Word count", "Sözcük sayısı";
+    MFullscreen => "Full screen", "Tam ekran";
+    PillReadOnly => "Read-only", "Salt okunur";
+    WordBadge => "{w} words · {c} characters", "{w} sözcük · {c} karakter";
+    ZoomFont => "{} px", "{} px";
+    ZoomColumn => "Column {} %", "Sütun %{}";
 }
 
 /// Resolves the UI language from the setting (`system`/`en`/`tr`) and the user's UI language

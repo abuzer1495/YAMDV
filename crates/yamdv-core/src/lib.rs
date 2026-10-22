@@ -4,6 +4,7 @@
 //! Platform-independent (pure) crate; see `docs/ARCHITECTURE.md` §E.2 and ADR-0007.
 #![forbid(unsafe_code)]
 
+pub mod chrome;
 pub mod cmdline;
 pub mod decode;
 pub mod devscript;

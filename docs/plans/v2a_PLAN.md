@@ -15,3 +15,4 @@ Issues: FUT-30 #29, FUT-32 #31, FUT-35 #34, FUT-46 #44, BUG-09 #69.
 ## CHECKPOINT
 (see latest entry below)
 - 13:50 setup committed; next: survey menu/window code in yamdv-app / yamdv-platform-win.
+- 14:05 design: menu = non-modal thread-local popup (WS_EX_LAYERED alpha fade + NOACTIVATE + capture on root popup, DWM corner pref); title bar drawn in main client with a top offset (TOP) applied centrally (renderer origin + lparam_xy).
