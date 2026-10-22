@@ -3,19 +3,6 @@
 //! runs. Runs on the UI thread only; never while a window's state is borrowed.
 
 use super::*;
-use std::cell::Cell;
-use windows::Win32::Graphics::Gdi::{
-    CreateFontW, CreateSolidBrush, DT_LEFT, DT_RIGHT, DT_SINGLELINE, DT_VCENTER, DeleteObject,
-    DrawTextW, ExcludeClipRect, FillRect, HGDIOBJ, SelectObject, SetBkMode, SetTextColor,
-    TRANSPARENT,
-};
-use windows::Win32::UI::Controls::{DRAWITEMSTRUCT, MEASUREITEMSTRUCT, ODS_SELECTED, ODT_MENU};
-use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, DestroyMenu, GetMenuItemCount, GetMenuItemInfoW, HMENU, MENUINFO,
-    MENUITEMINFOW, MF_OWNERDRAW, MF_POPUP, MF_SEPARATOR, MIIM_DATA, MIIM_SUBMENU,
-    MIM_APPLYTOSUBMENUS, MIM_BACKGROUND, MNC_EXECUTE, MNC_SELECT, SetMenuInfo, TPM_RETURNCMD,
-    TPM_RIGHTBUTTON, TrackPopupMenuEx,
-};
 use yamdv_core::ini::Ini;
 use yamdv_core::state::State;
 
@@ -86,9 +73,6 @@ pub(super) fn ensure_theme_watch(hint: Option<HWND>) {
 
 thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
-    /// Owner-drawn menu item texts of the open menu: (label, shortcut, mark 0/1 check/2 radio).
-    static ITEMS: RefCell<Vec<(String, String, u8)>> = const { RefCell::new(Vec::new()) };
-    static MENU_DARK: Cell<(u32, u32, u32)> = const { Cell::new((0xffffff, 0x1f2328, 0x0969da)) };
 }
 
 /// Milliseconds since the Unix epoch.
@@ -356,55 +340,110 @@ mod cmd {
     pub const CSV_COPY: u32 = 143;
     pub const CSV_EXPORT: u32 = 144;
     pub const INSTALL: u32 = 145;
+    // V2-A window chrome (prompt 011 §3).
+    /// Appearance ▸ Color scheme… (card flyout, B.7.3).
+    pub const SCHEME_CARDS: u32 = 150;
+    /// Appearance ▸ ✓ Word count (B.10.3).
+    pub const WORD_COUNT: u32 = 151;
+    /// Appearance ▸ Full screen `F11` (R-WIN-06).
+    pub const FULLSCREEN: u32 = 152;
+    /// ⚙ / `Ctrl+,`: the Settings submenu as a popup (V2-B: the settings panel).
+    pub const SETTINGS_MENU: u32 = 153;
+    /// ⋯ / `Alt` / `F10`: the full menu under the ⋯ button.
+    pub const MORE_MENU: u32 = 154;
 }
 pub(super) use cmd::*;
 
+/// One menu entry (B.7.1 model, drawn by `popup`).
+#[derive(Debug, Clone)]
+pub(super) enum Entry {
+    Item {
+        id: u32,
+        label: String,
+        key: String,
+        /// 0 none, 1 check, 2 radio.
+        mark: u8,
+        /// Submenu index in [`Model::menus`].
+        sub: Option<usize>,
+    },
+    Sep,
+}
+
+/// A menu tree: `menus[0]` is the root.
+#[derive(Debug, Clone, Default)]
+pub(super) struct Model {
+    pub menus: Vec<Vec<Entry>>,
+}
+
+impl Model {
+    /// Items (submenu headers included, separators excluded) of the whole tree.
+    #[cfg_attr(not(feature = "dev-tools"), allow(dead_code))]
+    pub(super) fn item_count(&self) -> usize {
+        self.menus
+            .iter()
+            .flatten()
+            .filter(|e| matches!(e, Entry::Item { .. }))
+            .count()
+    }
+}
+
 struct Builder {
     lang: Lang,
+    menus: RefCell<Vec<Vec<Entry>>>,
 }
 
 impl Builder {
-    fn item(&self, m: HMENU, id: u32, label: &str, key: &str, mark: u8) {
-        let idx = ITEMS.with(|i| {
-            let mut i = i.borrow_mut();
-            i.push((label.to_string(), key.to_string(), mark));
-            i.len() - 1
-        });
-        // SAFETY: valid menu; owner-drawn item data is our index (no pointer).
-        let _ = unsafe {
-            AppendMenuW(
-                m,
-                MF_OWNERDRAW,
-                id as usize,
-                PCWSTR(std::ptr::without_provenance(idx + 1)),
-            )
-        };
+    fn new(lang: Lang) -> Self {
+        Self {
+            lang,
+            menus: RefCell::new(vec![Vec::new()]),
+        }
     }
-    fn msg(&self, m: HMENU, id: u32, msg: Msg, key: &str, mark: u8) {
+    fn push(&self, m: usize, e: Entry) {
+        if let Some(v) = self.menus.borrow_mut().get_mut(m) {
+            v.push(e);
+        }
+    }
+    fn item(&self, m: usize, id: u32, label: &str, key: &str, mark: u8) {
+        self.push(
+            m,
+            Entry::Item {
+                id,
+                label: label.to_string(),
+                key: key.to_string(),
+                mark,
+                sub: None,
+            },
+        );
+    }
+    fn msg(&self, m: usize, id: u32, msg: Msg, key: &str, mark: u8) {
         self.item(m, id, tr(self.lang, msg), key, mark);
     }
-    fn sep(&self, m: HMENU) {
-        // SAFETY: valid menu.
-        let _ = unsafe { AppendMenuW(m, MF_SEPARATOR, 0, PCWSTR::null()) };
+    fn sep(&self, m: usize) {
+        self.push(m, Entry::Sep);
     }
-    fn sub(&self, m: HMENU, msg: Msg) -> HMENU {
-        // SAFETY: plain menu creation; owned by the parent after AppendMenuW.
-        let s = unsafe { CreatePopupMenu() }.unwrap_or_default();
-        let idx = ITEMS.with(|i| {
-            let mut i = i.borrow_mut();
-            i.push((tr(self.lang, msg).to_string(), "\u{203a}".to_string(), 3));
-            i.len() - 1
-        });
-        // SAFETY: valid menus; item data is our index.
-        let _ = unsafe {
-            AppendMenuW(
-                m,
-                MF_POPUP | MF_OWNERDRAW,
-                s.0 as usize,
-                PCWSTR(std::ptr::without_provenance(idx + 1)),
-            )
+    fn sub(&self, m: usize, msg: Msg) -> usize {
+        let idx = {
+            let mut v = self.menus.borrow_mut();
+            v.push(Vec::new());
+            v.len() - 1
         };
-        s
+        self.push(
+            m,
+            Entry::Item {
+                id: 0,
+                label: tr(self.lang, msg).to_string(),
+                key: String::new(),
+                mark: 0,
+                sub: Some(idx),
+            },
+        );
+        idx
+    }
+    fn finish(self) -> Model {
+        Model {
+            menus: self.menus.into_inner(),
+        }
     }
 }
 
@@ -425,13 +464,14 @@ pub(super) struct MenuCtx {
     pub edit: u8,
     /// A table is under the cursor (Copy / Export table as CSV, R-EXP-04).
     pub table: bool,
+    /// The window is in F11 fullscreen (R-WIN-06).
+    pub fullscreen: bool,
 }
 
-fn build(lang: Lang, c: &MenuCtx) -> HMENU {
-    ITEMS.with(|i| i.borrow_mut().clear());
-    let b = Builder { lang };
-    // SAFETY: plain menu creation; destroyed after TrackPopupMenuEx.
-    let m = unsafe { CreatePopupMenu() }.unwrap_or_default();
+/// The document context menu (B.7.2), also shown by ⋯.
+pub(super) fn build(lang: Lang, c: &MenuCtx) -> Model {
+    let b = Builder::new(lang);
+    let m = 0;
     if c.edit != 0 {
         b.msg(m, UNDO, Msg::MUndo, "Ctrl+Z", 0);
         b.msg(m, REDO, Msg::MRedo, "Ctrl+Y", 0);
@@ -487,11 +527,8 @@ fn build(lang: Lang, c: &MenuCtx) -> HMENU {
     {
         b.msg(modes, MODE0 + i as u32, msg, "", radio(mode == v));
     }
-    let scheme = get("appearance.scheme");
-    let sc = b.sub(ap, Msg::MScheme);
-    for (i, (v, name)) in SCHEMES.iter().enumerate() {
-        b.item(sc, SCHEME0 + i as u32, name, "", radio(scheme == *v));
-    }
+    // B.7.3: the card flyout replaces the radio list (FUT-32).
+    b.msg(ap, SCHEME_CARDS, Msg::MSchemeCards, "", 0);
     b.msg(ap, BODY_FONT, Msg::MBodyFont, "", 0);
     let fs = b.sub(ap, Msg::MFontSize);
     b.msg(fs, FONT_BIG, Msg::MBigger, "Ctrl+=", 0);
@@ -533,6 +570,14 @@ fn build(lang: Lang, c: &MenuCtx) -> HMENU {
         "",
         check(get("reading.code_wrap") == "true"),
     );
+    b.msg(
+        ap,
+        WORD_COUNT,
+        Msg::MWordCount,
+        "",
+        check(get("reading.word_count_badge") == "true"),
+    );
+    b.msg(ap, FULLSCREEN, Msg::MFullscreen, "F11", check(c.fullscreen));
     if c.has_doc {
         b.msg(m, EDITOR, Msg::MExtEditor, "F4", 0);
         let fav = c
@@ -583,6 +628,21 @@ fn build(lang: Lang, c: &MenuCtx) -> HMENU {
         b.msg(x, PRINT, Msg::MPrint, "Ctrl+P", 0);
     }
     let st = b.sub(m, Msg::MSettings);
+    settings_into(&b, st);
+    b.sep(m);
+    b.msg(m, SHORTCUTS, Msg::MShortcuts, "F1", 0);
+    b.msg(m, ABOUT, Msg::MAbout, "", 0);
+    b.finish()
+}
+
+/// The ⚙ popup: the Settings submenu as a root menu (V2-B replaces it with the panel).
+pub(super) fn build_settings(lang: Lang) -> Model {
+    let b = Builder::new(lang);
+    settings_into(&b, 0);
+    b.finish()
+}
+
+fn settings_into(b: &Builder, st: usize) {
     let lang_v = get("general.language");
     let lg = b.sub(st, Msg::MLanguage);
     b.msg(lg, LANG0, Msg::MSystem, "", radio(lang_v == "system"));
@@ -642,187 +702,37 @@ fn build(lang: Lang, c: &MenuCtx) -> HMENU {
     );
     b.msg(st, EDIT_SETTINGS, Msg::MEditSettings, "", 0);
     b.msg(st, CONFIG_DIR, Msg::MConfigFolder, "", 0);
-    b.sep(m);
-    b.msg(m, SHORTCUTS, Msg::MShortcuts, "F1", 0);
-    b.msg(m, ABOUT, Msg::MAbout, "", 0);
-    m
 }
 
 /// Driver probe: builds the menu without showing it; (item count, checked labels joined by `|`).
+/// The selected card of the scheme flyout (B.7.3) counts as checked (it replaced the radio list).
 #[cfg(feature = "dev-tools")]
 pub(super) fn menu_probe(c: &MenuCtx) -> (usize, String) {
     let Some(sh) = shared() else {
         return (0, String::new());
     };
     let m = build(sh.lang, c);
-    // SAFETY: menu created by build(); destroyed here.
-    let _ = unsafe { DestroyMenu(m) };
-    ITEMS.with(|i| {
-        let i = i.borrow();
-        let checked: Vec<&str> = i
-            .iter()
-            .filter(|x| x.2 == 1 || x.2 == 2)
-            .map(|x| x.0.as_str())
-            .collect();
-        (i.len(), checked.join("|"))
-    })
-}
-
-/// Shows the context menu at screen point `(x, y)` and returns the chosen command (0 = none).
-pub(super) fn track(hwnd: HWND, x: i32, y: i32, c: &MenuCtx, pal: &Palette) -> u32 {
-    let Some(sh) = shared() else { return 0 };
-    MENU_DARK.with(|d| d.set((pal.bg, pal.text, pal.accent)));
-    let m = build(sh.lang, c);
-    // SAFETY: brush lives until the menu is destroyed below.
-    let brush = unsafe { CreateSolidBrush(colorref(pal.bg)) };
-    let mi = MENUINFO {
-        cbSize: size_of::<MENUINFO>() as u32,
-        fMask: MIM_BACKGROUND | MIM_APPLYTOSUBMENUS,
-        hbrBack: brush,
-        ..Default::default()
-    };
-    // SAFETY: valid menu and MENUINFO; TrackPopupMenuEx runs a modal loop with no borrow held.
-    unsafe {
-        let _ = SetMenuInfo(m, &mi);
-        let r = TrackPopupMenuEx(m, (TPM_RETURNCMD | TPM_RIGHTBUTTON).0, x, y, hwnd, None);
-        let _ = DestroyMenu(m);
-        let _ = DeleteObject(HGDIOBJ(brush.0));
-        r.0 as u32
+    let mut checked: Vec<String> = m
+        .menus
+        .iter()
+        .flatten()
+        .filter_map(|e| match e {
+            Entry::Item { label, mark, .. } if *mark == 1 || *mark == 2 => Some(label.clone()),
+            _ => None,
+        })
+        .collect();
+    let scheme = get("appearance.scheme");
+    if let Some((_, name)) = SCHEMES.iter().find(|s| s.0 == scheme) {
+        checked.push((*name).to_string());
     }
+    (m.item_count(), checked.join("|"))
 }
 
-fn colorref(rgb: u32) -> windows::Win32::Foundation::COLORREF {
-    windows::Win32::Foundation::COLORREF(
-        ((rgb >> 16) & 0xff) | (rgb & 0xff00) | ((rgb & 0xff) << 16),
-    )
-}
-
-fn item_text(data: usize) -> Option<(String, String, u8)> {
-    ITEMS.with(|i| i.borrow().get(data.checked_sub(1)?).cloned())
-}
-
-/// `WM_MEASUREITEM` for menu items.
-pub(super) fn measure(hwnd: HWND, lp: LPARAM) -> bool {
-    // SAFETY: for WM_MEASUREITEM lParam points to a writable MEASUREITEMSTRUCT.
-    let mis = unsafe { &mut *(lp.0 as *mut MEASUREITEMSTRUCT) };
-    if mis.CtlType != ODT_MENU {
-        return false;
+/// Settings changed only in memory (hover preview of the scheme cards, B.7.3); not persisted.
+pub(super) fn set_transient(key: &str, value: &str) {
+    if with(|a| a.settings.set(key, value)).unwrap_or(false) {
+        apply_all();
     }
-    // SAFETY: valid hwnd.
-    let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
-    let (label, key, _) = item_text(mis.itemData).unwrap_or_default();
-    let chars = label.chars().count() + key.chars().count();
-    mis.itemWidth = scale(
-        40 + 8 * chars as i32 + if key.is_empty() { 0 } else { 32 },
-        dpi,
-    ) as u32;
-    mis.itemHeight = scale(28, dpi) as u32;
-    true
-}
-
-/// `WM_DRAWITEM` for menu items (theme colors, check/radio marks, shortcut column).
-pub(super) fn draw_item(hwnd: HWND, lp: LPARAM) -> bool {
-    // SAFETY: for WM_DRAWITEM lParam points to a DRAWITEMSTRUCT valid during the call.
-    let dis = unsafe { &*(lp.0 as *const DRAWITEMSTRUCT) };
-    if dis.CtlType != ODT_MENU {
-        return false;
-    }
-    let (bg, fg, accent) = MENU_DARK.with(Cell::get);
-    let (label, key, mark) = item_text(dis.itemData).unwrap_or_default();
-    // SAFETY: valid hwnd.
-    let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
-    let sel = dis.itemState.0 & ODS_SELECTED.0 != 0;
-    let hdc = dis.hDC;
-    let mut rc = dis.rcItem;
-    let hover = theme::mix(bg, accent);
-    // SAFETY: valid DC from the system; created GDI objects are deleted below.
-    unsafe {
-        let br = CreateSolidBrush(colorref(if sel { hover } else { bg }));
-        FillRect(hdc, &rc, br);
-        let _ = DeleteObject(HGDIOBJ(br.0));
-        let font = CreateFontW(
-            -scale(13, dpi),
-            0,
-            0,
-            0,
-            400,
-            0,
-            0,
-            0,
-            windows::Win32::Graphics::Gdi::DEFAULT_CHARSET,
-            windows::Win32::Graphics::Gdi::OUT_DEFAULT_PRECIS,
-            windows::Win32::Graphics::Gdi::CLIP_DEFAULT_PRECIS,
-            windows::Win32::Graphics::Gdi::CLEARTYPE_QUALITY,
-            0,
-            w!("Segoe UI"),
-        );
-        let old = SelectObject(hdc, HGDIOBJ(font.0));
-        SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, colorref(fg));
-        let pad = scale(12, dpi);
-        if mark != 0 && mark != 3 {
-            let mut mr = rc;
-            mr.left += pad;
-            let mut t: Vec<u16> = if mark == 1 { "\u{2713}" } else { "\u{25CF}" }
-                .encode_utf16()
-                .collect();
-            DrawTextW(hdc, &mut t, &mut mr, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-        }
-        rc.left += scale(36, dpi);
-        rc.right -= pad;
-        let mut t: Vec<u16> = label.encode_utf16().collect();
-        DrawTextW(hdc, &mut t, &mut rc, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-        if !key.is_empty() {
-            SetTextColor(hdc, colorref(theme::mix(fg, bg)));
-            let mut k: Vec<u16> = key.encode_utf16().collect();
-            DrawTextW(hdc, &mut k, &mut rc, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
-        }
-        SelectObject(hdc, old);
-        let _ = DeleteObject(HGDIOBJ(font.0));
-        if mark == 3 {
-            // Our own "›" replaces the system submenu arrow (drawn in the system color).
-            let r = dis.rcItem;
-            let _ = ExcludeClipRect(hdc, r.left, r.top, r.right, r.bottom);
-        }
-    }
-    true
-}
-
-/// `WM_MENUCHAR`: typing a letter jumps to (and opens/executes) the first matching item.
-pub(super) fn menu_char(wp: WPARAM, lp: LPARAM) -> Option<LRESULT> {
-    let ch = char::from_u32((wp.0 & 0xFFFF) as u32)?
-        .to_lowercase()
-        .next()?;
-    let m = HMENU(lp.0 as *mut core::ffi::c_void);
-    // SAFETY: the system passes the active menu handle.
-    let n = unsafe { GetMenuItemCount(Some(m)) };
-    for i in 0..n.max(0) {
-        let mut mii = MENUITEMINFOW {
-            cbSize: size_of::<MENUITEMINFOW>() as u32,
-            fMask: MIIM_DATA | MIIM_SUBMENU,
-            ..Default::default()
-        };
-        // SAFETY: valid menu and structure.
-        if unsafe { GetMenuItemInfoW(m, i as u32, true, &mut mii) }.is_err() {
-            continue;
-        }
-        let Some((label, _, _)) = item_text(mii.dwItemData) else {
-            continue;
-        };
-        let first = label
-            .chars()
-            .find(|c| c.is_alphanumeric())
-            .and_then(|c| c.to_lowercase().next());
-        if first == Some(ch) {
-            let action = if mii.hSubMenu.is_invalid() {
-                MNC_EXECUTE
-            } else {
-                MNC_SELECT
-            };
-            return Some(LRESULT(((action as isize) << 16) | i as isize));
-        }
-    }
-    None
 }
 
 // ---- commands -------------------------------------------------------------------------------
@@ -842,16 +752,20 @@ fn toggle(key: &str) {
 
 /// Zoom step (prompt 005 §3.9): font size ±1 px, column width ±5 %; `0` resets.
 pub(super) fn zoom(hwnd: HWND, font: bool, delta: i64) {
-    let (key, def, step, msg, unit) = if font {
-        ("typography.font_size", 16, 1, Msg::ToastFontSize, " px")
+    let (key, def, step, msg) = if font {
+        ("typography.font_size", 16, 1, Msg::ZoomFont)
     } else {
-        ("typography.column_width_pct", 65, 5, Msg::ToastColumn, " %")
+        ("typography.column_width_pct", 65, 5, Msg::ZoomColumn)
     };
     let cur: i64 = get(key).parse().unwrap_or(def);
     let next = if delta == 0 { def } else { cur + delta * step };
     set(key, &next.to_string());
     let shown = get(key);
-    with_win(hwnd, |w, _| w.toast_with(msg, &format!("{shown}{unit}")));
+    // B.10.2: the zoom indicator replaces the zoom toast.
+    with_win(hwnd, |w, sh| {
+        let t = tr(sh.lang, msg).replace("{}", &shown);
+        w.show_zoom(t);
+    });
 }
 
 /// Runs `f` on the window state of `hwnd` (then flushes its deferred calls).
@@ -932,6 +846,11 @@ pub(super) fn run_command(hwnd: HWND, id: u32, link: Option<String>) -> Vec<Acti
             }
         }
         INSTALL => out.push(Action::Install),
+        SCHEME_CARDS => out.push(Action::SchemeCards),
+        WORD_COUNT => toggle("reading.word_count_badge"),
+        FULLSCREEN => with_win(hwnd, |w, _| w.toggle_fullscreen()),
+        SETTINGS_MENU => out.push(Action::ChromeMenu(false)),
+        MORE_MENU => out.push(Action::ChromeMenu(true)),
         RELOAD => with_win(hwnd, |w, sh| w.reload(sh)),
         EXPLORER => with_win(hwnd, |w, _| {
             if let View::Doc(d) = &w.view
@@ -1419,7 +1338,7 @@ impl Win {
     pub(super) fn kbd_menu(&self) -> Action {
         let mut pt = POINT {
             x: (48.0 * self.scale) as i32,
-            y: (48.0 * self.scale) as i32,
+            y: ((48.0 + self.top) * self.scale) as i32,
         };
         // SAFETY: valid hwnd and point.
         let _ = unsafe { windows::Win32::Graphics::Gdi::ClientToScreen(self.hwnd, &mut pt) };
@@ -1452,8 +1371,12 @@ impl Win {
                 path: Some(d.path.clone()),
                 edit: self.edit_mode_id(),
                 table: self.ctx_table.is_some(),
+                fullscreen: self.fs,
             },
-            _ => MenuCtx::default(),
+            _ => MenuCtx {
+                fullscreen: self.fs,
+                ..MenuCtx::default()
+            },
         }
     }
 

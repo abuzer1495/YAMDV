@@ -83,6 +83,10 @@ pub enum Cmd {
     ExportHtml(String),
     /// Export the first table of the document as CSV to a file (R-EXP-04); `out_*` fields.
     ExportCsv(String),
+    /// Window chrome / popup interaction (V2-A): `ui <verb> [arg]` — `ui click more`,
+    /// `ui dblclick-caption`, `ui hover 2`, `ui popup-key down`, `ui popup-hover 3`,
+    /// `ui popup-click 3`, `ui popup-shot menu.png`, `ui shot-window light.png`.
+    Ui(String, String),
 }
 
 /// Virtual-key code for a key name.
@@ -206,6 +210,10 @@ pub fn parse_line(line: &str) -> Result<Option<Cmd>, String> {
                 _ => return Err(bad()),
             }
         }
+        "ui" if !rest.is_empty() => {
+            let (verb, arg) = rest.split_once(' ').unwrap_or((rest, ""));
+            Cmd::Ui(verb.to_string(), unquote(arg))
+        }
         "sleep" => Cmd::Sleep(rest.parse().map_err(|_| bad())?),
         "dump" => Cmd::Dump,
         "assert" => {
@@ -299,6 +307,23 @@ mod tests {
         );
         assert_eq!(c[5], Cmd::Assert("scroll_y".into(), Op::Gt, "100".into()));
         assert_eq!(c[6], Cmd::Assert("document".into(), Op::Eq, "b.md".into()));
+    }
+
+    #[test]
+    fn parses_ui_commands() {
+        assert_eq!(
+            parse_line("ui chrome more"),
+            Ok(Some(Cmd::Ui("chrome".into(), "more".into())))
+        );
+        assert_eq!(
+            parse_line("ui menu-close"),
+            Ok(Some(Cmd::Ui("menu-close".into(), String::new())))
+        );
+        assert_eq!(
+            parse_line("ui snapshot-top \"top light.png\""),
+            Ok(Some(Cmd::Ui("snapshot-top".into(), "top light.png".into())))
+        );
+        assert!(parse_line("ui").is_err());
     }
 
     #[test]

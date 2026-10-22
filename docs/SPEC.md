@@ -290,4 +290,4 @@ Requirement keywords: **MUST** (v1), **SHOULD** (v1 unless a phase prompt defers
 - **R-REL-04 MUST** Works without admin rights, on locked-down machines, from read-only media (portable mode then falls back to `%APPDATA%`).
 
 ## A.25 v1 scope
-The owner's v1 scope decision (2026-10-17) defers the features listed in `docs/FUTURE.md` (FUT-01…FUT-50) to after v1. For v1, any requirement or part of a requirement covered by a FUT item is not required, whatever its MUST/SHOULD keyword; `docs/TRACEABILITY.md` marks it `deferred (FUT-xx)`.
+The owner's v1 scope decision (2026-10-17) defers the features listed in `docs/FUTURE.md` (FUT-01…FUT-50) to after v1. For v1, any requirement or part of a requirement covered by a FUT item is not required, whatever its MUST/SHOULD keyword; `docs/TRACEABILITY.md` marks it `deferred (FUT-xx)`. From v2 on, `docs/ROADMAP_V2.md` schedules these items; an item is back in scope from the phase that implements it.

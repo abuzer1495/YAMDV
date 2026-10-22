@@ -234,6 +234,8 @@ pub struct DWrite {
     space: RefCell<HashMap<(bool, u32), f32>>,
     brk: IUnknown,
     math: OnceCell<Option<MathFace>>,
+    /// Caption / chrome icon font (B.4): Segoe Fluent Icons → Segoe MDL2 Assets → none.
+    icon: OnceCell<Option<HSTRING>>,
 }
 
 impl std::fmt::Debug for DWrite {
@@ -277,6 +279,7 @@ impl DWrite {
             space: RefCell::new(HashMap::new()),
             brk: RunBreak.into(),
             math: OnceCell::new(),
+            icon: OnceCell::new(),
         })
     }
 
@@ -290,6 +293,65 @@ impl DWrite {
                 Some(MathFace::new(Box::new(f)))
             })
             .as_ref()
+    }
+
+    /// The chrome icon font family, if installed (B.4: Segoe Fluent Icons, then Segoe MDL2
+    /// Assets; `None` → vector fallback).
+    pub fn icon_family(&self) -> Option<&HSTRING> {
+        self.icon
+            .get_or_init(|| {
+                let mut coll: Option<IDWriteFontCollection> = None;
+                // SAFETY: valid factory and out-pointer.
+                unsafe { self.factory.GetSystemFontCollection(&mut coll, false) }.ok()?;
+                let coll = coll?;
+                ["Segoe Fluent Icons", "Segoe MDL2 Assets"]
+                    .into_iter()
+                    .map(HSTRING::from)
+                    .find(|h| family_exists(&coll, h))
+            })
+            .as_ref()
+    }
+
+    /// One icon-font glyph (`text`) at `size` DIPs in `color`; `None` without an icon font.
+    pub fn shape_icon(&self, text: &str, size: f32, color: u32) -> Option<DwShaped> {
+        let fam = self.icon_family()?.clone();
+        let base = Style {
+            family: Family::Body,
+            size,
+            weight: 400,
+            italic: false,
+            color,
+            strike: false,
+            underline: false,
+        };
+        let mut sh = self.shape_impl(&ParaSpec {
+            text,
+            base,
+            spans: vec![],
+            width: None,
+            line_pitch: size.ceil(),
+            rtl: false,
+            tab_spaces: None,
+            objects: Vec::new(),
+        });
+        let l = sh.layout.as_ref()?;
+        let len = u32::try_from(text.encode_utf16().count()).unwrap_or(0);
+        let mut m = DWRITE_TEXT_METRICS::default();
+        // SAFETY: valid layout; range within the text; out-pointer on the stack.
+        unsafe {
+            l.SetFontFamilyName(
+                &fam,
+                DWRITE_TEXT_RANGE {
+                    startPosition: 0,
+                    length: len,
+                },
+            )
+            .ok()?;
+            l.GetMetrics(&mut m).ok()?;
+        }
+        sh.width = m.widthIncludingTrailingWhitespace;
+        sh.height = m.height.max(size);
+        Some(sh)
     }
 
     fn format(&self, s: &Style) -> windows::core::Result<IDWriteTextFormat> {

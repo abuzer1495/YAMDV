@@ -1,0 +1,49 @@
+# Custom title bar (prompt 011 §3.1, FUT-30 / BUG-09): ⋯ full menu, ⚙ popup, Max/Restore.
+wait-idle
+assert chrome_top == 32
+assert popup_open == 0
+ui click more
+wait-idle
+assert popup_open == 1
+assert popup_kind == menu
+assert popup_levels == 1
+assert popup_items > 20
+assert popup_root_items > 5
+ui popup-key esc
+wait-idle
+assert popup_open == 0
+# ⚙ = the Settings submenu as a root popup; → opens a level, ← closes it.
+ui click settings
+wait-idle
+assert popup_open == 1
+assert popup_first contains Language
+ui popup-key down
+ui popup-key right
+wait-idle
+assert popup_levels == 2
+ui popup-key left
+wait-idle
+assert popup_levels == 1
+ui popup-key esc
+wait-idle
+assert popup_open == 0
+# Ctrl+, opens the same popup.
+command settings-menu
+wait-idle
+assert popup_first contains Language
+ui popup-key esc
+wait-idle
+assert popup_open == 0
+# Maximize / restore by button and by caption double-click.
+ui click max
+sleep 400
+assert maximized == 1
+ui click max
+sleep 400
+assert maximized == 0
+ui dblclick-caption
+sleep 400
+assert maximized == 1
+ui dblclick-caption
+sleep 400
+assert maximized == 0

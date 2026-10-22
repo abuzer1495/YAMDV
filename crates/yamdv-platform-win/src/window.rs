@@ -56,15 +56,17 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_SETTINGCHANGE, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    IDC_HAND, SW_SHOWMAXIMIZED, WM_ACTIVATEAPP, WM_CHAR, WM_CONTEXTMENU, WM_DRAWITEM, WM_MBUTTONUP,
-    WM_MEASUREITEM, WM_MENUCHAR, WM_SYSKEYDOWN, WM_XBUTTONUP,
+    IDC_HAND, SW_SHOWMAXIMIZED, WM_ACTIVATEAPP, WM_CHAR, WM_CONTEXTMENU, WM_MBUTTONUP,
+    WM_SYSKEYDOWN, WM_XBUTTONUP,
 };
 
 mod app;
+mod chrome;
 #[cfg(feature = "dev-tools")]
 mod driver;
 mod edit;
 mod findbar;
+mod popup;
 mod sidebar;
 mod welcome;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -119,6 +121,8 @@ const TIMER_THEME: usize = 11;
 /// One-shot: repaint the sidebar when the scroll-spy heading changed (after scrolling pauses).
 const TIMER_SPY: usize = 12;
 const TIMER_COPIED: usize = 8;
+/// One-shot: hide the zoom indicator (B.10.2, 900 ms).
+const TIMER_ZOOM: usize = 17;
 #[cfg(feature = "dev-tools")]
 const TIMER_SCRIPT: usize = 9;
 const LINE_STEP: f64 = 40.0;
@@ -166,6 +170,10 @@ struct Shared {
     external: String,
     #[cfg_attr(not(feature = "mem-stats"), allow(dead_code))]
     commit_at_start: u64,
+    /// `general.title_format` = full path.
+    title_full: bool,
+    /// `reading.word_count_badge` (B.10.3).
+    word_badge: bool,
 }
 
 thread_local! {
@@ -397,7 +405,21 @@ struct Win {
     side: sidebar::Side,
     /// CSV of the table under the last context-menu click (R-EXP-04).
     ctx_table: Option<String>,
+    /// Content offset below the client top: the title bar height, 0 in fullscreen (B.4).
+    top: f32,
+    /// F11 fullscreen (R-WIN-06).
+    fs: bool,
+    /// Title-bar interaction state.
+    cap: chrome::Caption,
+    /// Zoom indicator text while shown (B.10.2).
+    zoom_ind: Option<String>,
+    /// Word-count cache keyed by (source length, selection).
+    #[allow(clippy::type_complexity)]
+    wc_cache: std::cell::Cell<Option<((usize, Option<(u32, u32)>), WordCounts)>>,
 }
+
+/// (words, characters) of the document and of the selection.
+type WordCounts = ((usize, usize), Option<(usize, usize)>);
 
 /// What an export dialog-host answer is for (prompt 008 §2–§3).
 #[derive(Debug, Clone)]
@@ -435,6 +457,13 @@ enum Action {
     Export(ExportKind),
     /// Welcome page "Install YAMDV for this user" (R-SYS-05).
     Install,
+    /// Appearance ▸ Color scheme… card flyout (B.7.3).
+    SchemeCards,
+    /// Title-bar menu: `true` = ⋯ (full menu), `false` = ⚙ (Settings submenu).
+    ChromeMenu(bool),
+    /// Driver: popup operations run outside the window borrow.
+    #[cfg(feature = "dev-tools")]
+    PopupOp(driver::PopupOp),
 }
 
 fn rgb_text(dark: bool) -> u32 {
@@ -458,6 +487,7 @@ impl Win {
     }
 
     fn set_title(&mut self, s: &str) {
+        self.invalidate_bar();
         self.defer(Deferred::Title(s.to_string()));
     }
 
@@ -930,6 +960,10 @@ impl Win {
             return;
         }
         d.viewer.scroll_to(y, vh);
+        if (old > 0.5) != (y > 0.5) || (self.fs && self.cap.reveal) {
+            // The bar's bottom line follows "scrolled"; a revealed bar overlays the blit.
+            self.invalidate_bar();
+        }
         let dy = ((old * scale).round() - (y * scale).round()) as i32;
         let ch_px = (self.ch * self.scale) as i32;
         let px = |v: f32| (v * self.scale).round() as i32;
@@ -947,12 +981,12 @@ impl Win {
                 l = l.max(chev.x + chev.w);
             }
         }
-        let doc_rc = RECT {
+        let doc_rc = self.crc(RECT {
             left: px(l),
             top: 0,
             right: px(r - 16.0).max(px(l)),
             bottom: ch_px,
-        };
+        });
         // SAFETY: valid hwnd; scroll the document rect and invalidate the exposed strip.
         unsafe {
             if dy.abs() < ch_px && self.dialog.is_none() {
@@ -969,34 +1003,37 @@ impl Win {
                 // The overlay scrollbar strip is not blitted: repaint the old and new thumb only
                 // (a full-height strip would make the paint span the whole window).
                 for t in [old_thumb, self.thumb()].into_iter().flatten() {
-                    let rc = RECT {
+                    let rc = self.crc(RECT {
                         left: doc_rc.right,
                         top: px(t.y) - 2,
                         right: px(r),
                         bottom: px(t.y + t.h) + 2,
-                    };
+                    });
                     let _ = InvalidateRect(Some(self.hwnd), Some(&rc), false);
                 }
                 // Fixed overlays inside the blitted rect: repaint where they were and are.
                 let ady = dy.abs();
                 if self.find.is_some() {
                     let (bar, _) = findbar::bar_rects(self.cw);
-                    let rc = RECT {
+                    let rc = self.crc(RECT {
                         left: px(bar.x) - 4,
                         top: px(bar.y) - ady - 4,
                         right: px(bar.x + bar.w) + 4,
                         bottom: px(bar.y + bar.h) + ady + 4,
-                    };
+                    });
                     let _ = InvalidateRect(Some(self.hwnd), Some(&rc), false);
                 }
                 if self.toast.is_some() {
-                    let rc = RECT {
+                    let rc = self.crc(RECT {
                         left: 0,
                         top: px(self.ch - 120.0) - ady,
                         right: px(self.cw),
                         bottom: ch_px,
-                    };
+                    });
                     let _ = InvalidateRect(Some(self.hwnd), Some(&rc), false);
+                }
+                if let Some(sh) = &sh {
+                    self.invalidate_overlays(sh, ady);
                 }
             } else {
                 let _ = InvalidateRect(Some(self.hwnd), None, false);
@@ -1081,6 +1118,7 @@ impl Win {
         unsafe {
             let _ = GetClientRect(self.hwnd, &mut rc);
             rc.left = rc.right - (16.0 * self.scale) as i32;
+            rc.top = self.top_px();
             let _ = InvalidateRect(Some(self.hwnd), Some(&rc), false);
         }
     }
@@ -1256,7 +1294,11 @@ impl Win {
             };
             for rc in rects {
                 r.paint(hdc, rc, me.pal.text, &mut |band| {
-                    me.draw(sh, band, cx, geo.as_ref())
+                    band.set_origin(me.top);
+                    me.draw(sh, band, cx, geo.as_ref());
+                    me.draw_overlays(sh, band);
+                    band.set_origin(0.0);
+                    me.draw_chrome(sh, band);
                 });
             }
             if let View::Doc(d) = &me.view {
@@ -1588,6 +1630,8 @@ impl Win {
         }
         match vk {
             0x70 => return Some(Action::Help),
+            0x7A => return Some(Action::Command(app::FULLSCREEN)),
+            0xBC if ctrl => return Some(Action::Command(app::SETTINGS_MENU)),
             0x73 => self.open_editor(),
             v if ctrl && shift && v == u16::from(b'E') => {
                 return Some(Action::Export(ExportKind::Pdf));
@@ -1612,6 +1656,7 @@ impl Win {
                 self.focus = None;
                 self.invalidate();
             }
+            v if v == VK_ESCAPE.0 && self.fs => self.toggle_fullscreen(),
             v if v == VK_ESCAPE.0 => return Some(Action::Close),
             v if v == VK_TAB.0 => self.focus_step(sh, if shift { -1 } else { 1 }),
             v if v == VK_RETURN.0 => {
@@ -1898,11 +1943,9 @@ impl Win {
         if self.dialog.is_some() {
             return false;
         }
-        let mut pt = POINT { x: sx, y: sy };
-        // SAFETY: valid hwnd and point.
-        let _ = unsafe { ScreenToClient(self.hwnd, &mut pt) };
-        let (x, y) = (pt.x as f32 / self.scale, pt.y as f32 / self.scale);
+        let (x, y) = self.screen_xy(sx, sy);
         let (cx, _) = self.col(sh);
+        let top_px = self.top_px();
         let View::Doc(d) = &mut self.view else {
             return false;
         };
@@ -1922,9 +1965,9 @@ impl Win {
             let s = self.scale;
             let rc = RECT {
                 left: ((cx + g.view.x) * s).floor() as i32,
-                top: ((ty + g.view.y) * s).floor() as i32,
+                top: ((ty + g.view.y) * s).floor() as i32 + top_px,
                 right: ((cx + g.view.right()) * s).ceil() as i32,
-                bottom: ((ty + g.track.bottom() + 2.0) * s).ceil() as i32,
+                bottom: ((ty + g.track.bottom() + 2.0) * s).ceil() as i32 + top_px,
             };
             // SAFETY: valid hwnd and rect.
             let _ = unsafe { InvalidateRect(Some(self.hwnd), Some(&rc), false) };
@@ -2302,12 +2345,12 @@ impl Win {
                 self.side.spy = spy;
                 if let Some(sr) = self.side_rect(sh) {
                     let px = |v: f32| (v * self.scale).round() as i32;
-                    let rc = RECT {
+                    let rc = self.crc(RECT {
                         left: px(sr.x),
                         top: 0,
                         right: px(sr.x + sr.w),
                         bottom: px(self.ch),
-                    };
+                    });
                     // SAFETY: valid hwnd.
                     let _ = unsafe { InvalidateRect(Some(self.hwnd), Some(&rc), false) };
                 }
@@ -2327,6 +2370,13 @@ impl Win {
                 let _ = KillTimer(Some(self.hwnd), TIMER_COPIED);
                 let _ = InvalidateRect(Some(self.hwnd), None, false);
             }
+            return;
+        }
+        if id == TIMER_ZOOM {
+            self.zoom_ind = None;
+            // SAFETY: valid hwnd.
+            let _ = unsafe { KillTimer(Some(self.hwnd), TIMER_ZOOM) };
+            self.invalidate();
             return;
         }
         if id == TIMER_TOAST {
@@ -2379,12 +2429,9 @@ impl Win {
                 let d = self.drag_dir / 4.0;
                 self.set_scroll(self.scroll_pos() + d);
                 let mut pt = POINT::default();
-                // SAFETY: valid out-pointer / hwnd.
-                unsafe {
-                    let _ = GetCursorPos(&mut pt);
-                    let _ = ScreenToClient(self.hwnd, &mut pt);
-                }
-                let (x, y) = (pt.x as f32 / self.scale, pt.y as f32 / self.scale);
+                // SAFETY: valid out-pointer.
+                let _ = unsafe { GetCursorPos(&mut pt) };
+                let (x, y) = self.screen_xy(pt.x, pt.y);
                 self.mouse_move(sh, x, y);
             }
             TIMER_MEMSTATS => {
@@ -2714,7 +2761,7 @@ fn update_size(w: &mut Win, sh: &Shared) {
     let _ = unsafe { GetClientRect(w.hwnd, &mut rc) };
     let (pw, ph) = (rc.right - rc.left, rc.bottom - rc.top);
     w.cw = pw as f32 / w.scale;
-    w.ch = ph as f32 / w.scale;
+    w.ch = (ph as f32 / w.scale - w.top).max(1.0);
     if let Some(r) = &mut w.renderer {
         r.resize(pw.max(1));
     }
@@ -2821,14 +2868,59 @@ fn handle(
                     i32::from(lp.0 as u16 as i16),
                     i32::from((lp.0 >> 16) as u16 as i16),
                 );
-                let mut pt = POINT { x: sx, y: sy };
-                // SAFETY: valid hwnd and point.
-                let _ = unsafe { ScreenToClient(w.hwnd, &mut pt) };
-                let (x, y) = (pt.x as f32 / w.scale, pt.y as f32 / w.scale);
+                let (x, y) = w.screen_xy(sx, sy);
+                if y < 0.0 && w.chrome_visible() {
+                    // Right-click on the title bar: the system menu (B.4).
+                    w.defer(Deferred::SysMenu(sx, sy));
+                    return (Some(LRESULT(0)), actions);
+                }
                 let link = w.link_at(sh, x, y);
                 w.ctx_table = w.table_csv_at(sh, x, y);
                 actions.push(Action::ContextMenu(sx, sy, link));
             }
+            Some(LRESULT(0))
+        }
+        0x0006 /* WM_ACTIVATE */ => {
+            w.cap.inactive = wp.0 & 0xFFFF == 0;
+            w.invalidate_bar();
+            None
+        }
+        0x0084 /* WM_NCHITTEST */ => {
+            // SAFETY: DefWindowProc hit-testing sends no messages.
+            let r = unsafe { DefWindowProcW(w.hwnd, msg, wp, lp) };
+            if r.0 as u32 != HTCLIENT {
+                return (Some(r), actions);
+            }
+            let (sx, sy) = (
+                i32::from(lp.0 as u16 as i16),
+                i32::from((lp.0 >> 16) as u16 as i16),
+            );
+            let (x, y) = w.screen_xy(sx, sy);
+            Some(LRESULT(w.nc_hit(x, y + w.top).unwrap_or(HTCLIENT) as isize))
+        }
+        0x00A0 /* WM_NCMOUSEMOVE */ => {
+            w.nc_move(wp.0 as u32);
+            None
+        }
+        0x00A1 | 0x00A3 /* WM_NCLBUTTONDOWN / DBLCLK */ if wp.0 as u32 == chrome::HT_MAX => {
+            w.cap.pressed = Some(yamdv_core::chrome::Part::Max);
+            w.invalidate_bar();
+            Some(LRESULT(0))
+        }
+        0x00A2 /* WM_NCLBUTTONUP */ if wp.0 as u32 == chrome::HT_MAX => {
+            if w.cap.pressed.take() == Some(yamdv_core::chrome::Part::Max) {
+                w.chrome_click(yamdv_core::chrome::Part::Max);
+            }
+            w.invalidate_bar();
+            Some(LRESULT(0))
+        }
+        0x02A2 /* WM_NCMOUSELEAVE */ => {
+            w.nc_leave();
+            None
+        }
+        // Alt alone / F10 (keyboard menu without a mnemonic) opens ⋯ (B.4).
+        0x0112 /* WM_SYSCOMMAND */ if wp.0 & 0xFFF0 == 0xF100 && lp.0 == 0 => {
+            actions.push(Action::ChromeMenu(true));
             Some(LRESULT(0))
         }
         WM_ACTIVATEAPP => {
@@ -2839,9 +2931,6 @@ fn handle(
             }
             None
         }
-        WM_MEASUREITEM => app::measure(w.hwnd, lp).then_some(LRESULT(1)),
-        WM_DRAWITEM => app::draw_item(w.hwnd, lp).then_some(LRESULT(1)),
-        WM_MENUCHAR => app::menu_char(wp, lp),
         WM_CHAR if w.find.is_some() => {
             if let Some(c) = char::from_u32(wp.0 as u32) {
                 w.find_char(sh, c);
@@ -2892,10 +2981,7 @@ fn handle(
                 i32::from(lp.0 as u16 as i16),
                 i32::from((lp.0 >> 16) as u16 as i16),
             );
-            let mut pt = POINT { x: sx, y: sy };
-            // SAFETY: valid hwnd and point.
-            let _ = unsafe { ScreenToClient(w.hwnd, &mut pt) };
-            let (cx_, cy_) = (pt.x as f32 / w.scale, pt.y as f32 / w.scale);
+            let (cx_, cy_) = w.screen_xy(sx, sy);
             if matches!(w.view, View::Doc(_))
                 && w.side_rect(sh).is_some_and(|r| r.contains(cx_, cy_))
             {
@@ -2915,29 +3001,36 @@ fn handle(
             Some(LRESULT(0))
         }
         WM_LBUTTONDOWN => {
-            let (x, y) = lparam_xy(lp, w.scale);
-            w.mouse_down(sh, x, y, wp.0 & MK_CONTROL_BIT != 0);
+            let (x, y) = w.lp_xy(lp);
+            if !w.chrome_down(x, y + w.top) {
+                w.mouse_down(sh, x, y, wp.0 & MK_CONTROL_BIT != 0);
+            }
             Some(LRESULT(0))
         }
         // Middle-click on a Markdown link opens it in a new window.
         WM_MBUTTONUP => {
-            let (x, y) = lparam_xy(lp, w.scale);
-            if w.dialog.is_none() {
+            let (x, y) = w.lp_xy(lp);
+            if w.dialog.is_none() && y >= 0.0 {
                 w.middle_click(sh, x, y);
             }
             Some(LRESULT(0))
         }
         WM_MOUSEMOVE => {
-            let (x, y) = lparam_xy(lp, w.scale);
-            w.mouse_move(sh, x, y);
+            let (x, y) = w.lp_xy(lp);
+            if !w.chrome_move(x, y + w.top) {
+                w.mouse_move(sh, x, y);
+            }
             Some(LRESULT(0))
         }
         WM_LBUTTONUP => {
-            w.mouse_up();
+            if !w.chrome_up() {
+                w.mouse_up();
+            }
             Some(LRESULT(0))
         }
         WM_MOUSELEAVE => {
             w.tracking = false;
+            w.chrome_leave();
             if w.sb.hover {
                 w.sb.hover = false;
                 w.invalidate_scrollbar();
@@ -2946,14 +3039,13 @@ fn handle(
         }
         WM_SETCURSOR if (lp.0 & 0xFFFF) as u32 == HTCLIENT => {
             let mut pt = POINT::default();
-            // SAFETY: valid out-pointer / hwnd.
-            unsafe {
-                let _ = GetCursorPos(&mut pt);
-                let _ = ScreenToClient(w.hwnd, &mut pt);
-            }
-            let (x, y) = (pt.x as f32 / w.scale, pt.y as f32 / w.scale);
-            let hand = w.dialog.is_none() && w.over_hot(sh, x, y);
+            // SAFETY: valid out-pointer.
+            let _ = unsafe { GetCursorPos(&mut pt) };
+            let (x, y) = w.screen_xy(pt.x, pt.y);
+            let bar = y < 0.0 || (w.fs && w.cap.reveal && y < yamdv_core::chrome::BAR_H);
+            let hand = !bar && w.dialog.is_none() && w.over_hot(sh, x, y);
             let ibeam = !hand
+                && !bar
                 && w.dialog.is_none()
                 && !(x >= w.cw - 16.0 && w.thumb().is_some())
                 && w.over_text(sh, x, y);
@@ -3057,6 +3149,10 @@ enum Deferred {
     Title(String),
     /// `SetWindowPos` (sends WM_WINDOWPOSCHANGING/CHANGED, WM_SIZE, may paint).
     SetPos(i32, i32, i32, i32),
+    /// Enter / leave fullscreen (style + `SetWindowPos`).
+    Fullscreen(bool),
+    /// The system menu at a screen point (modal `TrackPopupMenu`).
+    SysMenu(i32, i32),
 }
 
 fn flush_deferred(hwnd: HWND, win: &Rc<RefCell<Win>>) {
@@ -3081,6 +3177,8 @@ fn run_deferred(hwnd: HWND, ds: Vec<Deferred>) {
                 Deferred::SetPos(x, y, w, h) => {
                     let _ = SetWindowPos(hwnd, None, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
                 }
+                Deferred::Fullscreen(on) => chrome::apply_fullscreen(hwnd, on),
+                Deferred::SysMenu(x, y) => chrome::system_menu(hwnd, x, y),
             }
         }
     }
@@ -3164,22 +3262,45 @@ fn run_actions_inner(hwnd: HWND, actions: Vec<Action>) {
                 }
             }
             Action::ContextMenu(x, y, link) => {
-                let Some((ctx, pal)) = WINDOWS
-                    .with(|m| m.borrow().get(&(hwnd.0 as isize)).cloned())
-                    .and_then(|w| {
-                        w.try_borrow()
-                            .ok()
-                            .map(|w| (w.menu_ctx(link.clone()), w.pal))
-                    })
+                let Some(ctx) = win_of(hwnd)
+                    .and_then(|w| w.try_borrow().ok().map(|w| w.menu_ctx(link.clone())))
                 else {
                     continue;
                 };
-                let id = app::track(hwnd, x, y, &ctx, &pal);
-                if id != 0 {
-                    let more = app::run_command(hwnd, id, link);
-                    run_actions_inner(hwnd, more);
-                }
+                popup::open_menu(hwnd, (x, y), false, app::build(sh.lang, &ctx), link);
             }
+            Action::ChromeMenu(more) => {
+                use yamdv_core::chrome::Part;
+                let Some((ctx, anchor)) = win_of(hwnd).and_then(|w| {
+                    w.try_borrow().ok().map(|w| {
+                        let part = if more { Part::More } else { Part::Settings };
+                        (w.menu_ctx(None), w.button_anchor(part))
+                    })
+                }) else {
+                    continue;
+                };
+                let model = if more {
+                    app::build(sh.lang, &ctx)
+                } else {
+                    app::build_settings(sh.lang)
+                };
+                popup::open_menu(hwnd, anchor, more, model, None);
+            }
+            Action::SchemeCards => {
+                use yamdv_core::chrome::Part;
+                let Some((anchor, scale)) = win_of(hwnd).and_then(|w| {
+                    w.try_borrow()
+                        .ok()
+                        .map(|w| (w.button_anchor(Part::More), w.scale))
+                }) else {
+                    continue;
+                };
+                let cw = yamdv_core::chrome::cards_size(app::SCHEMES.len()).0;
+                let left = anchor.0 - (cw * scale).round() as i32;
+                popup::open_cards(hwnd, (left, anchor.1));
+            }
+            #[cfg(feature = "dev-tools")]
+            Action::PopupOp(op) => driver::popup_op(hwnd, op),
             Action::Command(id) => {
                 let more = app::run_command(hwnd, id, None);
                 run_actions_inner(hwnd, more);
@@ -3262,8 +3383,37 @@ fn run_actions_inner(hwnd: HWND, actions: Vec<Action>) {
     }
 }
 
+fn win_of(hwnd: HWND) -> Option<Rc<RefCell<Win>>> {
+    WINDOWS.with(|m| m.borrow().get(&(hwnd.0 as isize)).cloned())
+}
+
 extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    match msg {
+        // Client area over the caption (B.4); needs no window state.
+        0x0083 /* WM_NCCALCSIZE */ if wp.0 != 0 => {
+            if let Some(r) = chrome::nc_calc_size(hwnd, lp) {
+                return r;
+            }
+        }
+        // The open popup gets the keyboard (it never takes the focus).
+        WM_KEYDOWN | WM_SYSKEYDOWN | WM_CHAR if popup::owned_by(hwnd) => {
+            if popup::key(msg, wp) {
+                return LRESULT(0);
+            }
+        }
+        popup::WM_APP_MENU => {
+            let link = popup::take_link();
+            run_actions(hwnd, app::run_command(hwnd, wp.0 as u32, link));
+            return LRESULT(0);
+        }
+        popup::WM_APP_POPUP_CLOSE => {
+            popup::close_for(hwnd);
+            return LRESULT(0);
+        }
+        _ => {}
+    }
     if msg == WM_DESTROY {
+        popup::close_for(hwnd);
         if let Some(w) = WINDOWS.with(|m| m.borrow().get(&(hwnd.0 as isize)).cloned())
             && let Ok(mut w) = w.try_borrow_mut()
         {
@@ -3397,6 +3547,24 @@ fn create_window(sh: &Shared, path: Option<&str>) -> Option<HWND> {
     }) else {
         return None;
     };
+    // The creation-time WM_NCCALCSIZE (wParam FALSE) keeps the caption: recompute the frame
+    // so the client covers it (B.4) before the client size is read.
+    // SAFETY: valid hwnd; no window state exists yet (wndproc needs none for WM_NCCALCSIZE).
+    let _ = unsafe {
+        SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOZORDER
+                | SWP_NOACTIVATE
+                | windows::Win32::UI::WindowsAndMessaging::SWP_NOMOVE
+                | windows::Win32::UI::WindowsAndMessaging::SWP_NOSIZE
+                | windows::Win32::UI::WindowsAndMessaging::SWP_FRAMECHANGED,
+        )
+    };
     // SAFETY: valid hwnd.
     let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
     let scale_f = dpi as f32 / 96.0;
@@ -3411,7 +3579,7 @@ fn create_window(sh: &Shared, path: Option<&str>) -> Option<HWND> {
         dark,
         pal: app::palette_for(&sh.scheme, dark).0,
         cw: (rc.right - rc.left) as f32 / scale_f,
-        ch: (rc.bottom - rc.top) as f32 / scale_f,
+        ch: ((rc.bottom - rc.top) as f32 / scale_f - yamdv_core::chrome::BAR_H).max(1.0),
         view: View::Empty { note: None },
         sel: None,
         selecting: false,
@@ -3443,6 +3611,11 @@ fn create_window(sh: &Shared, path: Option<&str>) -> Option<HWND> {
         find: None,
         side: sidebar::Side::default(),
         ctx_table: None,
+        top: yamdv_core::chrome::BAR_H,
+        fs: false,
+        cap: chrome::Caption::default(),
+        zoom_ind: None,
+        wc_cache: std::cell::Cell::new(None),
     };
     let rcw = Rc::new(RefCell::new(win));
     WINDOWS.with(|m| m.borrow_mut().insert(hwnd.0 as isize, rcw.clone()));
@@ -3542,6 +3715,8 @@ fn build_shared(
         smooth: s.bool("reading.smooth_scrolling"),
         external: s.str("general.open_external_links").to_string(),
         autohide: s.bool("reading.scrollbar_autohide"),
+        title_full: s.str("general.title_format") == "fullpath",
+        word_badge: s.bool("reading.word_count_badge"),
         dev,
         commit_at_start,
     })

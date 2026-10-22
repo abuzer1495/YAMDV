@@ -86,7 +86,8 @@ impl Win {
     /// Sidebar rectangle, `None` when hidden.
     pub(super) fn side_rect(&self, sh: &Shared) -> Option<Rect> {
         // The sidebar is hidden in Split Edit (prompt 006 §2.4).
-        if !sh.side_visible || self.split_rects().is_some() {
+        // Hidden in fullscreen too (R-WIN-06).
+        if !sh.side_visible || self.fs || self.split_rects().is_some() {
             return None;
         }
         let w = self.side_w(sh);

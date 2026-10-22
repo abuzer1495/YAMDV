@@ -1,0 +1,13 @@
+# Spec patches of prompt 011 (Phase V2-A) §2 step 3, extracted verbatim from docs/prompts/011_V2A_WINDOW_CHROME.md.
+
+=== P-32 docs/ROADMAP.md INSERT_AFTER
+--- anchor
+> **Superseded on 2026-10-17 by the owner's v1 plan:** the phases after 003b in the table below are replaced by **V1-A** (app shell & daily use), **V1-B** (editing: F3 split + block-level F2), **V1-C** (math core + Mermaid flowchart/sequence), **V1-D** (HTML export, print/PDF, packaging, v1 release) and **V1-FIX** (reserve). Security hardening (old 012) and optimization (old 013) follow after v1. Deferred features: `docs/FUTURE.md`.
+--- new
+> **v2 plan (2026-10-22):** see `docs/ROADMAP_V2.md` (phases V2-A…V2-J).
+
+=== P-33 docs/SPEC.md REPLACE
+--- old
+`docs/TRACEABILITY.md` marks it `deferred (FUT-xx)`.
+--- new
+`docs/TRACEABILITY.md` marks it `deferred (FUT-xx)`. From v2 on, `docs/ROADMAP_V2.md` schedules these items; an item is back in scope from the phase that implements it.

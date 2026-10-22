@@ -32,6 +32,11 @@ thread_local! {
     static LAST_OUT: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
+/// A script is running (popups then ignore the real mouse).
+pub(super) fn active() -> bool {
+    SCRIPT.with(|s| s.try_borrow().map_or(true, |s| s.is_some()))
+}
+
 /// Loads the script (once) and starts the step timer on `hwnd`.
 pub(super) fn start(hwnd: HWND, path: &str) {
     if SCRIPT.with(|s| s.borrow().is_some()) {
@@ -89,7 +94,9 @@ pub(super) fn tick(w: &mut Win, sh: &Shared) {
         let yield_after = !matches!(cmd, Cmd::Assert(..) | Cmd::Dump | Cmd::WaitIdle);
         let line = run(w, sh, &cmd);
         SCRIPT.with(|s| {
-            if let Some(s) = s.borrow_mut().as_mut() {
+            if let Some(s) = s.borrow_mut().as_mut()
+                && !line.is_empty()
+            {
                 if line.starts_with("FAIL") {
                     s.fails += 1;
                 }
@@ -270,6 +277,7 @@ fn run(w: &mut Win, sh: &Shared, cmd: &Cmd) -> String {
             format!("{} export-csv {f}", if ok { "ok" } else { "FAIL" })
         }
         Cmd::Resize(cw, ch) => resize(w, *cw, *ch),
+        Cmd::Ui(verb, arg) => ui(w, sh, verb, arg),
         Cmd::Sleep(ms) => {
             let until =
                 std::time::Instant::now() + std::time::Duration::from_millis(u64::from(*ms));
@@ -296,7 +304,8 @@ fn resize(w: &mut Win, cw: f32, ch: f32) -> String {
     let fw = (wr.right - wr.left) - (cr.right - cr.left);
     let fh = (wr.bottom - wr.top) - (cr.bottom - cr.top);
     let pw = (cw * w.scale).round() as i32 + fw;
-    let ph = (ch * w.scale).round() as i32 + fh;
+    // `ch` is the content height; the title bar sits above it (B.4).
+    let ph = ((ch + w.top) * w.scale).round() as i32 + fh;
     w.defer(super::Deferred::SetPos(wr.left, wr.top, pw, ph));
     format!("ok resize {cw} {ch}")
 }
@@ -315,8 +324,23 @@ fn snapshot(w: &mut Win, sh: &Shared, f: &str) -> String {
         return "FAIL snapshot: no renderer".into();
     };
     let me = &*w;
-    let mut px = r.render_offscreen(cr.bottom - cr.top, me.pal.text, &mut |band| {
+    // Content only (the goldens of earlier phases); `ui shot-window` includes the title bar.
+    let full = f.starts_with("top-");
+    let h = if full {
+        cr.bottom - cr.top
+    } else {
+        cr.bottom - cr.top - me.top_px()
+    };
+    let mut px = r.render_offscreen(h, me.pal.text, &mut |band| {
+        if full {
+            band.set_origin(me.top);
+        }
         me.draw(sh, band, cx, geo.as_ref());
+        me.draw_overlays(sh, band);
+        if full {
+            band.set_origin(0.0);
+            me.draw_chrome(sh, band);
+        }
     });
     for p in px.as_chunks_mut::<4>().0 {
         p[3] = 255;
@@ -330,7 +354,7 @@ fn snapshot(w: &mut Win, sh: &Shared, f: &str) -> String {
             .to_string_lossy()
             .into_owned()
     };
-    let (Ok(pw), Ok(ph)) = (u32::try_from(r.width()), u32::try_from(cr.bottom - cr.top)) else {
+    let (Ok(pw), Ok(ph)) = (u32::try_from(r.width()), u32::try_from(h)) else {
         return "FAIL snapshot: size".into();
     };
     match crate::devtools::write_png(&out, pw, ph, &px) {
@@ -352,6 +376,135 @@ fn rel(f: &str) -> String {
         .join(f)
         .to_string_lossy()
         .into_owned()
+}
+
+/// Popup operations run outside the window borrow (`Action::PopupOp`).
+#[derive(Debug, Clone)]
+pub(super) enum PopupOp {
+    Hover(Option<usize>),
+    Click(usize),
+    Key(u16),
+    Shot(String),
+}
+
+/// Runs a popup operation (no window borrow is held).
+pub(super) fn popup_op(_hwnd: HWND, op: PopupOp) {
+    let line = match op {
+        PopupOp::Hover(i) => {
+            super::popup::drive_hover(i);
+            format!("ok ui popup-hover {i:?}")
+        }
+        PopupOp::Click(i) => {
+            super::popup::drive_click(i);
+            format!("ok ui popup-click {i}")
+        }
+        PopupOp::Key(vk) => {
+            let used = super::popup::key(
+                windows::Win32::UI::WindowsAndMessaging::WM_KEYDOWN,
+                windows::Win32::Foundation::WPARAM(usize::from(vk)),
+            );
+            format!("{} ui popup-key {vk}", if used { "ok" } else { "FAIL" })
+        }
+        PopupOp::Shot(f) => {
+            let dir = std::env::var("YAMDV_SNAPSHOT_DIR").unwrap_or_default();
+            let out = if dir.is_empty() {
+                rel(&f)
+            } else {
+                std::path::Path::new(&dir)
+                    .join(&f)
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            match super::popup::snapshot(&out) {
+                Ok((pw, ph)) => format!("ok ui popup-shot {f} {pw}x{ph}"),
+                Err(e) => format!("FAIL ui popup-shot {f}: {e}"),
+            }
+        }
+    };
+    SCRIPT.with(|s| {
+        if let Some(s) = s.borrow_mut().as_mut() {
+            if line.starts_with("FAIL") {
+                s.fails += 1;
+            }
+            s.log.push(line);
+        }
+    });
+}
+
+fn vk_of(name: &str) -> Option<u16> {
+    Some(match name {
+        "esc" => 0x1B,
+        "enter" => 0x0D,
+        "up" => 0x26,
+        "down" => 0x28,
+        "left" => 0x25,
+        "right" => 0x27,
+        "home" => 0x24,
+        "end" => 0x23,
+        "space" => 0x20,
+        s if s.len() == 1 => u16::from(s.as_bytes().first()?.to_ascii_uppercase()),
+        _ => return None,
+    })
+}
+
+/// `ui <verb> [arg]`: title bar, popup and chrome operations (V2-A).
+fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
+    use yamdv_core::chrome::Part;
+    let part = |a: &str| match a {
+        "settings" => Some(Part::Settings),
+        "more" => Some(Part::More),
+        "min" => Some(Part::Min),
+        "max" => Some(Part::Max),
+        "close" => Some(Part::Close),
+        _ => None,
+    };
+    let op = |w: &mut Win, op: PopupOp| {
+        w.actions.push(super::Action::PopupOp(op));
+        String::new()
+    };
+    match verb {
+        "click" => match part(arg) {
+            Some(p) => {
+                w.chrome_click(p);
+                format!("ok ui click {arg}")
+            }
+            None => format!("FAIL ui click {arg}: unknown button"),
+        },
+        "dblclick-caption" => {
+            use windows::Win32::Foundation::{LPARAM, WPARAM};
+            let (x, y) = w.button_anchor(Part::Settings);
+            let (x, y) = (x - 200, y - 10);
+            let lp = (((y & 0xFFFF) as isize) << 16) | ((x & 0xFFFF) as isize);
+            // SAFETY: valid hwnd; DefWindowProc handles the caption double-click.
+            let _ = unsafe {
+                windows::Win32::UI::WindowsAndMessaging::PostMessageW(
+                    Some(w.hwnd),
+                    0x00A3,
+                    WPARAM(2),
+                    LPARAM(lp),
+                )
+            };
+            "ok ui dblclick-caption".into()
+        }
+        "hover" => {
+            let y: f32 = arg.parse().unwrap_or(0.0);
+            let x = w.cw / 2.0;
+            w.chrome_move(x, y);
+            format!("ok ui hover {y}")
+        }
+        "popup-hover" => op(w, PopupOp::Hover(arg.parse().ok())),
+        "popup-click" => match arg.parse() {
+            Ok(i) => op(w, PopupOp::Click(i)),
+            Err(_) => format!("FAIL ui popup-click {arg}"),
+        },
+        "popup-key" => match vk_of(arg) {
+            Some(vk) => op(w, PopupOp::Key(vk)),
+            None => format!("FAIL ui popup-key {arg}: unknown key"),
+        },
+        "popup-shot" => op(w, PopupOp::Shot(arg.to_string())),
+        "shot-window" => snapshot(w, sh, &format!("top-{arg}")).replacen("top-", "", 1),
+        _ => format!("FAIL ui {verb}: unknown verb"),
+    }
 }
 
 /// Context-menu command by script name.
@@ -381,6 +534,13 @@ fn command_id(name: &str) -> Option<u32> {
         "redo" => app::REDO,
         "line-numbers" => app::ELINES,
         "soft-wrap" => app::EWRAP,
+        "fullscreen" => app::FULLSCREEN,
+        "word-count" => app::WORD_COUNT,
+        "scheme-cards" => app::SCHEME_CARDS,
+        "settings-menu" => app::SETTINGS_MENU,
+        "more-menu" => app::MORE_MENU,
+        "font-big" => app::FONT_BIG,
+        "font-reset" => app::FONT_RESET,
         _ => return None,
     })
 }
@@ -595,6 +755,26 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         String::from_utf16_lossy(buf.get(..usize::try_from(n).unwrap_or(0)).unwrap_or(&[]))
     };
     let (menu_items, menu_checked) = app::menu_probe(&w.menu_ctx(None));
+    let (p_open, p_levels, p_root, p_items, p_kind, p_first) = super::popup::probe();
+    let disk = std::fs::read(app::settings_path()).unwrap_or_default();
+    let disk_scheme = yamdv_core::settings::Settings::from_ini(&yamdv_core::ini::Ini::parse(&disk))
+        .str("appearance.scheme")
+        .to_string();
+    let (badge, words, chars) = match w.badge(sh) {
+        Some((_, t)) => {
+            let n: Vec<String> = t
+                .split(|c: char| !c.is_ascii_digit() && c != '/')
+                .filter(|x| !x.is_empty() && x.chars().any(|c| c.is_ascii_digit()))
+                .map(str::to_string)
+                .collect();
+            (
+                esc_text(&t),
+                n.first().cloned().unwrap_or_default(),
+                n.get(1).cloned().unwrap_or_default(),
+            )
+        }
+        None => ("none".to_string(), String::new(), String::new()),
+    };
     let out = LAST_OUT
         .with(|l| l.borrow().clone())
         .and_then(|p| std::fs::read(p).ok())
@@ -668,6 +848,31 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         ),
         ("t5_p99_ms".into(), V::N(t5.0)),
         ("t5_n".into(), V::N(t5.1 as f64)),
+        ("popup_open".into(), V::N(f64::from(u8::from(p_open)))),
+        ("popup_levels".into(), V::N(p_levels as f64)),
+        ("popup_root_items".into(), V::N(p_root as f64)),
+        ("popup_items".into(), V::N(p_items as f64)),
+        ("popup_kind".into(), V::S(p_kind.into())),
+        ("popup_first".into(), V::S(p_first)),
+        ("maximized".into(), V::N(f64::from(u8::from(w.maximized())))),
+        ("fullscreen".into(), V::N(f64::from(u8::from(w.fs)))),
+        ("chrome_top".into(), V::N(f64::from(w.top))),
+        (
+            "chrome_visible".into(),
+            V::N(f64::from(u8::from(w.chrome_visible()))),
+        ),
+        ("badge".into(), V::S(badge)),
+        ("words".into(), V::S(words)),
+        ("chars".into(), V::S(chars)),
+        (
+            "zoom_visible".into(),
+            V::N(f64::from(u8::from(w.zoom_ind.is_some()))),
+        ),
+        (
+            "zoom_text".into(),
+            V::S(w.zoom_ind.clone().unwrap_or_default()),
+        ),
+        ("disk_scheme".into(), V::S(disk_scheme)),
     ]
 }
 

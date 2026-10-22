@@ -365,6 +365,7 @@ impl Win {
             right: ((r.x + r.w) * s).ceil() as i32,
             bottom: ((r.y + r.h) * s).ceil() as i32,
         };
+        let rc = self.crc(rc);
         // SAFETY: valid hwnd and rect.
         let _ = unsafe { InvalidateRect(Some(self.hwnd), Some(&rc), false) };
     }
@@ -1810,7 +1811,7 @@ impl Win {
         let s = self.scale;
         let pt = POINT {
             x: (r.x * s) as i32,
-            y: (r.y * s) as i32,
+            y: ((r.y + self.top) * s) as i32,
         };
         // SAFETY: valid hwnd; the context is released below.
         unsafe {
@@ -2200,12 +2201,12 @@ impl Win {
 
     fn cursor_msg(&self, sh: &Shared) -> Option<LRESULT> {
         let mut pt = POINT::default();
-        // SAFETY: valid out-pointer / hwnd.
-        unsafe {
-            let _ = GetCursorPos(&mut pt);
-            let _ = ScreenToClient(self.hwnd, &mut pt);
+        // SAFETY: valid out-pointer.
+        let _ = unsafe { GetCursorPos(&mut pt) };
+        let (x, y) = self.screen_xy(pt.x, pt.y);
+        if y < 0.0 {
+            return None;
         }
-        let (x, y) = (pt.x as f32 / self.scale, pt.y as f32 / self.scale);
         let cur = if let Some((pr, _, sp)) = self.split_rects() {
             if (x - (sp.x + sp.w / 2.0)).abs() <= 4.0 {
                 Some(IDC_SIZEWE)
@@ -2317,24 +2318,28 @@ impl Win {
                 Some(LRESULT(0))
             }
             WM_LBUTTONDOWN => {
-                let (x, y) = lparam_xy(lp, self.scale);
+                let (x, y) = self.lp_xy(lp);
+                if y < 0.0 || self.fs && self.cap.reveal && y < yamdv_core::chrome::BAR_H {
+                    return None;
+                }
                 self.edit_mouse_down(sh, x, y, wp.0 & MK_CONTROL_BIT != 0)
                     .then_some(LRESULT(0))
             }
             WM_MOUSEMOVE => {
-                let (x, y) = lparam_xy(lp, self.scale);
+                let (x, y) = self.lp_xy(lp);
+                if y < 0.0 && !self.selecting {
+                    return None;
+                }
                 self.edit_mouse_move(sh, x, y).then_some(LRESULT(0))
             }
             WM_LBUTTONUP => self.edit_mouse_up().then_some(LRESULT(0)),
             WM_MOUSEWHEEL if self.edit_mode().is_some() && self.dialog.is_none() => {
                 let delta = i32::from((wp.0 >> 16) as u16 as i16);
-                let mut pt = POINT {
+                let pt = POINT {
                     x: i32::from(lp.0 as u16 as i16),
                     y: i32::from((lp.0 >> 16) as u16 as i16),
                 };
-                // SAFETY: valid hwnd and point.
-                let _ = unsafe { ScreenToClient(self.hwnd, &mut pt) };
-                let (x, y) = (pt.x as f32 / self.scale, pt.y as f32 / self.scale);
+                let (x, y) = self.screen_xy(pt.x, pt.y);
                 self.edit_wheel(sh, delta, x, y).then_some(LRESULT(0))
             }
             WM_SETCURSOR
