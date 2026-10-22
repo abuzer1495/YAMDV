@@ -391,7 +391,8 @@ impl Renderer {
                 bits,
                 w,
                 h,
-                top_px: y,
+                top_px: Cell::new(y),
+                band_top: y,
                 rows: bh,
                 scale: self.scale,
                 gdi: Cell::new(false),
@@ -459,7 +460,8 @@ impl Renderer {
                 bits,
                 w,
                 h,
-                top_px: y,
+                top_px: Cell::new(y),
+                band_top: y,
                 rows: bh,
                 scale: self.scale,
                 gdi: Cell::new(false),
@@ -499,7 +501,10 @@ pub struct Band<'a> {
     bits: *mut u8,
     w: i32,
     h: i32,
-    top_px: i32,
+    /// Device row of DIP y = 0 relative to the band's first row, negated (see [`Band::set_origin`]).
+    top_px: Cell<i32>,
+    /// First window row of this band.
+    band_top: i32,
     rows: i32,
     /// DPI scale.
     pub scale: f32,
@@ -510,6 +515,41 @@ pub struct Band<'a> {
 }
 
 impl Band<'_> {
+    /// Moves the DIP origin to window row `y_dip` (client DIPs): the title bar draws at 0, the
+    /// content below it at the bar height (V2-A). Only call with an empty clip stack.
+    pub fn set_origin(&self, y_dip: f32) {
+        let off = (y_dip * self.scale).round() as i32;
+        self.top_px.set(self.band_top - off);
+    }
+
+    /// Draws `icon` (`HICON`) at DIP `(x, y)` with a side of `size` DIPs (title-bar app icon).
+    pub fn icon(&self, icon: windows::Win32::UI::WindowsAndMessaging::HICON, x: f32, y: f32, size: f32) {
+        if !self.visible(y, size) || icon.is_invalid() {
+            return;
+        }
+        self.cpu_begin();
+        let px = (size * self.scale).round() as i32;
+        let (dx, dy) = (
+            (x * self.scale).round() as i32,
+            (y * self.scale).round() as i32 - self.top_px.get(),
+        );
+        // SAFETY: valid icon and the render target's memory DC (the band DIB is selected).
+        unsafe {
+            let _ = windows::Win32::UI::WindowsAndMessaging::DrawIconEx(
+                self.r.brt.GetMemoryDC(),
+                dx,
+                dy,
+                icon,
+                px,
+                px,
+                0,
+                None,
+                windows::Win32::UI::WindowsAndMessaging::DI_NORMAL,
+            );
+        }
+        self.gdi_begin();
+    }
+
     /// Pushes a clip rectangle (intersected with the current clip). Everything drawn until the
     /// matching [`Band::pop_clip`] — shapes, glyph runs, images — stays inside it.
     pub fn push_clip(&self, r: Rect) {
@@ -523,7 +563,7 @@ impl Band<'_> {
                 tiny_skia::Rect::from_xywh(eff.x, eff.y, eff.w.max(0.0), eff.h.max(0.0))
         {
             let t =
-                Transform::from_row(self.scale, 0.0, 0.0, self.scale, 0.0, -(self.top_px as f32));
+                Transform::from_row(self.scale, 0.0, 0.0, self.scale, 0.0, -(self.top_px.get() as f32));
             m.fill_path(&PathBuilder::from_rect(rc), FillRule::Winding, false, t);
         }
         self.clips.borrow_mut().push((eff, mask));
@@ -553,8 +593,8 @@ impl Band<'_> {
     /// DIP range covered by this band.
     pub fn dip_range(&self) -> (f32, f32) {
         (
-            self.top_px as f32 / self.scale,
-            (self.top_px + self.rows) as f32 / self.scale,
+            self.top_px.get() as f32 / self.scale,
+            (self.top_px.get() + self.rows) as f32 / self.scale,
         )
     }
 
@@ -590,7 +630,7 @@ impl Band<'_> {
         ) else {
             return;
         };
-        let t = Transform::from_row(self.scale, 0.0, 0.0, self.scale, 0.0, -(self.top_px as f32));
+        let t = Transform::from_row(self.scale, 0.0, 0.0, self.scale, 0.0, -(self.top_px.get() as f32));
         f(&mut pm, t);
     }
 
@@ -847,7 +887,7 @@ impl Band<'_> {
 
     fn decoration(&self, x: f32, y_band_dip: f32, w: f32, th: f32, color: u32) {
         // Called from text callbacks: coordinates are already band-relative DIPs.
-        let top = self.top_px as f32 / self.scale;
+        let top = self.top_px.get() as f32 / self.scale;
         self.fill(Rect::new(x, y_band_dip + top, w, th), color, 1.0, 0.0);
         self.gdi_begin();
     }
@@ -883,8 +923,8 @@ impl Band<'_> {
         let s = self.scale;
         let x0 = ((clip.x * s).floor().max(0.0) as usize).min(self.w as usize);
         let x1 = ((clip.right() * s).ceil().max(0.0) as usize).min(self.w as usize);
-        let y0 = ((clip.y * s).floor() - self.top_px as f32).clamp(0.0, rows as f32) as usize;
-        let y1 = ((clip.bottom() * s).ceil() - self.top_px as f32).clamp(0.0, rows as f32) as usize;
+        let y0 = ((clip.y * s).floor() - self.top_px.get() as f32).clamp(0.0, rows as f32) as usize;
+        let y1 = ((clip.bottom() * s).ceil() - self.top_px.get() as f32).clamp(0.0, rows as f32) as usize;
         // SAFETY: as above; no other reference to the bits exists here.
         let buf = unsafe { std::slice::from_raw_parts_mut(self.bits, len) };
         for row in 0..rows {
@@ -908,7 +948,7 @@ impl Band<'_> {
             band: self,
             shaped: dw,
         };
-        let top = self.top_px as f32 / self.scale;
+        let top = self.top_px.get() as f32 / self.scale;
         // SAFETY: valid layout and renderer; `ctx` outlives the synchronous Draw call.
         unsafe {
             let _ = layout.Draw(Some((&raw const ctx).cast()), &self.r.text, x, y - top);
@@ -961,7 +1001,7 @@ impl Band<'_> {
         let Some(face) = crate::dwrite::math_draw_face() else {
             return;
         };
-        let top = self.top_px as f32 / self.scale;
+        let top = self.top_px.get() as f32 / self.scale;
         // Consecutive glyphs of one size and color form one run (zero advances, explicit offsets).
         let glyphs: Vec<(u16, f32, f32, f32, u32)> = mb
             .ops
