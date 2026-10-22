@@ -61,6 +61,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 mod app;
+pub(crate) use app::export_palette;
 mod chrome;
 #[cfg(feature = "dev-tools")]
 mod driver;
@@ -2601,7 +2602,7 @@ pub(crate) fn draw_block(
                 }
                 if let Some(s) = &sel {
                     for r in viewer::selection_rects(p, s) {
-                        b.fill(r.offset(px, y + p.y), pal.accent, sel_alpha, 0.0);
+                        b.fill(r.offset(px, y + p.y), pal.selection_color(), sel_alpha, 0.0);
                     }
                 }
                 b.text(p.shaped.as_ref(), px, y + p.y);
@@ -3861,6 +3862,7 @@ impl Win {
             m: sh.m,
             fonts: sh.fonts.clone(),
             lang: sh.lang,
+            mode_forced: false,
         })
     }
 

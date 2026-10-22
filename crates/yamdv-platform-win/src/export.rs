@@ -14,7 +14,7 @@ use yamdv_core::doc::detail::ImageRef;
 use yamdv_core::doc::{Document, ReadOpts};
 use yamdv_core::i18n::Lang;
 use yamdv_core::image::{self, Format, Source};
-use yamdv_core::theme::{self, Palette};
+use yamdv_core::theme::Palette;
 use yamdv_export::html::{DocOpts, ExportHost, Png};
 use yamdv_layout::block::Metrics;
 use yamdv_layout::viewer::{Content, Env, Viewer};
@@ -44,6 +44,8 @@ pub struct Job {
     pub fonts: (String, String),
     /// UI language (placeholder labels).
     pub lang: Lang,
+    /// `--mode` was given on the command line: it sets the export palette directly.
+    pub mode_forced: bool,
 }
 
 impl Job {
@@ -70,6 +72,7 @@ impl Job {
         dark: Option<bool>,
     ) -> Self {
         let s = crate::window::load_settings();
+        let mode_forced = dark.is_some();
         let mode = s.str("appearance.mode");
         let dark = dark.unwrap_or_else(|| match mode {
             "dark" => true,
@@ -96,6 +99,7 @@ impl Job {
                 s.str("general.language"),
                 crate::sys::ui_language_tag(),
             ),
+            mode_forced,
         }
     }
 
@@ -288,7 +292,15 @@ fn unpremultiply(px: &mut [u8]) {
 
 /// The exported HTML text of `job` (COM must be initialized on this thread).
 pub fn html_text(dw: &DWrite, job: &Job) -> String {
-    let pal = theme::palette(&job.scheme, job.dark);
+    let s = crate::window::load_settings();
+    // BUG-10: `export.html_colors` picks the palette; an explicit `--mode` sets it directly.
+    let (pal, dark) = if job.mode_forced {
+        let dark = job.dark;
+        let base = crate::window::export_palette(&job.scheme, "theme", dark).0;
+        (base, dark)
+    } else {
+        crate::window::export_palette(&job.scheme, s.str("export.html_colors"), job.dark)
+    };
     let host = Host {
         dw,
         doc_path: job.path.clone(),
@@ -298,7 +310,6 @@ pub fn html_text(dw: &DWrite, job: &Job) -> String {
         wic: crate::images::factory(),
     };
     let doc = Document::new(job.source.clone(), ReadOpts::default());
-    let s = crate::window::load_settings();
     yamdv_export::html::document(
         &doc,
         &host,
@@ -309,7 +320,7 @@ pub fn html_text(dw: &DWrite, job: &Job) -> String {
                 .first()
                 .map_or_else(|| job.stem(), |h| h.text.clone()),
             pal,
-            dark: job.dark,
+            dark,
             toc: s.bool("export.html_include_toc"),
         },
     )

@@ -307,8 +307,8 @@ pub const DEFS: &[Def] = &[
     },
     Def {
         key: "export.pdf_colors",
-        kind: Kind::Enum(&["theme", "light"]),
-        default: "theme",
+        kind: Kind::Enum(&["light", "theme"]),
+        default: "light",
     },
     Def {
         key: "export.pdf_page_size",
@@ -327,6 +327,11 @@ pub const DEFS: &[Def] = &[
     },
     Def {
         key: "export.print_colors",
+        kind: Kind::Enum(&["light", "theme"]),
+        default: "light",
+    },
+    Def {
+        key: "export.html_colors",
         kind: Kind::Enum(&["light", "theme"]),
         default: "light",
     },

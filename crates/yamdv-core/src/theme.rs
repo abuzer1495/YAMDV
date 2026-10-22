@@ -61,6 +61,8 @@ pub struct Palette {
     pub highlight_text: u32,
     /// Table zebra rows (`mix(bg, table_header_bg, 50 %)`; 0 = compute).
     pub zebra_bg: u32,
+    /// Selection color (custom token `selection`; 0 = `accent`), drawn at `selection_alpha_pct`.
+    pub selection: u32,
 }
 
 /// Shared light tokens (B.3.1); the per-scheme fields are overwritten.
@@ -85,6 +87,7 @@ pub const LIGHT_SHARED: Palette = Palette {
     highlight_bg: 0xfff3a3,
     highlight_text: 0,
     zebra_bg: 0,
+    selection: 0,
 };
 
 /// Dark base for every scheme except GitHub (B.3.2).
@@ -109,6 +112,7 @@ pub const DARK_BASE: Palette = Palette {
     highlight_bg: 0x665c1e,
     highlight_text: 0xf5f0d0,
     zebra_bg: 0,
+    selection: 0,
 };
 
 /// GitHub dark (B.3.2).
@@ -161,6 +165,15 @@ pub fn mix(a: u32, b: u32) -> u32 {
 }
 
 impl Palette {
+    /// Selection base color (`selection`, or `accent` when unset).
+    pub fn selection_color(&self) -> u32 {
+        if self.selection != 0 {
+            self.selection
+        } else {
+            self.accent
+        }
+    }
+
     /// Zebra row color (B.3.1: `mix(bg, table_header_bg, 50 %)`).
     pub fn zebra(&self) -> u32 {
         if self.zebra_bg != 0 {
@@ -179,6 +192,45 @@ pub fn palette(scheme: &str, dark: bool) -> Palette {
         .unwrap_or(0);
     let table = if dark { &DARK } else { &LIGHT };
     table.get(i).copied().unwrap_or(LIGHT_SHARED)
+}
+
+/// Palette choice of an export job (`export.pdf_colors`, `export.print_colors`,
+/// `export.html_colors`; BUG-10, P-34/P-35/P-37/P-38).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportColors {
+    /// The scheme's light tokens on a white page, whatever the UI mode (default).
+    Light,
+    /// The current UI mode, coherent across the whole page.
+    Theme,
+}
+
+impl ExportColors {
+    /// Parses a setting value (anything but `theme` is the default `light`).
+    pub fn parse(v: &str) -> Self {
+        if v.eq_ignore_ascii_case("theme") {
+            Self::Theme
+        } else {
+            Self::Light
+        }
+    }
+
+    /// Whether the job renders dark: only `theme` with a dark UI.
+    pub fn dark(self, ui_dark: bool) -> bool {
+        self == Self::Theme && ui_dark
+    }
+}
+
+/// The palette an export job uses (R-EXP-01/02/07): `base` is the scheme palette (custom colours
+/// already applied) of the mode returned by [`ExportColors::dark`]. A light job always gets a
+/// white page. Selection, find and hover colours never reach a job (they are not in the palette
+/// a job draws with: `selection` is cleared).
+pub fn export_palette(base: Palette, dark: bool) -> Palette {
+    let mut p = base;
+    if !dark {
+        p.bg = 0xffffff;
+    }
+    p.selection = 0;
+    p
 }
 
 /// WCAG relative luminance of `0xRRGGBB`.
@@ -223,6 +275,45 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "{failures:?}");
+    }
+
+    #[test]
+    fn bug_10_export_palette_per_setting_and_mode() {
+        for scheme in SCHEMES {
+            for ui_dark in [false, true] {
+                // light: the scheme's light tokens on a white page, whatever the UI mode.
+                let c = ExportColors::parse("light");
+                assert!(!c.dark(ui_dark));
+                let p = export_palette(palette(scheme, c.dark(ui_dark)), c.dark(ui_dark));
+                assert_eq!(p.bg, 0xffffff);
+                assert_eq!(p.text, palette(scheme, false).text);
+                assert_eq!(p.code_bg, palette(scheme, false).code_bg);
+                assert!(luminance(p.code_bg) > 0.5, "{scheme}: light code block");
+                assert!(contrast(p.text, p.bg) >= 4.5);
+                // theme: follows the UI mode everywhere.
+                let c = ExportColors::parse("theme");
+                assert_eq!(c.dark(ui_dark), ui_dark);
+                let p = export_palette(palette(scheme, ui_dark), ui_dark);
+                let want = if ui_dark {
+                    palette(scheme, true).bg
+                } else {
+                    0xffffff
+                };
+                assert_eq!(p.bg, want);
+                assert_eq!(
+                    luminance(p.bg) < 0.2,
+                    ui_dark,
+                    "{scheme}: page matches mode"
+                );
+                assert_eq!(
+                    luminance(p.code_bg) < 0.2,
+                    ui_dark,
+                    "{scheme}: blocks match page"
+                );
+            }
+        }
+        assert_eq!(ExportColors::parse("bogus"), ExportColors::Light);
+        assert_eq!(ExportColors::parse("THEME"), ExportColors::Theme);
     }
 
     #[test]

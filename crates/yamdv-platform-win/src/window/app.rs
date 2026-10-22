@@ -187,56 +187,35 @@ pub(super) fn is_dark(mode: &str) -> bool {
     }
 }
 
-/// `custom-theme.ini` overrides (R-THEME-07, FUT-04 scope): 11 tokens per mode; returns `false`
-/// when the file has invalid values.
+/// `custom-theme.ini` overrides (R-THEME-06/07, FUT-04): 11 tokens per mode
+/// (`yamdv_core::colors`); returns `false` when the file has invalid values.
 pub(super) fn palette_for(scheme: &str, dark: bool) -> (Palette, bool) {
     let mut p = theme::palette(scheme, dark);
-    let Some(dir) = with(|a| a.dir.clone()) else {
-        return (p, true);
+    let (dir, on) = match with(|a| a.dir.clone()) {
+        Some(d) => (d, get("appearance.use_custom_colors") == "true"),
+        // Print worker / headless export: no app state, read the files directly.
+        None => (
+            config_dir(),
+            crate::window::load_settings().bool("appearance.use_custom_colors"),
+        ),
     };
-    if get("appearance.use_custom_colors") != "true" {
+    if !on {
         return (p, true);
     }
     let ini = Ini::parse(&read_small(&format!("{dir}\\custom-theme.ini")));
-    let sec = if dark { "dark" } else { "light" };
-    let mut valid = true;
-    let tokens: [(&str, &mut u32); 10] = [
-        ("bg", &mut p.bg),
-        ("text", &mut p.text),
-        ("heading", &mut p.heading),
-        ("link", &mut p.link),
-        ("accent", &mut p.accent),
-        ("quote_bar", &mut p.quote_bar),
-        ("code_bg", &mut p.code_bg),
-        ("table_header_bg", &mut p.table_header_bg),
-        ("code_border", &mut p.code_border),
-        ("table_border", &mut p.table_border),
-    ];
-    for (k, slot) in tokens {
-        if let Some(v) = ini.get(sec, k) {
-            match parse_hex(v) {
-                Some(c) => *slot = c,
-                None => valid = false,
-            }
-        }
-    }
-    if let Some(v) = ini.get(sec, "border") {
-        match parse_hex(v) {
-            Some(c) => {
-                p.code_border = c;
-                p.table_border = c;
-            }
-            None => valid = false,
-        }
-    }
+    let valid = yamdv_core::colors::apply(&mut p, &ini, dark);
     (p, valid)
 }
 
-fn parse_hex(v: &str) -> Option<u32> {
-    let h = v.trim().strip_prefix('#')?;
-    (h.len() == 6)
-        .then(|| u32::from_str_radix(h, 16).ok())
-        .flatten()
+/// The palette of an export job (BUG-10): `key` is `export.pdf_colors`, `export.print_colors`
+/// or `export.html_colors`; `ui_dark` is the UI mode at the time of the job. Returns the
+/// palette and whether it is dark.
+pub(crate) fn export_palette(scheme: &str, setting: &str, ui_dark: bool) -> (Palette, bool) {
+    let dark = theme::ExportColors::parse(setting).dark(ui_dark);
+    (
+        theme::export_palette(palette_for(scheme, dark).0, dark),
+        dark,
+    )
 }
 
 /// Rebuilds the shared state from the current settings and re-styles every window.

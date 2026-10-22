@@ -24,7 +24,7 @@ use windows::Win32::Storage::Xps::{AbortDoc, DOCINFOW, EndDoc, EndPage, StartDoc
 use windows::core::{HSTRING, PCWSTR, w};
 use yamdv_core::doc::index::BlockKind;
 use yamdv_core::doc::{Document, ReadOpts};
-use yamdv_core::theme::{self, Palette};
+use yamdv_core::theme::Palette;
 use yamdv_export::paginate::{Page, Unit, footer, paginate};
 use yamdv_layout::viewer::{Content, Env, Viewer};
 
@@ -236,19 +236,14 @@ fn print_inner(dw: &DWrite, job: &Job, t: &Target) -> Result<Printed, Error> {
     let s = crate::window::load_settings();
     let dc = printer_dc(t).ok_or(Error::NoPrinter)?;
     let g = geometry(dc, s.int("export.pdf_margins_mm").clamp(5, 40) as f64);
-    let colors = s.str(if t.pdf {
+    // BUG-10: the palette comes only from this job's own setting (never from the UI mode alone).
+    let key = if t.pdf {
         "export.pdf_colors"
     } else {
         "export.print_colors"
-    });
-    let pal: Palette = if colors == "light" {
-        Palette {
-            bg: 0xffffff,
-            ..theme::palette(&job.scheme, false)
-        }
-    } else {
-        theme::palette(&job.scheme, job.dark)
     };
+    let (pal, _dark): (Palette, bool) =
+        crate::window::export_palette(&job.scheme, s.str(key), job.dark);
     let dev_per_dip = g.dpi / 96.0;
     let rscale = g.dpi.min(MAX_RENDER_DPI) / 96.0;
     let width_dips = g.width as f32 / dev_per_dip;

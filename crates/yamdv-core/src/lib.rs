@@ -6,6 +6,7 @@
 
 pub mod chrome;
 pub mod cmdline;
+pub mod colors;
 pub mod decode;
 pub mod devscript;
 pub mod doc;

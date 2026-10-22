@@ -2465,7 +2465,7 @@ impl Win {
                     let sel_alpha = f32::from(pal.selection_alpha_pct) / 100.0;
                     let r = u32::try_from(s.start).unwrap_or(0)..u32::try_from(s.end).unwrap_or(0);
                     for rr in yamdv_layout::viewer::selection_rects(p, &r) {
-                        b.fill(rr.offset(ox, oy), pal.accent, sel_alpha, 0.0);
+                        b.fill(rr.offset(ox, oy), pal.selection_color(), sel_alpha, 0.0);
                     }
                 }
                 if let Some(r) = self.caret_rect(sh) {
