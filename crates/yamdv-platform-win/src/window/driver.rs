@@ -34,12 +34,8 @@ thread_local! {
     static MEM_MARK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
-/// Private working set after a trim (both sides of a `mem-mark` comparison are measured the
-/// same way, so pages the panel touched once and freed do not count).
+/// Private working set now (no trim: what Task Manager shows).
 fn pws_now() -> u64 {
-    use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
-    // SAFETY: own process; (usize::MAX, usize::MAX) = trim the working set.
-    let _ = unsafe { SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX) };
     crate::perf::private_ws_bytes()
 }
 

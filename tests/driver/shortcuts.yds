@@ -1,0 +1,55 @@
+# V2-B shortcuts (prompt 012 §5.2, FUT-05, F.1–F.6): rebinding Find to Ctrl+Alt+F works,
+# capturing Ctrl+O shows a conflict, the Typora preset sets Split edit to Ctrl+/.
+wait-idle
+assert key.find == Ctrl+F
+ui settings-open shortcuts
+wait-idle
+assert settings_section == shortcuts
+snapshot settings-shortcuts.png
+ui settings-click key:find
+wait-idle
+assert capture == find
+ui settings-capture Ctrl+Alt+F
+wait-idle
+assert capture == none
+assert key.find == Ctrl+Alt+F
+assert ini.shortcuts.find == Ctrl+Alt+F
+key esc
+wait-idle
+assert settings == closed
+# The new chord opens the find bar; the old one no longer does.
+key ctrl+alt+F
+wait-idle
+assert find == open
+key esc
+wait-idle
+assert find == closed
+key ctrl+F
+wait-idle
+assert find == closed
+# Conflict: Ctrl+O belongs to Open; nothing is saved while it stands.
+ui settings-open shortcuts
+wait-idle
+ui settings-click key:find
+ui settings-capture Ctrl+O
+wait-idle
+assert capture == find
+assert conflict == open_file
+assert key.find == Ctrl+Alt+F
+ui settings-capture Esc
+wait-idle
+assert capture == none
+# Typora preset; Reset to preset drops the custom Find.
+ui settings-set shortcuts.preset=typora
+wait-idle
+assert ini.shortcuts.preset == typora
+assert key.split_edit == Ctrl+/
+ui settings-click btn.reset_shortcuts
+wait-idle
+assert key.find == Ctrl+F
+ui settings-set shortcuts.preset=default
+wait-idle
+assert key.split_edit == F3
+key esc
+wait-idle
+assert settings == closed

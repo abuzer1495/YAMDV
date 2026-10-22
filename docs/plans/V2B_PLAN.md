@@ -16,3 +16,10 @@ Branch `phase/v2b-settings`; A-8: no CI, every commit `[skip ci]`, local gates b
   handle-list inheritance, Link), window/jobui.rs (card, taskbar, Cancel, close confirm, toast
   [Open]/[Show in folder], error banner), driver verbs `ui export-html-bg|export-pdf-bg|job-cancel`.
   Next: §4.1 settings panel (pure model in yamdv-ui::settings_panel, then window/settings.rs).
+- 22:25 §4.1–4.5 code done and pushed: yamdv-core::keymap (presets, conflicts, translate),
+  yamdv-ui::settings_panel (rows, search, geometry), window/setpanel.rs (panel, fields, font
+  list via DirectWrite on demand, colour popover, shortcut capture), keymap layer in wndproc,
+  F1 bindings table, diagnostic log wired, ChooseFontW path removed from the app (host kind kept).
+  Driver verbs `ui settings-*`, state `settings*`, `key.*`, `pal.*`, `ini.*`, `theme.*`, PWS.
+  Scripts settings-panel / color-editor / shortcuts written. Next: export-progress (ps1 +
+  yds), titlebar.yds update, §4.6 version 1.1.0 + CHANGELOG, §5 pack, §6.
