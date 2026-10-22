@@ -28,7 +28,7 @@ Prompt 010 stored as `docs/prompts/010_V1E_RESUME_AND_RELEASE.md` (SHA-256 `3625
 |---|---|---|
 | AC-1 | pass | A-5/A-6 in `docs/PROCESS.md` (spec-check match); audit table §1 |
 | AC-2 | pass | every prompt-008 item done; PDF/print, HTML, CLI, install/uninstall green on CI run 39750676107 |
-| AC-3 | pass (see §5) | CI green → PR #49 merged, tags `phase-v1e` + `v1.0.0`, tag job → draft release `v1.0.0` (zip + `.sha256`) |
+| AC-3 | pass (see §5) | CI green (run 39750676107 on 57211cb; fix-push run 39753751588 on 14be60d, welcome golden 0 px diff) → PR #49 merged, tags `phase-v1e` + `v1.0.0`, tag job → draft release `v1.0.0` (zip + `.sha256`) |
 | AC-4 | pass | README links `docs/FUTURE.md` + milestone `post-v1`; QA list §6 |
 
 ## 3. Measurements (CI run 39750676107, windows-2025, 57211cb)
