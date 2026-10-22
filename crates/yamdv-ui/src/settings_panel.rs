@@ -389,6 +389,25 @@ pub fn static_items(lang: Lang) -> Vec<Item> {
         .collect()
 }
 
+/// Localized label of a colour token (`yamdv_core::colors::TOKENS`).
+pub fn token_label(token: &str, lang: Lang) -> &'static str {
+    let (en, tr) = match token {
+        "bg" => ("Background", "Arka plan"),
+        "text" => ("Text", "Metin"),
+        "heading" => ("Headings", "Başlıklar"),
+        "link" => ("Links", "Bağlantılar"),
+        "accent" => ("Accent", "Vurgu"),
+        "quote_bar" => ("Quote bar", "Alıntı çubuğu"),
+        "code_bg" => ("Code background", "Kod arka planı"),
+        "border" => ("Borders", "Kenarlıklar"),
+        "table_header_bg" => ("Table header", "Tablo başlığı"),
+        "zebra_bg" => ("Table stripes", "Tablo şeritleri"),
+        "selection" => ("Selection", "Seçim"),
+        _ => ("Color", "Renk"),
+    };
+    pick(lang, en, tr)
+}
+
 /// Panel geometry for a client area of `w`×`h`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Geo {
@@ -500,6 +519,14 @@ pub fn visible_rows(scroll: f32, view_h: f32, row_h: f32, n: usize) -> std::ops:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_token_has_a_label() {
+        for t in yamdv_core::colors::TOKENS {
+            assert_ne!(token_label(t, Lang::En), "Color", "{t}");
+            assert_ne!(token_label(t, Lang::Tr), "Renk", "{t}");
+        }
+    }
 
     #[test]
     fn every_section_has_rows_and_every_row_has_a_known_key() {

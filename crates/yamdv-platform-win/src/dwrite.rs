@@ -23,7 +23,7 @@ use windows::Win32::Graphics::DirectWrite::{
     DWRITE_HIT_TEST_METRICS, DWRITE_INLINE_OBJECT_METRICS, DWRITE_LINE_SPACING_METHOD_UNIFORM,
     DWRITE_OVERHANG_METRICS, DWRITE_READING_DIRECTION_RIGHT_TO_LEFT, DWRITE_TEXT_METRICS,
     DWRITE_TEXT_RANGE, DWRITE_WORD_WRAPPING_EMERGENCY_BREAK, DWRITE_WORD_WRAPPING_NO_WRAP,
-    DWriteCreateFactory, IDWriteFactory, IDWriteFontCollection, IDWriteFontFace,
+    DWriteCreateFactory, IDWriteFactory, IDWriteFont1, IDWriteFontCollection, IDWriteFontFace,
     IDWriteInlineObject, IDWriteInlineObject_Impl, IDWriteTextFormat, IDWriteTextLayout,
     IDWriteTextLayout1, IDWriteTextRenderer,
 };
@@ -315,6 +315,95 @@ impl DWrite {
     /// One icon-font glyph (`text`) at `size` DIPs in `color`; `None` without an icon font.
     pub fn shape_icon(&self, text: &str, size: f32, color: u32) -> Option<DwShaped> {
         let fam = self.icon_family()?.clone();
+        self.shape_in(&fam, text, size, color)
+    }
+
+    /// `text` set in the font family `family` (font picker rows, FUT-49).
+    pub fn shape_family(
+        &self,
+        family: &str,
+        text: &str,
+        size: f32,
+        color: u32,
+    ) -> Option<DwShaped> {
+        self.shape_in(&HSTRING::from(family), text, size, color)
+    }
+
+    /// The installed font families (DirectWrite system collection), sorted, each with its
+    /// monospace flag (`IDWriteFont1::IsMonospacedFont`). Called only when a picker opens.
+    pub fn font_families(&self) -> Vec<(String, bool)> {
+        let mut out = Vec::new();
+        let mut coll: Option<IDWriteFontCollection> = None;
+        // SAFETY: valid factory and out-pointer.
+        if unsafe { self.factory.GetSystemFontCollection(&mut coll, false) }.is_err() {
+            return out;
+        }
+        let Some(coll) = coll else { return out };
+        // SAFETY: valid collection.
+        let n = unsafe { coll.GetFontFamilyCount() };
+        for i in 0..n {
+            // SAFETY: index below the count.
+            let Ok(fam) = (unsafe { coll.GetFontFamily(i) }) else {
+                continue;
+            };
+            // SAFETY: valid family.
+            let Ok(names) = (unsafe { fam.GetFamilyNames() }) else {
+                continue;
+            };
+            let mut idx = 0u32;
+            let mut found = BOOL(0);
+            // SAFETY: valid strings; out-pointers on the stack.
+            let _ = unsafe { names.FindLocaleName(w!("en-us"), &mut idx, &mut found) };
+            if !found.as_bool() {
+                idx = 0;
+            }
+            // SAFETY: index from FindLocaleName or 0; buffer sized from GetStringLength.
+            let name = unsafe {
+                let Ok(len) = names.GetStringLength(idx) else {
+                    continue;
+                };
+                let mut buf = vec![0u16; len as usize + 1];
+                if names.GetString(idx, &mut buf).is_err() {
+                    continue;
+                }
+                String::from_utf16_lossy(&buf[..len as usize])
+            };
+            if name.is_empty() || name.starts_with('@') {
+                continue;
+            }
+            // SAFETY: valid family; the cast only queries an interface.
+            let mono = unsafe {
+                fam.GetFirstMatchingFont(
+                    DWRITE_FONT_WEIGHT_NORMAL,
+                    DWRITE_FONT_STRETCH_NORMAL,
+                    DWRITE_FONT_STYLE_NORMAL,
+                )
+            }
+            .ok()
+            .and_then(|f| f.cast::<IDWriteFont1>().ok())
+            // SAFETY: valid font.
+            .is_some_and(|f| unsafe { f.IsMonospacedFont() }.as_bool());
+            out.push((name, mono));
+        }
+        out.sort_by_key(|a| a.0.to_lowercase());
+        out.dedup_by(|a, b| a.0 == b.0);
+        out
+    }
+
+    /// Whether `name` is an installed family (the picker shows the resolved name otherwise).
+    pub fn has_family(&self, name: &str) -> bool {
+        let mut coll: Option<IDWriteFontCollection> = None;
+        // SAFETY: valid factory and out-pointer.
+        unsafe { self.factory.GetSystemFontCollection(&mut coll, false) }.is_ok()
+            && coll.is_some_and(|c| family_exists(&c, &HSTRING::from(name)))
+    }
+
+    /// Resolved body / code family names.
+    pub fn resolved(&self) -> (String, String) {
+        (self.body.to_string(), self.code.to_string())
+    }
+
+    fn shape_in(&self, fam: &HSTRING, text: &str, size: f32, color: u32) -> Option<DwShaped> {
         let base = Style {
             family: Family::Body,
             size,
@@ -340,7 +429,7 @@ impl DWrite {
         // SAFETY: valid layout; range within the text; out-pointer on the stack.
         unsafe {
             l.SetFontFamilyName(
-                &fam,
+                fam,
                 DWRITE_TEXT_RANGE {
                     startPosition: 0,
                     length: len,

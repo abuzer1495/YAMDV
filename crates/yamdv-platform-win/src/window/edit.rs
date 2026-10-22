@@ -236,6 +236,11 @@ pub(super) fn block_of(content: &Content, pos: usize) -> usize {
     lo
 }
 
+thread_local! {
+    /// Alt state of a chord re-dispatched by the keymap (FUT-05); `None` = read the keyboard.
+    pub(super) static KEY_ALT: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
 fn key_down(vk: u16) -> bool {
     // SAFETY: GetKeyState has no preconditions.
     unsafe { GetKeyState(i32::from(vk)) < 0 }
@@ -1230,7 +1235,9 @@ impl Win {
         if !matches!(self.view, View::Doc(_)) {
             return None;
         }
-        let alt = key_down(0x12);
+        let alt = KEY_ALT
+            .with(std::cell::Cell::get)
+            .unwrap_or_else(|| key_down(0x12));
         match vk {
             0x71 => {
                 self.edit_toggle(sh, Mode::Live);

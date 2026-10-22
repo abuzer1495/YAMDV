@@ -69,6 +69,7 @@ mod edit;
 mod findbar;
 mod jobui;
 mod popup;
+mod setpanel;
 mod sidebar;
 mod welcome;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -338,6 +339,8 @@ enum Pending {
     Uninstall,
     /// Close while an export runs (BUG-11).
     JobClose,
+    /// Settings panel confirmation (Reset all, Reset colours, Clear …).
+    Panel(&'static str),
 }
 
 const BTN_CANCEL: u32 = 0;
@@ -407,6 +410,8 @@ struct Win {
     focus: Option<(usize, u32)>,
     /// Actions requested by methods (new windows), drained by `handle`.
     actions: Vec<Action>,
+    /// Open settings panel (FUT-31).
+    settings: Option<Box<setpanel::Panel>>,
     /// The file was deleted: the document is shown dimmed (R-OPEN-11).
     dimmed: bool,
     /// Directory watcher of the open file (R-READ-01).
@@ -453,8 +458,6 @@ enum Action {
     Help,
     /// `custom-theme.ini` changed: rebuild the palette of every window (B.4).
     ApplyTheme,
-    /// Body font dialog (dialog host).
-    FontDialog,
     /// Persist one setting (sidebar width after a drag).
     SetSetting(&'static str, String),
     /// Paths forwarded by a second instance (S-IPC-03: open only), with `--line`.
@@ -471,8 +474,10 @@ enum Action {
     Install,
     /// Appearance ▸ Color scheme… card flyout (B.7.3).
     SchemeCards,
-    /// Title-bar menu: `true` = ⋯ (full menu), `false` = ⚙ (Settings submenu).
+    /// Title-bar menu: `true` = ⋯ (full menu), `false` = ⚙ (the settings panel).
     ChromeMenu(bool),
+    /// Settings panel operation (FUT-31), run outside the window borrow.
+    Panel(setpanel::Op),
     /// Driver: popup operations run outside the window borrow.
     #[cfg(feature = "dev-tools")]
     PopupOp(driver::PopupOp),
@@ -722,6 +727,7 @@ impl Win {
             }
             (_, BTN_CANCEL) => {}
             (Pending::JobClose, jobui::BTN_JOB_CLOSE) => jobui::cancel_and_close(),
+            (Pending::Panel(what), setpanel::BTN_PANEL_OK) => self.panel_confirmed(what),
             (Pending::Large { path }, BTN_PLAIN) => self.open(sh, &path, Some(true), false),
             (Pending::Large { path }, BTN_RENDER) => self.open(sh, &path, Some(false), false),
             (Pending::Binary { path, plain }, BTN_OPEN) => self.open(sh, &path, Some(plain), true),
@@ -1517,6 +1523,7 @@ impl Win {
         self.draw_find(sh, b);
         self.draw_banner(sh, b);
         self.draw_job(sh, b);
+        self.draw_settings(sh, b);
         self.toast_rect.set(None);
         if let Some(m) = self.toast {
             let text = format!("{}{}", tr(sh.lang, m), self.toast_arg);
@@ -1624,6 +1631,58 @@ impl Win {
 
     // ---- input ---------------------------------------------------------------------------
 
+    /// Keymap layer (FUT-05) in front of the hard-wired handlers: the settings panel takes
+    /// every key first; otherwise a user binding is re-dispatched as the default chord of its
+    /// action, a default chord that was rebound is swallowed, and anything else passes
+    /// (`None`) to the normal routing.
+    fn key_chord(
+        &mut self,
+        sh: &Shared,
+        vk: u16,
+        ctrl: bool,
+        shift: bool,
+        alt: bool,
+    ) -> Option<Option<Action>> {
+        if self.dialog.is_some() {
+            return None;
+        }
+        if self.settings.is_some() {
+            return self.panel_key(sh, vk, ctrl, shift, alt).then_some(None);
+        }
+        let c = yamdv_core::keymap::Chord {
+            ctrl,
+            shift,
+            alt,
+            vk,
+        };
+        match app::keymap().translate(c, self.edit_mode().is_some()) {
+            yamdv_core::keymap::Translate::Pass => None,
+            yamdv_core::keymap::Translate::Swallow => Some(None),
+            yamdv_core::keymap::Translate::To(t) if t == c => None,
+            yamdv_core::keymap::Translate::To(t) => Some(self.run_chord(sh, t)),
+        }
+    }
+
+    /// Runs default chord `t` through the hard-wired handlers.
+    fn run_chord(&mut self, sh: &Shared, t: yamdv_core::keymap::Chord) -> Option<Action> {
+        if t.alt && !t.ctrl {
+            return match t.vk {
+                0x26 => Some(Action::Command(app::COL_WIDE)),
+                0x28 => Some(Action::Command(app::COL_NARROW)),
+                0x30 | 0x60 => Some(Action::Command(app::COL_RESET)),
+                0x25 | 0x27 => {
+                    self.history_go(sh, if t.vk == 0x25 { -1 } else { 1 });
+                    None
+                }
+                _ => None,
+            };
+        }
+        edit::KEY_ALT.with(|k| k.set(Some(t.alt)));
+        let a = self.key(sh, t.vk, t.ctrl, t.shift);
+        edit::KEY_ALT.with(|k| k.set(None));
+        a
+    }
+
     fn key(&mut self, sh: &Shared, vk: u16, ctrl: bool, shift: bool) -> Option<Action> {
         if let Some((d, _)) = &mut self.dialog {
             let k = match vk {
@@ -1717,6 +1776,10 @@ impl Win {
     }
 
     fn mouse_down(&mut self, sh: &Shared, x: f32, y: f32, ctrl: bool) {
+        if self.settings.is_some() && self.dialog.is_none() {
+            self.panel_down(sh, x, y);
+            return;
+        }
         if self.dialog.is_none()
             && (self.job_click(x, y) || self.toast_click(x, y) || self.banner_click(x, y))
         {
@@ -1845,6 +1908,10 @@ impl Win {
     }
 
     fn mouse_move(&mut self, sh: &Shared, x: f32, y: f32) {
+        if self.settings.is_some() && self.dialog.is_none() {
+            self.panel_move(x, y);
+            return;
+        }
         if matches!(self.view, View::Empty { note: None }) {
             self.side.hover = Some((x, y));
             self.invalidate();
@@ -1944,6 +2011,10 @@ impl Win {
     }
 
     fn mouse_up(&mut self) {
+        if self.settings.is_some() {
+            self.panel_up();
+            return;
+        }
         if let Some(a) = self.side_up() {
             self.actions.push(a);
             return;
@@ -2839,6 +2910,21 @@ fn handle(
         actions.append(&mut w.actions);
         return (Some(r), actions);
     }
+    if matches!(msg, WM_KEYDOWN | WM_SYSKEYDOWN) {
+        let vk = u16::try_from(wp.0).unwrap_or(0);
+        // SAFETY: GetKeyState has no preconditions.
+        let (ctrl, shift, alt) = unsafe {
+            (
+                GetKeyState(i32::from(VK_CONTROL.0)) < 0,
+                GetKeyState(i32::from(VK_SHIFT.0)) < 0,
+                GetKeyState(0x12) < 0,
+            )
+        };
+        if let Some(a) = w.key_chord(sh, vk, ctrl, shift, alt) {
+            actions.extend(a);
+            return (Some(LRESULT(0)), actions);
+        }
+    }
     let r = match msg {
         WM_ERASEBKGND => Some(LRESULT(1)),
         WM_COPYDATA => {
@@ -2987,6 +3073,12 @@ fn handle(
             }
             None
         }
+        WM_CHAR if w.settings.is_some() && w.dialog.is_none() => {
+            if let Some(c) = char::from_u32(wp.0 as u32) {
+                w.panel_char(c);
+            }
+            Some(LRESULT(0))
+        }
         WM_CHAR if w.find.is_some() => {
             if let Some(c) = char::from_u32(wp.0 as u32) {
                 w.find_char(sh, c);
@@ -3016,6 +3108,11 @@ fn handle(
         }
         WM_COMMAND if (wp.0 & 0xFFFF) == IDM_OPEN => {
             actions.push(Action::OpenDialog);
+            Some(LRESULT(0))
+        }
+        WM_MOUSEWHEEL if w.settings.is_some() && w.dialog.is_none() => {
+            let delta = ((wp.0 >> 16) & 0xFFFF) as u16 as i16;
+            w.panel_wheel(sh, delta);
             Some(LRESULT(0))
         }
         WM_MOUSEWHEEL if wp.0 & MK_CONTROL_BIT != 0 || alt_down() => {
@@ -3099,10 +3196,11 @@ fn handle(
             let _ = unsafe { GetCursorPos(&mut pt) };
             let (x, y) = w.screen_xy(pt.x, pt.y);
             let bar = y < 0.0 || (w.fs && w.cap.reveal && y < yamdv_core::chrome::BAR_H);
-            let hand = !bar && w.dialog.is_none() && w.over_hot(sh, x, y);
+            let free = w.dialog.is_none() && w.settings.is_none();
+            let hand = !bar && free && w.over_hot(sh, x, y);
             let ibeam = !hand
                 && !bar
-                && w.dialog.is_none()
+                && free
                 && !(x >= w.cw - 16.0 && w.thumb().is_some())
                 && w.over_text(sh, x, y);
             let cur = if hand {
@@ -3327,20 +3425,19 @@ fn run_actions_inner(hwnd: HWND, actions: Vec<Action>) {
             }
             Action::ChromeMenu(more) => {
                 use yamdv_core::chrome::Part;
+                if !more {
+                    // ⚙ opens the settings panel (FUT-31).
+                    app::with_win(hwnd, |w, _| w.panel_open(None, true));
+                    continue;
+                }
                 let Some((ctx, anchor)) = win_of(hwnd).and_then(|w| {
-                    w.try_borrow().ok().map(|w| {
-                        let part = if more { Part::More } else { Part::Settings };
-                        (w.menu_ctx(None), w.button_anchor(part))
-                    })
+                    w.try_borrow()
+                        .ok()
+                        .map(|w| (w.menu_ctx(None), w.button_anchor(Part::More)))
                 }) else {
                     continue;
                 };
-                let model = if more {
-                    app::build(sh.lang, &ctx)
-                } else {
-                    app::build_settings(sh.lang)
-                };
-                popup::open_menu(hwnd, anchor, more, model, None);
+                popup::open_menu(hwnd, anchor, true, app::build(sh.lang, &ctx), None);
             }
             Action::SchemeCards => {
                 use yamdv_core::chrome::Part;
@@ -3362,12 +3459,15 @@ fn run_actions_inner(hwnd: HWND, actions: Vec<Action>) {
                 run_actions_inner(hwnd, more);
             }
             Action::ApplyTheme => app::apply_all(),
+            Action::Panel(op) => {
+                let more = setpanel::run_op(hwnd, op);
+                run_actions_inner(hwnd, more);
+            }
             Action::Help => {
                 if let Some(h) = create_window(&sh, None) {
                     app::with_win(h, |w, sh| w.show_help(sh));
                 }
             }
-            Action::FontDialog => app::font_dialog(hwnd),
             Action::SetSetting(k, v) => {
                 app::set(k, &v);
             }
@@ -3672,6 +3772,7 @@ fn create_window(sh: &Shared, path: Option<&str>) -> Option<HWND> {
         dimmed: false,
         watcher: None,
         find: None,
+        settings: None,
         side: sidebar::Side::default(),
         ctx_table: None,
         top: yamdv_core::chrome::BAR_H,

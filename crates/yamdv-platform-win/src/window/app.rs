@@ -4,7 +4,171 @@
 
 use super::*;
 use yamdv_core::ini::Ini;
+use yamdv_core::keymap::Keymap;
 use yamdv_core::state::State;
+
+thread_local! {
+    /// Current keymap: `shortcuts.preset` + `[shortcuts]` overrides (FUT-05).
+    static KEYMAP: RefCell<Keymap> = RefCell::new(Keymap::new("default", []));
+}
+
+/// The current keymap.
+pub(super) fn keymap() -> Keymap {
+    KEYMAP.with(|k| k.borrow().clone())
+}
+
+/// Shown chord of action `id` (menus, help).
+pub(super) fn keys(id: &str) -> String {
+    KEYMAP.with(|k| k.borrow().shown(id))
+}
+
+fn reload_keymap() {
+    if let Some(km) = with(|a| {
+        Keymap::new(
+            a.settings.str("shortcuts.preset"),
+            a.ini.entries("shortcuts"),
+        )
+    }) {
+        KEYMAP.with(|k| *k.borrow_mut() = km);
+    }
+}
+
+/// Writes `settings.ini` from the in-memory INI and re-styles every window.
+fn persist_settings() -> bool {
+    let Some((path, text)) = with(|a| (format!("{}\\settings.ini", a.dir), a.ini.write())) else {
+        return false;
+    };
+    let ok = crate::shell::write_atomic(&path, &text);
+    apply_all();
+    ok
+}
+
+/// Stores (`Some`) or removes (`None`) the `[shortcuts]` override of action `id`.
+pub(super) fn set_shortcut(id: &str, value: Option<&str>) -> bool {
+    with(|a| match value {
+        Some(v) => a.ini.set("shortcuts", id, v),
+        None => a.ini.remove("shortcuts", id),
+    });
+    persist_settings()
+}
+
+/// *Reset to preset*: removes every `[shortcuts]` override (the preset stays).
+pub(super) fn reset_shortcuts() -> bool {
+    with(|a| {
+        let ids: Vec<String> = a
+            .ini
+            .entries("shortcuts")
+            .into_iter()
+            .map(|(k, _)| k.to_string())
+            .filter(|k| !k.eq_ignore_ascii_case("preset"))
+            .collect();
+        for k in ids {
+            a.ini.remove("shortcuts", &k);
+        }
+    });
+    persist_settings()
+}
+
+/// Resets `keys` to their defaults (Reset section / Reset all).
+pub(super) fn reset_keys(keys: &[&str]) -> bool {
+    with(|a| {
+        for k in keys {
+            if let Some(d) = yamdv_core::settings::def(k) {
+                a.settings.set(k, d.default);
+                if let Some((sec, key)) = k.split_once('.') {
+                    a.ini.remove(sec, key);
+                }
+            }
+        }
+    });
+    persist_settings()
+}
+
+/// Whether `yamdv.portable` sits beside the exe (R-SET-05).
+pub(super) fn is_portable() -> bool {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("yamdv.portable").exists()))
+        .unwrap_or(false)
+}
+
+/// The config directory in use.
+pub(super) fn data_dir() -> String {
+    with(|a| a.dir.clone()).unwrap_or_else(config_dir)
+}
+
+/// A copy of the current settings.
+pub(super) fn settings_snapshot() -> yamdv_core::settings::Settings {
+    with(|a| a.settings.clone()).unwrap_or_default()
+}
+
+/// A dropdown popup: one item per option, the current one checked (`SET_OPT0 + index`).
+pub(super) fn options_menu(lang: Lang, opts: &[(String, String)], cur: &str) -> Model {
+    let b = Builder::new(lang);
+    for (i, (v, l)) in opts.iter().enumerate() {
+        let id = super::setpanel::SET_OPT0 + u32::try_from(i).unwrap_or(0);
+        b.item(0, id, l, "", check(v == cur));
+    }
+    b.finish()
+}
+
+/// Path of `custom-theme.ini`.
+pub(super) fn custom_theme_path() -> String {
+    format!(
+        "{}\\custom-theme.ini",
+        with(|a| a.dir.clone()).unwrap_or_else(config_dir)
+    )
+}
+
+/// Edits `custom-theme.ini` (FUT-04): `f` changes the parsed file, which is written atomically.
+pub(super) fn edit_custom_theme(f: impl FnOnce(&mut Ini)) -> bool {
+    let p = custom_theme_path();
+    let mut ini = Ini::parse(&read_small(&p));
+    f(&mut ini);
+    if let Some(d) = std::path::Path::new(&p).parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let ok = crate::shell::write_atomic(&p, &ini.write());
+    apply_all();
+    ok
+}
+
+/// Effective (light, dark) colours of every token, and whether each is overridden.
+pub(super) fn token_colors() -> Vec<(u32, u32, bool, bool)> {
+    let scheme = get("appearance.scheme");
+    let (l, _) = palette_for(&scheme, false);
+    let (d, _) = palette_for(&scheme, true);
+    let ini = Ini::parse(&read_small(&custom_theme_path()));
+    let on = get("appearance.use_custom_colors") == "true";
+    yamdv_core::colors::TOKENS
+        .iter()
+        .map(|t| {
+            let has = |sec: &str| on && ini.get(sec, t).is_some();
+            (
+                yamdv_core::colors::token(&l, t).unwrap_or(0),
+                yamdv_core::colors::token(&d, t).unwrap_or(0),
+                has("light"),
+                has("dark"),
+            )
+        })
+        .collect()
+}
+
+/// Privacy: clears history (0), favorites (1) or reading positions (2) and saves `state.ini`.
+pub(super) fn clear_state(what: u8) {
+    with(|a| match what {
+        0 => a.state.history.clear(),
+        1 => a.state.favorites.clear(),
+        _ => a.state.positions.clear(),
+    });
+    save_state();
+    let wins: Vec<_> = WINDOWS.with(|m| m.borrow().values().cloned().collect());
+    for w in wins {
+        if let Ok(w) = w.try_borrow() {
+            w.invalidate();
+        }
+    }
+}
 
 /// The 11 schemes (R-THEME-02) in menu order.
 pub(super) const SCHEMES: [(&str, &str); 11] = [
@@ -132,6 +296,7 @@ pub(super) fn init() -> Settings {
             theme_watch: None,
         });
     });
+    reload_keymap();
     out
 }
 
@@ -220,6 +385,7 @@ pub(crate) fn export_palette(scheme: &str, setting: &str, ui_dark: bool) -> (Pal
 
 /// Rebuilds the shared state from the current settings and re-styles every window.
 pub(super) fn apply_all() {
+    reload_keymap();
     let Some(old) = shared() else { return };
     let Some(s) = with(|a| a.settings.clone()) else {
         return;
@@ -452,38 +618,38 @@ pub(super) fn build(lang: Lang, c: &MenuCtx) -> Model {
     let b = Builder::new(lang);
     let m = 0;
     if c.edit != 0 {
-        b.msg(m, UNDO, Msg::MUndo, "Ctrl+Z", 0);
-        b.msg(m, REDO, Msg::MRedo, "Ctrl+Y", 0);
-        b.msg(m, CUT, Msg::MCut, "Ctrl+X", 0);
-        b.msg(m, COPY, Msg::MCopy, "Ctrl+C", 0);
-        b.msg(m, PASTE, Msg::MPaste, "Ctrl+V", 0);
+        b.msg(m, UNDO, Msg::MUndo, &keys("undo"), 0);
+        b.msg(m, REDO, Msg::MRedo, &keys("redo"), 0);
+        b.msg(m, CUT, Msg::MCut, &keys("cut"), 0);
+        b.msg(m, COPY, Msg::MCopy, &keys("copy"), 0);
+        b.msg(m, PASTE, Msg::MPaste, &keys("paste"), 0);
         b.sep(m);
         let f = b.sub(m, Msg::MFormat);
         for (i, (msg, key)) in [
-            (Msg::MBold, "Ctrl+B"),
-            (Msg::MItalic, "Ctrl+I"),
-            (Msg::MStrike, "Ctrl+Shift+X"),
-            (Msg::MInlineCode, "Ctrl+`"),
-            (Msg::MLink, "Ctrl+K"),
-            (Msg::MHeading1, "Ctrl+1"),
-            (Msg::MHeading2, "Ctrl+2"),
-            (Msg::MHeading3, "Ctrl+3"),
-            (Msg::MParagraph, "Ctrl+Shift+0"),
-            (Msg::MQuote, "Ctrl+Shift+Q"),
-            (Msg::MBulletList, "Ctrl+Shift+8"),
-            (Msg::MNumberedList, "Ctrl+Shift+7"),
-            (Msg::MTaskList, "Ctrl+Shift+9"),
+            (Msg::MBold, "bold"),
+            (Msg::MItalic, "italic"),
+            (Msg::MStrike, "strikethrough"),
+            (Msg::MInlineCode, "inline_code"),
+            (Msg::MLink, "link"),
+            (Msg::MHeading1, "heading_1"),
+            (Msg::MHeading2, "heading_2"),
+            (Msg::MHeading3, "heading_3"),
+            (Msg::MParagraph, "paragraph"),
+            (Msg::MQuote, "quote"),
+            (Msg::MBulletList, "bullet_list"),
+            (Msg::MNumberedList, "numbered_list"),
+            (Msg::MTaskList, "task_list"),
         ]
         .into_iter()
         .enumerate()
         {
-            b.msg(f, FMT0 + i as u32, msg, key, 0);
+            b.msg(f, FMT0 + i as u32, msg, &keys(key), 0);
         }
         b.sep(m);
     } else {
-        b.msg(m, COPY, Msg::MCopy, "Ctrl+C", 0);
+        b.msg(m, COPY, Msg::MCopy, &keys("copy"), 0);
     }
-    b.msg(m, COPY_MD, Msg::MCopyMd, "Ctrl+Shift+C", 0);
+    b.msg(m, COPY_MD, Msg::MCopyMd, &keys("copy_markdown"), 0);
     if c.link.is_some() {
         b.msg(m, COPY_LINK, Msg::MCopyLink, "", 0);
     }
@@ -491,7 +657,7 @@ pub(super) fn build(lang: Lang, c: &MenuCtx) -> Model {
         b.msg(m, CSV_COPY, Msg::MCopyTableCsv, "", 0);
         b.msg(m, CSV_EXPORT, Msg::MExportTableCsv, "", 0);
     }
-    b.msg(m, SELECT_ALL, Msg::MSelectAll, "Ctrl+A", 0);
+    b.msg(m, SELECT_ALL, Msg::MSelectAll, &keys("select_all"), 0);
     b.sep(m);
     let ap = b.sub(m, Msg::MAppearance);
     let mode = get("appearance.mode");
@@ -510,18 +676,18 @@ pub(super) fn build(lang: Lang, c: &MenuCtx) -> Model {
     b.msg(ap, SCHEME_CARDS, Msg::MSchemeCards, "", 0);
     b.msg(ap, BODY_FONT, Msg::MBodyFont, "", 0);
     let fs = b.sub(ap, Msg::MFontSize);
-    b.msg(fs, FONT_BIG, Msg::MBigger, "Ctrl+=", 0);
-    b.msg(fs, FONT_SMALL, Msg::MSmaller, "Ctrl+-", 0);
-    b.msg(fs, FONT_RESET, Msg::MReset, "Ctrl+0", 0);
+    b.msg(fs, FONT_BIG, Msg::MBigger, &keys("font_bigger"), 0);
+    b.msg(fs, FONT_SMALL, Msg::MSmaller, &keys("font_smaller"), 0);
+    b.msg(fs, FONT_RESET, Msg::MReset, &keys("font_reset"), 0);
     let cw = b.sub(ap, Msg::MColumn);
-    b.msg(cw, COL_WIDE, Msg::MWider, "Alt+\u{2191}", 0);
-    b.msg(cw, COL_NARROW, Msg::MNarrower, "Alt+\u{2193}", 0);
-    b.msg(cw, COL_RESET, Msg::MReset, "Alt+0", 0);
+    b.msg(cw, COL_WIDE, Msg::MWider, &keys("column_wider"), 0);
+    b.msg(cw, COL_NARROW, Msg::MNarrower, &keys("column_narrower"), 0);
+    b.msg(cw, COL_RESET, Msg::MReset, &keys("column_reset"), 0);
     b.msg(
         ap,
         OUTLINE,
         Msg::MShowOutline,
-        "Ctrl+\\",
+        &keys("toggle_sidebar"),
         check(get("sidebar.visible") == "true"),
     );
     let op = b.sub(ap, Msg::MOutlinePos);
@@ -556,9 +722,15 @@ pub(super) fn build(lang: Lang, c: &MenuCtx) -> Model {
         "",
         check(get("reading.word_count_badge") == "true"),
     );
-    b.msg(ap, FULLSCREEN, Msg::MFullscreen, "F11", check(c.fullscreen));
+    b.msg(
+        ap,
+        FULLSCREEN,
+        Msg::MFullscreen,
+        &keys("fullscreen"),
+        check(c.fullscreen),
+    );
     if c.has_doc {
-        b.msg(m, EDITOR, Msg::MExtEditor, "F4", 0);
+        b.msg(m, EDITOR, Msg::MExtEditor, &keys("external_editor"), 0);
         let fav = c
             .path
             .as_deref()
@@ -568,7 +740,7 @@ pub(super) fn build(lang: Lang, c: &MenuCtx) -> Model {
                 m,
                 FAVORITE,
                 &format!("\u{2605} {}", tr(lang, Msg::MFavRemove)),
-                "Ctrl+D",
+                &keys("toggle_favorite"),
                 0,
             );
         } else {
@@ -576,15 +748,27 @@ pub(super) fn build(lang: Lang, c: &MenuCtx) -> Model {
                 m,
                 FAVORITE,
                 &format!("\u{2606} {}", tr(lang, Msg::MFavAdd)),
-                "Ctrl+D",
+                &keys("toggle_favorite"),
                 0,
             );
         }
     }
     if c.has_doc {
         let e = b.sub(m, Msg::MEdit);
-        b.msg(e, LIVE_EDIT, Msg::MLiveEdit, "F2", check(c.edit == 1));
-        b.msg(e, SPLIT_EDIT, Msg::MSplitEdit, "F3", check(c.edit == 2));
+        b.msg(
+            e,
+            LIVE_EDIT,
+            Msg::MLiveEdit,
+            &keys("live_edit"),
+            check(c.edit == 1),
+        );
+        b.msg(
+            e,
+            SPLIT_EDIT,
+            Msg::MSplitEdit,
+            &keys("split_edit"),
+            check(c.edit == 2),
+        );
         b.msg(
             e,
             SWAP_PANES,
@@ -594,93 +778,24 @@ pub(super) fn build(lang: Lang, c: &MenuCtx) -> Model {
         );
     }
     let f = b.sub(m, Msg::MFile);
-    b.msg(f, OPEN, Msg::MOpen, "Ctrl+O", 0);
+    b.msg(f, OPEN, Msg::MOpen, &keys("open_file"), 0);
     if c.has_doc {
-        b.msg(f, RELOAD, Msg::MReload, "F5", 0);
+        b.msg(f, RELOAD, Msg::MReload, &keys("reload"), 0);
         b.msg(f, EXPLORER, Msg::MShowExplorer, "", 0);
         b.msg(f, COPY_PATH, Msg::MCopyPath, "", 0);
     }
     if c.has_doc {
         let x = b.sub(m, Msg::MExport);
         b.msg(x, EXPORT_HTML, Msg::MExportHtml, "", 0);
-        b.msg(x, EXPORT_PDF, Msg::MExportPdf, "Ctrl+Shift+E", 0);
-        b.msg(x, PRINT, Msg::MPrint, "Ctrl+P", 0);
+        b.msg(x, EXPORT_PDF, Msg::MExportPdf, &keys("export_pdf"), 0);
+        b.msg(x, PRINT, Msg::MPrint, &keys("print"), 0);
     }
-    let st = b.sub(m, Msg::MSettings);
-    settings_into(&b, st);
+    // V2-B: one "Settings…" item opens the settings panel (FUT-31).
+    b.msg(m, SETTINGS_MENU, Msg::MSettingsOpen, &keys("settings"), 0);
     b.sep(m);
-    b.msg(m, SHORTCUTS, Msg::MShortcuts, "F1", 0);
+    b.msg(m, SHORTCUTS, Msg::MShortcuts, &keys("shortcuts_help"), 0);
     b.msg(m, ABOUT, Msg::MAbout, "", 0);
     b.finish()
-}
-
-/// The ⚙ popup: the Settings submenu as a root menu (V2-B replaces it with the panel).
-pub(super) fn build_settings(lang: Lang) -> Model {
-    let b = Builder::new(lang);
-    settings_into(&b, 0);
-    b.finish()
-}
-
-fn settings_into(b: &Builder, st: usize) {
-    let lang_v = get("general.language");
-    let lg = b.sub(st, Msg::MLanguage);
-    b.msg(lg, LANG0, Msg::MSystem, "", radio(lang_v == "system"));
-    b.item(lg, LANG0 + 1, "English", "", radio(lang_v == "en"));
-    b.item(lg, LANG0 + 2, "Türkçe", "", radio(lang_v == "tr"));
-    let ext = get("general.open_external_links");
-    let el = b.sub(st, Msg::MExtLinks);
-    for (i, (v, msg)) in [
-        ("ask", Msg::MAsk),
-        ("direct", Msg::MDirect),
-        ("never", Msg::MNever),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        b.msg(el, LINKS0 + i as u32, msg, "", radio(ext == v));
-    }
-    b.msg(
-        st,
-        RESTORE_POS,
-        Msg::MRestorePos,
-        "",
-        check(get("general.restore_reading_position") == "true"),
-    );
-    b.msg(st, SET_DEFAULT, Msg::MSetDefault, "", 0);
-    b.msg(
-        st,
-        CTX_MENU,
-        Msg::MCtxMenu,
-        "",
-        check(get("integration.context_menu") == "true"),
-    );
-    b.msg(
-        st,
-        AUTOSAVE,
-        Msg::MAutosave,
-        "",
-        check(get("editing.autosave") == "true"),
-    );
-    let efont = get("editing.editor_font");
-    let ef = b.sub(st, Msg::MEditorFont);
-    b.msg(ef, EFONT_BODY, Msg::MFontBody, "", radio(efont != "code"));
-    b.msg(ef, EFONT_CODE, Msg::MFontCode, "", radio(efont == "code"));
-    b.msg(
-        st,
-        ELINES,
-        Msg::MEditorLineNumbers,
-        "",
-        check(get("editing.editor_line_numbers") == "true"),
-    );
-    b.msg(
-        st,
-        EWRAP,
-        Msg::MEditorSoftWrap,
-        "",
-        check(get("editing.editor_soft_wrap") == "true"),
-    );
-    b.msg(st, EDIT_SETTINGS, Msg::MEditSettings, "", 0);
-    b.msg(st, CONFIG_DIR, Msg::MConfigFolder, "", 0);
 }
 
 /// Driver probe: builds the menu without showing it; (item count, checked labels joined by `|`).
@@ -787,7 +902,9 @@ pub(super) fn run_command(hwnd: HWND, id: u32, link: Option<String>) -> Vec<Acti
                 set("appearance.scheme", v);
             }
         }
-        BODY_FONT => out.push(Action::FontDialog),
+        BODY_FONT => with_win(hwnd, |w, _| {
+            w.panel_open(Some(yamdv_ui::settings_panel::Section::Typography), false);
+        }),
         FONT_BIG => zoom(hwnd, true, 1),
         FONT_SMALL => zoom(hwnd, true, -1),
         FONT_RESET => zoom(hwnd, true, 0),
@@ -828,7 +945,10 @@ pub(super) fn run_command(hwnd: HWND, id: u32, link: Option<String>) -> Vec<Acti
         SCHEME_CARDS => out.push(Action::SchemeCards),
         WORD_COUNT => toggle("reading.word_count_badge"),
         FULLSCREEN => with_win(hwnd, |w, _| w.toggle_fullscreen()),
-        SETTINGS_MENU => out.push(Action::ChromeMenu(false)),
+        SETTINGS_MENU => with_win(hwnd, |w, _| w.panel_open(None, true)),
+        i if (super::setpanel::SET_OPT0..super::setpanel::SET_OPT0 + 64).contains(&i) => {
+            super::setpanel::option_chosen(hwnd, i - super::setpanel::SET_OPT0);
+        }
         MORE_MENU => out.push(Action::ChromeMenu(true)),
         RELOAD => with_win(hwnd, |w, sh| w.reload(sh)),
         EXPLORER => with_win(hwnd, |w, _| {
@@ -1295,21 +1415,6 @@ pub(super) fn save_geometry(hwnd: HWND) {
         max: wp.showCmd == SW_SHOWMAXIMIZED.0 as u32,
     };
     with(|a| a.state.window = Some(g));
-}
-
-/// Body font… (`ChooseFontW` in the dialog host, family name only).
-pub(super) fn font_dialog(hwnd: HWND) {
-    if HOST.with(|h| h.borrow().is_some()) {
-        return;
-    }
-    match crate::dialog_host::launch_kind(hwnd, yamdv_core::ipc::Kind::Font) {
-        Some(h) => {
-            // SAFETY: valid hwnd; WM_ENABLE is not handled by us.
-            let _ = unsafe { EnableWindow(hwnd, false) };
-            HOST.with(|x| *x.borrow_mut() = Some(h));
-        }
-        None => show_toast(hwnd, Msg::DialogHostFailed),
-    }
 }
 
 impl Win {

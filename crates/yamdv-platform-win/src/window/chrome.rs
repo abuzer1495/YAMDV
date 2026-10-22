@@ -380,7 +380,7 @@ impl Win {
             }),
             Part::Close => self.actions.push(Action::Close),
             Part::More => self.actions.push(Action::ChromeMenu(true)),
-            Part::Settings => self.actions.push(Action::ChromeMenu(false)),
+            Part::Settings => self.actions.push(Action::Command(app::SETTINGS_MENU)),
             Part::Caption | Part::Top => {}
         }
     }
