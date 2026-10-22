@@ -1,7 +1,15 @@
 # V2-B settings panel (prompt 012 §5.2, FUT-31, B.8.1): ⚙ opens it, the keyboard reaches
 # Reading, a toggle applies live and lands in settings.ini, Reset section, Esc closes, and the
 # memory it used is given back (PWS within +0.1 MiB of the value before opening).
+# The first open warms the process-wide caches (DirectWrite glyphs/fonts, heap segments) and
+# takes the screenshot; the memory check covers the second open/close (V2-B fix: on CI the
+# cold first open kept ~0.8 MiB of such caches, which is not panel memory).
 command mode light
+wait-idle
+ui click settings
+wait-idle
+snapshot settings-general-light.png
+key esc
 wait-idle
 ui mem-mark
 assert settings == closed
@@ -10,7 +18,6 @@ wait-idle
 assert settings == open
 assert settings_section == general
 assert settings_focus == search
-snapshot settings-general-light.png
 # Search filters by label in the UI language.
 type "font"
 wait-idle

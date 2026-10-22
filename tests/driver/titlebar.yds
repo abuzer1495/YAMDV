@@ -12,9 +12,13 @@ assert popup_root_items > 5
 ui popup-key esc
 wait-idle
 assert popup_open == 0
-# ⋯ menu: → opens a submenu level, ← closes it.
+# ⋯ menu: → opens a submenu level, ← closes it. Read mode: Copy, Copy as Markdown,
+# Select all, then the Appearance submenu (4th item).
 ui click more
 wait-idle
+ui popup-key down
+ui popup-key down
+ui popup-key down
 ui popup-key down
 ui popup-key right
 wait-idle
