@@ -1,0 +1,43 @@
+# F11 fullscreen (FUT-46), word-count badge (FUT-35), zoom indicator (B.10.2).
+wait-idle
+command fullscreen
+sleep 400
+assert fullscreen == 1
+assert chrome_top == 0
+assert chrome_visible == 0
+ui hover 2
+assert chrome_visible == 1
+ui hover 300
+assert chrome_visible == 0
+key esc
+sleep 400
+assert fullscreen == 0
+assert chrome_top == 32
+assert windows == 1
+key f11
+sleep 400
+assert fullscreen == 1
+key f11
+sleep 400
+assert fullscreen == 0
+# Badge: off by default; words · characters; selection shows "n / total".
+assert badge == none
+command word-count
+wait-idle
+assert words > 10
+assert chars > 50
+command select-all
+wait-idle
+assert badge contains /
+command word-count
+wait-idle
+assert badge == none
+# Zoom indicator: shown for 900 ms.
+command font-big
+wait-idle
+assert zoom_visible == 1
+assert zoom_text contains px
+sleep 1200
+assert zoom_visible == 0
+command font-reset
+wait-idle

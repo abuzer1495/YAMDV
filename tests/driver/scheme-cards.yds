@@ -1,0 +1,29 @@
+# Color-scheme cards (prompt 011 §3.3, FUT-32): hover previews, Esc reverts, click persists.
+wait-idle
+assert scheme == default
+command scheme-cards
+wait-idle
+assert popup_open == 1
+assert popup_kind == cards
+assert popup_items == 11
+ui popup-hover 2
+wait-idle
+assert popup_kind == cards-preview
+assert scheme == glacier
+assert disk_scheme == default
+ui popup-key esc
+wait-idle
+assert popup_open == 0
+assert scheme == default
+command scheme-cards
+wait-idle
+ui popup-click 3
+wait-idle
+assert popup_open == 0
+assert scheme == forest
+# Persisted: settings.ini on disk holds the new scheme (what a restart reads).
+assert disk_scheme == forest
+assert menu_checked contains Forest
+command scheme default
+wait-idle
+assert disk_scheme == default

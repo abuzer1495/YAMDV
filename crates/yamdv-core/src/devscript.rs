@@ -83,8 +83,9 @@ pub enum Cmd {
     ExportHtml(String),
     /// Export the first table of the document as CSV to a file (R-EXP-04); `out_*` fields.
     ExportCsv(String),
-    /// Window chrome / popup interaction (V2-A): `ui <verb> [arg]` — e.g. `ui chrome more`,
-    /// `ui menu-key down`, `ui card-hover forest`, `ui snapshot-top top.png`.
+    /// Window chrome / popup interaction (V2-A): `ui <verb> [arg]` — `ui click more`,
+    /// `ui dblclick-caption`, `ui hover 2`, `ui popup-key down`, `ui popup-hover 3`,
+    /// `ui popup-click 3`, `ui popup-shot menu.png`, `ui shot-window light.png`.
     Ui(String, String),
 }
 

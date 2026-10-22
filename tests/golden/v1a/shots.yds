@@ -32,4 +32,23 @@ wait-idle
 snapshot live-block-light.png
 key esc
 key esc
+# V2-A (prompt 011 §4): window top light / dark, the ⋯ menu, the scheme cards.
+command mode light
+wait-idle
+ui shot-window light.png
+command mode dark
+wait-idle
+ui shot-window dark.png
+command mode light
+wait-idle
+ui click more
+wait-idle
+ui popup-shot menu-light.png
+ui popup-key esc
+wait-idle
+command scheme-cards
+wait-idle
+ui popup-shot cards-light.png
+ui popup-key esc
+wait-idle
 command mode system

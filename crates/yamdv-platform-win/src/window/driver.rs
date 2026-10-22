@@ -534,6 +534,8 @@ fn command_id(name: &str) -> Option<u32> {
         "scheme-cards" => app::SCHEME_CARDS,
         "settings-menu" => app::SETTINGS_MENU,
         "more-menu" => app::MORE_MENU,
+        "font-big" => app::FONT_BIG,
+        "font-reset" => app::FONT_RESET,
         _ => return None,
     })
 }
