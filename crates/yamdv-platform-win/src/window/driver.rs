@@ -32,6 +32,11 @@ thread_local! {
     static LAST_OUT: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
+/// A script is running (popups then ignore the real mouse).
+pub(super) fn active() -> bool {
+    SCRIPT.with(|s| s.try_borrow().map_or(true, |s| s.is_some()))
+}
+
 /// Loads the script (once) and starts the step timer on `hwnd`.
 pub(super) fn start(hwnd: HWND, path: &str) {
     if SCRIPT.with(|s| s.borrow().is_some()) {

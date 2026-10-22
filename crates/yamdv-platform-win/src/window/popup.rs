@@ -968,6 +968,11 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
         // Never activates (WS_EX_NOACTIVATE); the whole window is client.
         WM_NCHITTEST => return LRESULT(HTCLIENT as isize),
         MM | LBD | LBU | WM_RBUTTONDOWN | WM_RBUTTONUP => {
+            // A test script drives the popup itself; the real cursor must not interfere.
+            #[cfg(feature = "dev-tools")]
+            if super::driver::active() {
+                return LRESULT(0);
+            }
             let mut pt = POINT {
                 x: i32::from(lp.0 as u16 as i16),
                 y: i32::from((lp.0 >> 16) as u16 as i16),

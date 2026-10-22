@@ -19,3 +19,4 @@ Issues: FUT-30 #29, FUT-32 #31, FUT-35 #34, FUT-46 #44, BUG-09 #69.
 - 13:51 core chrome.rs + devscript ui + i18n pushed; next: render Band origin, popup.rs
 - 13:57 popup.rs + app model written (not yet wired/compiling); next: chrome.rs + window.rs integration
 - 14:10 all features wired; local gates green (fmt, clippy native+xwin, tests, deny, spec-check, check-imports, size 2,826,752 B); TRACEABILITY updated; next: full CI run, goldens from artifact
+- 14:30 CI run 39768308649 red: creation NCCALCSIZE (wParam FALSE) kept caption → client +31 px (7 old goldens size mismatch); TIMER_ZOOM id clash (13 = autosave); real cursor hovered the cards. Fix push: SWP_FRAMECHANGED after create, TIMER_ZOOM 17, popups ignore the real mouse under a driver script, 4 goldens from the artifact (top shots at content 1000×731 as taken)

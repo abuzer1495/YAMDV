@@ -122,7 +122,7 @@ const TIMER_THEME: usize = 11;
 const TIMER_SPY: usize = 12;
 const TIMER_COPIED: usize = 8;
 /// One-shot: hide the zoom indicator (B.10.2, 900 ms).
-const TIMER_ZOOM: usize = 13;
+const TIMER_ZOOM: usize = 17;
 #[cfg(feature = "dev-tools")]
 const TIMER_SCRIPT: usize = 9;
 const LINE_STEP: f64 = 40.0;
@@ -3546,6 +3546,24 @@ fn create_window(sh: &Shared, path: Option<&str>) -> Option<HWND> {
         )
     }) else {
         return None;
+    };
+    // The creation-time WM_NCCALCSIZE (wParam FALSE) keeps the caption: recompute the frame
+    // so the client covers it (B.4) before the client size is read.
+    // SAFETY: valid hwnd; no window state exists yet (wndproc needs none for WM_NCCALCSIZE).
+    let _ = unsafe {
+        SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOZORDER
+                | SWP_NOACTIVATE
+                | windows::Win32::UI::WindowsAndMessaging::SWP_NOMOVE
+                | windows::Win32::UI::WindowsAndMessaging::SWP_NOSIZE
+                | windows::Win32::UI::WindowsAndMessaging::SWP_FRAMECHANGED,
+        )
     };
     // SAFETY: valid hwnd.
     let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);

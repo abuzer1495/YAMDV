@@ -33,6 +33,9 @@ snapshot live-block-light.png
 key esc
 key esc
 # V2-A (prompt 011 §4): window top light / dark, the ⋯ menu, the scheme cards.
+# Content 1000 × 731 (+ the 32 px bar): the size the committed top goldens were taken at.
+resize 1000 731
+wait-idle
 command mode light
 wait-idle
 ui shot-window light.png
@@ -47,6 +50,9 @@ ui popup-shot menu-light.png
 ui popup-key esc
 wait-idle
 command scheme-cards
+wait-idle
+# Hovered card (Mint, index 9): ring + live preview.
+ui popup-hover 9
 wait-idle
 ui popup-shot cards-light.png
 ui popup-key esc
