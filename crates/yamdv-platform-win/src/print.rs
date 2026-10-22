@@ -517,13 +517,33 @@ fn print_inner(
     } else {
         // No partial PDF stays behind (BUG-11).
         if let Some(o) = &t.output {
-            let _ = std::fs::remove_file(o);
+            remove_partial(std::path::Path::new(o));
         }
         Err(if cancelled {
             Error::Cancelled
         } else {
             Error::Failed
         })
+    }
+}
+
+/// Removes a cancelled job's output file. "Microsoft Print to PDF" writes the file from the
+/// spooler's filter pipeline, which may still create or hold it for a moment after `AbortDoc`
+/// (V2-B fix: CI found the PDF back after a cancel in the Printing phase), so retry until it
+/// has stayed absent for 1 s (at most 6 s).
+fn remove_partial(path: &std::path::Path) {
+    let mut absent = 0;
+    for _ in 0..60 {
+        if path.exists() {
+            absent = 0;
+            let _ = std::fs::remove_file(path);
+        } else {
+            absent += 1;
+            if absent >= 10 {
+                return;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }
 
