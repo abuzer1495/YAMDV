@@ -1,14 +1,35 @@
 # V2-B settings panel (prompt 012 §5.2, FUT-31, B.8.1): ⚙ opens it, the keyboard reaches
 # Reading, a toggle applies live and lands in settings.ini, Reset section, Esc closes, and the
 # memory it used is given back (PWS within +0.1 MiB of the value before opening).
-# The first open warms the process-wide caches (DirectWrite glyphs/fonts, heap segments) and
-# takes the screenshot; the memory check covers the second open/close (V2-B fix: on CI the
-# cold first open kept ~0.8 MiB of such caches, which is not panel memory).
+# A first pass walks the same path once (open, search, Reading toggle on/off, close) to warm the
+# process-wide caches (DirectWrite glyphs/fonts, the relayout with line numbers, heap segments)
+# and takes the screenshot; the memory check covers the second pass (V2-B fix: on CI a cold
+# first open kept ~0.8 MiB, a warm open with a cold toggle ~0.5 MiB, none of it panel memory).
 command mode light
 wait-idle
 ui click settings
 wait-idle
 snapshot settings-general-light.png
+type "font"
+wait-idle
+key ctrl+A
+key backspace
+key tab
+key down
+key down
+key down
+key down
+key right
+key down
+key down
+key down
+wait-idle
+assert settings_focus == reading.code_line_numbers
+key space
+wait-idle
+key space
+wait-idle
+assert code_line_numbers == 0
 key esc
 wait-idle
 ui mem-mark

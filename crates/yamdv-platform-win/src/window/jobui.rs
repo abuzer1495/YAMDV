@@ -473,6 +473,18 @@ pub(super) fn cancel_and_close() {
     });
 }
 
+/// The running job reports pages (not layout blocks) now: the page counter only rises within
+/// this phase (the driver's `job_monotonic` check samples only here; Preparing counts blocks).
+#[cfg_attr(not(feature = "dev-tools"), allow(dead_code))]
+pub(super) fn printing() -> bool {
+    JOB.with(|j| {
+        j.borrow()
+            .as_ref()
+            .and_then(|w| w.last)
+            .is_some_and(|r| r.phase == progress::Phase::Printing)
+    })
+}
+
 /// State for the dev-tools driver: `(kind, n, total, cancelling)` of the running job.
 #[cfg_attr(not(feature = "dev-tools"), allow(dead_code))]
 pub(super) fn state() -> Option<(JobKind, u32, u32, bool)> {

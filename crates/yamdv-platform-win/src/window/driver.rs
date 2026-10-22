@@ -48,12 +48,13 @@ fn again(ms: u64) -> String {
     String::new()
 }
 
-/// Records a page count for the `job_monotonic` check.
+/// Records a page count for the `job_monotonic` check (Printing phase only: Preparing reports
+/// layout blocks, e.g. 482 for pages-30.md, before the page counter starts at 1).
 fn job_sample() -> u32 {
     let (n, t) = super::jobui::state().map_or((0, 0), |(_, n, t, _)| (n, t));
     JOB_SEQ.with(|q| {
         let (k, last, mono, total) = q.get();
-        if super::jobui::busy() {
+        if super::jobui::busy() && super::jobui::printing() {
             q.set((k + 1, n.max(last), mono && n >= last, t.max(total)));
         }
     });
@@ -553,7 +554,7 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
             };
             w.run_export(sh, &k, &out);
             LAST_OUT.with(|l| *l.borrow_mut() = Some(out));
-            if super::jobui::busy() {
+            if super::jobui::busy() && super::jobui::printing() {
                 format!("ok ui {verb} {arg}")
             } else {
                 format!("FAIL ui {verb} {arg}: no job")
@@ -574,7 +575,7 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
         }
         "job-done" => {
             job_sample();
-            if super::jobui::busy() {
+            if super::jobui::busy() && super::jobui::printing() {
                 again(100)
             } else {
                 "ok ui job-done".into()
