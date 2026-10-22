@@ -17,3 +17,4 @@ Issues: FUT-30 #29, FUT-32 #31, FUT-35 #34, FUT-46 #44, BUG-09 #69.
 - 13:50 setup committed; next: survey menu/window code in yamdv-app / yamdv-platform-win.
 - 14:05 design: menu = non-modal thread-local popup (WS_EX_LAYERED alpha fade + NOACTIVATE + capture on root popup, DWM corner pref); title bar drawn in main client with a top offset (TOP) applied centrally (renderer origin + lparam_xy).
 - 13:51 core chrome.rs + devscript ui + i18n pushed; next: render Band origin, popup.rs
+- 13:57 popup.rs + app model written (not yet wired/compiling); next: chrome.rs + window.rs integration
