@@ -59,11 +59,17 @@ pub fn encode(r: &Record) -> [u8; LEN] {
 
 /// Decodes a record; `None` on a wrong size, magic, version or phase, or `n > total`.
 pub fn decode(b: &[u8]) -> Option<Record> {
-    if b.len() != LEN {
-        return None;
-    }
-    let u16_at = |i: usize| u16::from_le_bytes([b[i], b[i + 1]]);
-    let u32_at = |i: usize| u32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
+    let b: &[u8; LEN] = b.try_into().ok()?;
+    let u16_at = |i: usize| {
+        let mut x = [0u8; 2];
+        x.copy_from_slice(b.get(i..i + 2).unwrap_or(&[0, 0]));
+        u16::from_le_bytes(x)
+    };
+    let u32_at = |i: usize| {
+        let mut x = [0u8; 4];
+        x.copy_from_slice(b.get(i..i + 4).unwrap_or(&[0; 4]));
+        u32::from_le_bytes(x)
+    };
     if u32_at(0) != MAGIC || u16_at(4) != VERSION {
         return None;
     }
@@ -73,7 +79,7 @@ pub fn decode(b: &[u8]) -> Option<Record> {
         _ => return None,
     };
     let mut nb = [0u8; 8];
-    nb.copy_from_slice(&b[8..16]);
+    nb.copy_from_slice(b.get(8..16)?);
     let (n, total) = (u32_at(16), u32_at(20));
     if total != 0 && n > total {
         return None;
@@ -116,8 +122,8 @@ pub fn eta_secs(elapsed_ms: u64, n: u32, total: u32) -> Option<u64> {
     if n < 5 && u64::from(n) * 20 < u64::from(total) {
         return None;
     }
-    let per = elapsed_ms as f64 / f64::from(n);
-    Some(((per * f64::from(total - n)) / 1000.0).round() as u64)
+    let left_ms = u128::from(elapsed_ms) * u128::from(total - n) / u128::from(n);
+    Some(u64::try_from(left_ms.div_ceil(1000)).unwrap_or(u64::MAX))
 }
 
 /// Whole percent (floor), 0..=100.
@@ -125,7 +131,7 @@ pub fn percent(n: u32, total: u32) -> u32 {
     if total == 0 {
         0
     } else {
-        ((u64::from(n.min(total)) * 100) / u64::from(total)) as u32
+        u32::try_from((u64::from(n.min(total)) * 100) / u64::from(total)).unwrap_or(100)
     }
 }
 
