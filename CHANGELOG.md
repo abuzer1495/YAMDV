@@ -6,6 +6,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-22
+
+V2-A window chrome (prompt 011) and V2-B settings panel (prompt 012). Not tagged yet: the
+`v1.1.0` tag waits for the owner test (A-8).
+
+### Added
+- Window chrome (V2-A, FUT-30/32/35/46): custom 32 px title bar with ⚙ / ⋯ and Min/Max/Close,
+  layered popup menus with keyboard navigation, color-scheme cards, F11 full screen with a
+  reveal strip, optional word-count badge and a zoom pill.
+- Settings panel (V2-B, FUT-31): ⚙ / Ctrl+, open an in-window panel with 12 sections (General,
+  Appearance, Typography, Sidebar, Reading, Editing, Shortcuts, External editor, Export, Files,
+  Privacy, About); every change is
+  live and saved to `settings.ini`; Reset section / Reset all; full keyboard path.
+- Settings search (FUT-26, first half): filters rows by label and description in the UI
+  language.
+- Font pickers (FUT-49): body / heading / code font lists with live preview and the resolved
+  fallback font shown under each row.
+- Custom-color editor (FUT-04): per-token light/dark swatches with a hex popover, written to
+  `custom-theme.ini`; "Use custom colors" switch.
+- Shortcuts (FUT-05): every action can be rebound by capture, with conflict detection, a
+  Typora preset and Reset; the Help page lists the active bindings.
+
+### Changed
+- The ⚙ button and Ctrl+, open the settings panel instead of the Settings submenu; the old
+  "Body font…" dialog is replaced by the Typography section.
+- The diagnostic log switch (Privacy) applies at once.
+
+### Fixed
+- BUG-10: PDF / print / HTML export use only the export color setting (default Light), never
+  the dark UI palette, selection or find highlights.
+- BUG-11: background PDF / HTML export runs in a worker process with page progress and
+  Cancel; the window stays responsive and a cancelled job leaves no file behind.
+
 ## [1.0.0] - 2026-10-17
 
 First complete release (owner decision 2026-10-17: v1 scope; deferred items are in FUTURE.md).

@@ -12,12 +12,30 @@
 use windows::Win32::Foundation::FILETIME;
 use windows::Win32::System::ProcessStatus::{
     GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX,
+    PROCESS_MEMORY_COUNTERS_EX2,
 };
 use windows::Win32::System::SystemInformation::GetSystemTimePreciseAsFileTime;
 use windows::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
 
 fn ft(f: FILETIME) -> u64 {
     (u64::from(f.dwHighDateTime) << 32) | u64::from(f.dwLowDateTime)
+}
+
+/// Process CPU time (kernel + user) in milliseconds (driver `cpu_delta_ms`, T7 after a cancel).
+pub fn cpu_ms() -> u64 {
+    let (mut c, mut e, mut k, mut u) = (
+        FILETIME::default(),
+        FILETIME::default(),
+        FILETIME::default(),
+        FILETIME::default(),
+    );
+    // SAFETY: valid pseudo-handle and out-pointers.
+    unsafe {
+        if GetProcessTimes(GetCurrentProcess(), &mut c, &mut e, &mut k, &mut u).is_err() {
+            return 0;
+        }
+    }
+    (ft(k) + ft(u)) / 10_000
 }
 
 /// Milliseconds since the process was created (first-paint metrics T1b/T1L/T2).
@@ -53,6 +71,27 @@ pub fn commit_bytes() -> u64 {
         )
     };
     if r.is_ok() { ex.PrivateUsage as u64 } else { 0 }
+}
+
+/// Private working set (PWS) in bytes; 0 before Windows 10 1809.
+pub fn private_ws_bytes() -> u64 {
+    let mut ex = PROCESS_MEMORY_COUNTERS_EX2 {
+        cb: u32::try_from(size_of::<PROCESS_MEMORY_COUNTERS_EX2>()).unwrap_or(0),
+        ..Default::default()
+    };
+    // SAFETY: correctly sized structure with cb set.
+    let r = unsafe {
+        GetProcessMemoryInfo(
+            GetCurrentProcess(),
+            (&raw mut ex).cast::<PROCESS_MEMORY_COUNTERS>(),
+            ex.cb,
+        )
+    };
+    if r.is_ok() {
+        ex.PrivateWorkingSetSize as u64
+    } else {
+        0
+    }
 }
 
 /// Percentile (nearest-rank) of `v` (sorted copy).

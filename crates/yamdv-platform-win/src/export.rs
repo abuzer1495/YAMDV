@@ -14,7 +14,7 @@ use yamdv_core::doc::detail::ImageRef;
 use yamdv_core::doc::{Document, ReadOpts};
 use yamdv_core::i18n::Lang;
 use yamdv_core::image::{self, Format, Source};
-use yamdv_core::theme::{self, Palette};
+use yamdv_core::theme::Palette;
 use yamdv_export::html::{DocOpts, ExportHost, Png};
 use yamdv_layout::block::Metrics;
 use yamdv_layout::viewer::{Content, Env, Viewer};
@@ -44,6 +44,8 @@ pub struct Job {
     pub fonts: (String, String),
     /// UI language (placeholder labels).
     pub lang: Lang,
+    /// `--mode` was given on the command line: it sets the export palette directly.
+    pub mode_forced: bool,
 }
 
 impl Job {
@@ -70,6 +72,7 @@ impl Job {
         dark: Option<bool>,
     ) -> Self {
         let s = crate::window::load_settings();
+        let mode_forced = dark.is_some();
         let mode = s.str("appearance.mode");
         let dark = dark.unwrap_or_else(|| match mode {
             "dark" => true,
@@ -96,6 +99,7 @@ impl Job {
                 s.str("general.language"),
                 crate::sys::ui_language_tag(),
             ),
+            mode_forced,
         }
     }
 
@@ -288,7 +292,24 @@ fn unpremultiply(px: &mut [u8]) {
 
 /// The exported HTML text of `job` (COM must be initialized on this thread).
 pub fn html_text(dw: &DWrite, job: &Job) -> String {
-    let pal = theme::palette(&job.scheme, job.dark);
+    html_text_with(dw, job, &mut |_, _| true).unwrap_or_default()
+}
+
+/// [`html_text`] with a per-block progress callback (`false` cancels: `None`).
+pub fn html_text_with(
+    dw: &DWrite,
+    job: &Job,
+    progress: &mut dyn FnMut(usize, usize) -> bool,
+) -> Option<String> {
+    let s = crate::window::load_settings();
+    // BUG-10: `export.html_colors` picks the palette; an explicit `--mode` sets it directly.
+    let (pal, dark) = if job.mode_forced {
+        let dark = job.dark;
+        let base = crate::window::export_palette(&job.scheme, "theme", dark).0;
+        (base, dark)
+    } else {
+        crate::window::export_palette(&job.scheme, s.str("export.html_colors"), job.dark)
+    };
     let host = Host {
         dw,
         doc_path: job.path.clone(),
@@ -298,8 +319,7 @@ pub fn html_text(dw: &DWrite, job: &Job) -> String {
         wic: crate::images::factory(),
     };
     let doc = Document::new(job.source.clone(), ReadOpts::default());
-    let s = crate::window::load_settings();
-    yamdv_export::html::document(
+    yamdv_export::html::document_with(
         &doc,
         &host,
         &DocOpts {
@@ -309,9 +329,10 @@ pub fn html_text(dw: &DWrite, job: &Job) -> String {
                 .first()
                 .map_or_else(|| job.stem(), |h| h.text.clone()),
             pal,
-            dark: job.dark,
+            dark,
             toc: s.bool("export.html_include_toc"),
         },
+        progress,
     )
 }
 
@@ -322,6 +343,44 @@ pub fn export_html(dw: &DWrite, job: &Job, out: &str) -> bool {
     drop(text);
     crate::sys::trim_once();
     ok
+}
+
+/// HTML export in the worker (BUG-11): progress per block, Cancel between blocks, then an atomic
+/// write (nothing is left behind on Cancel or failure).
+pub fn export_html_with(
+    dw: &DWrite,
+    job: &Job,
+    out: &str,
+    mut link: Option<&mut crate::job::Link>,
+) -> Result<(), crate::print::Error> {
+    use yamdv_core::progress::Phase;
+    let mut report = |n: usize, total: usize| {
+        link.as_deref_mut().is_none_or(|l| {
+            l.report(
+                Phase::Printing,
+                u32::try_from(n).unwrap_or(u32::MAX),
+                u32::try_from(total).unwrap_or(u32::MAX),
+            )
+        })
+    };
+    let Some(text) = html_text_with(dw, job, &mut report) else {
+        return Err(crate::print::Error::Cancelled);
+    };
+    if link
+        .as_deref()
+        .is_some_and(|l| crate::job::is_set(l.cancel_handle()))
+    {
+        return Err(crate::print::Error::Cancelled);
+    }
+    let ok = crate::shell::write_atomic(out, &text);
+    drop(text);
+    crate::sys::trim_once();
+    if ok {
+        Ok(())
+    } else {
+        let _ = std::fs::remove_file(format!("{out}.tmp"));
+        Err(crate::print::Error::Failed)
+    }
 }
 
 /// Copy/Export table as CSV (R-EXP-04): the table of block `bi` at source offset `at`.

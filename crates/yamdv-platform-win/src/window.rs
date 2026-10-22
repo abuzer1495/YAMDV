@@ -61,12 +61,15 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 mod app;
+pub(crate) use app::export_palette;
 mod chrome;
 #[cfg(feature = "dev-tools")]
 mod driver;
 mod edit;
 mod findbar;
+mod jobui;
 mod popup;
+mod setpanel;
 mod sidebar;
 mod welcome;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -334,6 +337,10 @@ enum Pending {
     Edit(edit::Ask),
     /// `--uninstall`: keep or remove settings (R-SYS-05).
     Uninstall,
+    /// Close while an export runs (BUG-11).
+    JobClose,
+    /// Settings panel confirmation (Reset all, Reset colours, Clear …).
+    Panel(&'static str),
 }
 
 const BTN_CANCEL: u32 = 0;
@@ -375,6 +382,14 @@ struct Win {
     toast: Option<Msg>,
     /// Dynamic suffix of the toast text (link target names).
     toast_arg: String,
+    /// Exported file offered by the toast's [Open] / [Show in folder] (BUG-11).
+    done_file: Option<String>,
+    /// Where the toast was drawn (hit-testing its buttons).
+    toast_rect: std::cell::Cell<Option<Rect>>,
+    /// Error banner after a failed export (B.10.5, BUG-11).
+    banner: Option<Msg>,
+    /// The export progress card has the keyboard focus (`Esc` cancels).
+    job_focus: bool,
     /// Navigation history (path, scroll) and position (R-LINK-02).
     history: Vec<(String, f64)>,
     hist_pos: usize,
@@ -395,6 +410,8 @@ struct Win {
     focus: Option<(usize, u32)>,
     /// Actions requested by methods (new windows), drained by `handle`.
     actions: Vec<Action>,
+    /// Open settings panel (FUT-31).
+    settings: Option<Box<setpanel::Panel>>,
     /// The file was deleted: the document is shown dimmed (R-OPEN-11).
     dimmed: bool,
     /// Directory watcher of the open file (R-READ-01).
@@ -441,8 +458,6 @@ enum Action {
     Help,
     /// `custom-theme.ini` changed: rebuild the palette of every window (B.4).
     ApplyTheme,
-    /// Body font dialog (dialog host).
-    FontDialog,
     /// Persist one setting (sidebar width after a drag).
     SetSetting(&'static str, String),
     /// Paths forwarded by a second instance (S-IPC-03: open only), with `--line`.
@@ -459,8 +474,10 @@ enum Action {
     Install,
     /// Appearance ▸ Color scheme… card flyout (B.7.3).
     SchemeCards,
-    /// Title-bar menu: `true` = ⋯ (full menu), `false` = ⚙ (Settings submenu).
+    /// Title-bar menu: `true` = ⋯ (full menu), `false` = ⚙ (the settings panel).
     ChromeMenu(bool),
+    /// Settings panel operation (FUT-31), run outside the window borrow.
+    Panel(setpanel::Op),
     /// Driver: popup operations run outside the window borrow.
     #[cfg(feature = "dev-tools")]
     PopupOp(driver::PopupOp),
@@ -709,6 +726,8 @@ impl Win {
                 self.actions.push(Action::Close);
             }
             (_, BTN_CANCEL) => {}
+            (Pending::JobClose, jobui::BTN_JOB_CLOSE) => jobui::cancel_and_close(),
+            (Pending::Panel(what), setpanel::BTN_PANEL_OK) => self.panel_confirmed(what),
             (Pending::Large { path }, BTN_PLAIN) => self.open(sh, &path, Some(true), false),
             (Pending::Large { path }, BTN_RENDER) => self.open(sh, &path, Some(false), false),
             (Pending::Binary { path, plain }, BTN_OPEN) => self.open(sh, &path, Some(plain), true),
@@ -1023,10 +1042,10 @@ impl Win {
                     });
                     let _ = InvalidateRect(Some(self.hwnd), Some(&rc), false);
                 }
-                if self.toast.is_some() {
+                if self.toast.is_some() || jobui::busy() {
                     let rc = self.crc(RECT {
                         left: 0,
-                        top: px(self.ch - 120.0) - ady,
+                        top: px(self.ch - 170.0) - ady,
                         right: px(self.cw),
                         bottom: ch_px,
                     });
@@ -1502,17 +1521,22 @@ impl Win {
             self.draw_side(sh, b);
         }
         self.draw_find(sh, b);
+        self.draw_banner(sh, b);
+        self.draw_job(sh, b);
+        self.draw_settings(sh, b);
+        self.toast_rect.set(None);
         if let Some(m) = self.toast {
             let text = format!("{}{}", tr(sh.lang, m), self.toast_arg);
+            let extra = if self.done_file.is_some() { 212.0 } else { 0.0 };
             let t = self.shape_ui(
                 sh,
                 &text,
                 13.0,
                 400,
                 pal.bg,
-                Some((self.cw - 64.0).max(100.0)),
+                Some((self.cw - 64.0 - extra).max(100.0)),
             );
-            let (tw, th) = (t.width() + 32.0, t.height() + 20.0);
+            let (tw, th) = (t.width() + 32.0 + extra, (t.height() + 20.0).max(36.0));
             let r = Rect::new(
                 ((self.cw - tw) / 2.0).round(),
                 (self.ch - th - 24.0).round(),
@@ -1520,7 +1544,24 @@ impl Win {
                 th,
             );
             b.fill(r, pal.text, 0.92, 8.0);
-            b.text(t.as_ref(), r.x + 16.0, r.y + 10.0);
+            b.text(
+                t.as_ref(),
+                r.x + 16.0,
+                r.y + ((th - t.height()) / 2.0).round(),
+            );
+            if self.done_file.is_some() {
+                let (open, reveal) = jobui::toast_buttons(r);
+                for (rr, m) in [(open, Msg::Open), (reveal, Msg::ShowInFolder)] {
+                    b.stroke(rr, pal.bg, 6.0, 1.0);
+                    let l = self.shape_ui(sh, tr(sh.lang, m), 13.0, 600, pal.bg, None);
+                    b.text(
+                        l.as_ref(),
+                        (rr.x + (rr.w - l.width()) / 2.0).round(),
+                        (rr.y + (rr.h - l.height()) / 2.0).round(),
+                    );
+                }
+            }
+            self.toast_rect.set(Some(r));
         }
         if let (Some((d, _)), Some(g)) = (&self.dialog, geo) {
             b.fill(
@@ -1590,6 +1631,58 @@ impl Win {
 
     // ---- input ---------------------------------------------------------------------------
 
+    /// Keymap layer (FUT-05) in front of the hard-wired handlers: the settings panel takes
+    /// every key first; otherwise a user binding is re-dispatched as the default chord of its
+    /// action, a default chord that was rebound is swallowed, and anything else passes
+    /// (`None`) to the normal routing.
+    fn key_chord(
+        &mut self,
+        sh: &Shared,
+        vk: u16,
+        ctrl: bool,
+        shift: bool,
+        alt: bool,
+    ) -> Option<Option<Action>> {
+        if self.dialog.is_some() {
+            return None;
+        }
+        if self.settings.is_some() {
+            return self.panel_key(sh, vk, ctrl, shift, alt).then_some(None);
+        }
+        let c = yamdv_core::keymap::Chord {
+            ctrl,
+            shift,
+            alt,
+            vk,
+        };
+        match app::keymap().translate(c, self.edit_mode().is_some()) {
+            yamdv_core::keymap::Translate::Pass => None,
+            yamdv_core::keymap::Translate::Swallow => Some(None),
+            yamdv_core::keymap::Translate::To(t) if t == c => None,
+            yamdv_core::keymap::Translate::To(t) => Some(self.run_chord(sh, t)),
+        }
+    }
+
+    /// Runs default chord `t` through the hard-wired handlers.
+    fn run_chord(&mut self, sh: &Shared, t: yamdv_core::keymap::Chord) -> Option<Action> {
+        if t.alt && !t.ctrl {
+            return match t.vk {
+                0x26 => Some(Action::Command(app::COL_WIDE)),
+                0x28 => Some(Action::Command(app::COL_NARROW)),
+                0x30 | 0x60 => Some(Action::Command(app::COL_RESET)),
+                0x25 | 0x27 => {
+                    self.history_go(sh, if t.vk == 0x25 { -1 } else { 1 });
+                    None
+                }
+                _ => None,
+            };
+        }
+        edit::KEY_ALT.with(|k| k.set(Some(t.alt)));
+        let a = self.key(sh, t.vk, t.ctrl, t.shift);
+        edit::KEY_ALT.with(|k| k.set(None));
+        a
+    }
+
     fn key(&mut self, sh: &Shared, vk: u16, ctrl: bool, shift: bool) -> Option<Action> {
         if let Some((d, _)) = &mut self.dialog {
             let k = match vk {
@@ -1652,6 +1745,7 @@ impl Win {
             v if ctrl && v == VK_UP.0 => return Some(Action::Command(app::FONT_BIG)),
             v if ctrl && v == VK_DOWN.0 => return Some(Action::Command(app::FONT_SMALL)),
             0xDC if ctrl => return Some(Action::Command(app::OUTLINE)),
+            v if v == VK_ESCAPE.0 && self.job_esc() => {}
             v if v == VK_ESCAPE.0 && self.focus.is_some() => {
                 self.focus = None;
                 self.invalidate();
@@ -1682,6 +1776,15 @@ impl Win {
     }
 
     fn mouse_down(&mut self, sh: &Shared, x: f32, y: f32, ctrl: bool) {
+        if self.settings.is_some() && self.dialog.is_none() {
+            self.panel_down(sh, x, y);
+            return;
+        }
+        if self.dialog.is_none()
+            && (self.job_click(x, y) || self.toast_click(x, y) || self.banner_click(x, y))
+        {
+            return;
+        }
         if self.dialog.is_none() && matches!(self.view, View::Empty { note: None }) {
             if let Some(a) = self.welcome_click(sh, x, y) {
                 self.actions.push(a);
@@ -1805,6 +1908,10 @@ impl Win {
     }
 
     fn mouse_move(&mut self, sh: &Shared, x: f32, y: f32) {
+        if self.settings.is_some() && self.dialog.is_none() {
+            self.panel_move(x, y);
+            return;
+        }
         if matches!(self.view, View::Empty { note: None }) {
             self.side.hover = Some((x, y));
             self.invalidate();
@@ -1904,6 +2011,10 @@ impl Win {
     }
 
     fn mouse_up(&mut self) {
+        if self.settings.is_some() {
+            self.panel_up();
+            return;
+        }
         if let Some(a) = self.side_up() {
             self.actions.push(a);
             return;
@@ -2322,6 +2433,7 @@ impl Win {
     /// Toast with a dynamic suffix (e.g. "Link target not found: <name>").
     fn toast_with(&mut self, m: Msg, arg: &str) {
         self.toast = Some(m);
+        self.done_file = None;
         self.toast_arg = arg.to_string();
         // SAFETY: valid hwnd; one-shot timer (killed when it fires).
         unsafe {
@@ -2379,8 +2491,15 @@ impl Win {
             self.invalidate();
             return;
         }
+        if id == jobui::TIMER_JOB {
+            // SAFETY: valid hwnd.
+            let _ = unsafe { KillTimer(Some(self.hwnd), jobui::TIMER_JOB) };
+            self.invalidate();
+            return;
+        }
         if id == TIMER_TOAST {
             self.toast = None;
+            self.done_file = None;
             // SAFETY: valid hwnd.
             unsafe {
                 let _ = KillTimer(Some(self.hwnd), TIMER_TOAST);
@@ -2601,7 +2720,7 @@ pub(crate) fn draw_block(
                 }
                 if let Some(s) = &sel {
                     for r in viewer::selection_rects(p, s) {
-                        b.fill(r.offset(px, y + p.y), pal.accent, sel_alpha, 0.0);
+                        b.fill(r.offset(px, y + p.y), pal.selection_color(), sel_alpha, 0.0);
                     }
                 }
                 b.text(p.shaped.as_ref(), px, y + p.y);
@@ -2782,9 +2901,29 @@ fn handle(
     lp: LPARAM,
 ) -> (Option<LRESULT>, Vec<Action>) {
     let mut actions = Vec::new();
+    if msg == 0x0010
+        && let Some(r) = w.job_close(sh)
+    {
+        return (Some(r), actions);
+    }
     if let Some(r) = w.edit_msg(sh, msg, wp, lp) {
         actions.append(&mut w.actions);
         return (Some(r), actions);
+    }
+    if matches!(msg, WM_KEYDOWN | WM_SYSKEYDOWN) {
+        let vk = u16::try_from(wp.0).unwrap_or(0);
+        // SAFETY: GetKeyState has no preconditions.
+        let (ctrl, shift, alt) = unsafe {
+            (
+                GetKeyState(i32::from(VK_CONTROL.0)) < 0,
+                GetKeyState(i32::from(VK_SHIFT.0)) < 0,
+                GetKeyState(0x12) < 0,
+            )
+        };
+        if let Some(a) = w.key_chord(sh, vk, ctrl, shift, alt) {
+            actions.extend(a);
+            return (Some(LRESULT(0)), actions);
+        }
     }
     let r = match msg {
         WM_ERASEBKGND => Some(LRESULT(1)),
@@ -2792,6 +2931,9 @@ fn handle(
             // SAFETY: for WM_COPYDATA, lParam points to a COPYDATASTRUCT valid during the call.
             let cds = unsafe { &*(lp.0 as *const COPYDATASTRUCT) };
             let sender = HWND(wp.0 as *mut core::ffi::c_void);
+            if jobui::on_copydata(w.hwnd, sender, cds) {
+                return (Some(LRESULT(1)), actions);
+            }
             if let Some((paths, line)) = app::accept_forward(sender, cds) {
                 actions.push(Action::Forward(paths, line));
                 return (Some(LRESULT(1)), actions);
@@ -2931,6 +3073,12 @@ fn handle(
             }
             None
         }
+        WM_CHAR if w.settings.is_some() && w.dialog.is_none() => {
+            if let Some(c) = char::from_u32(wp.0 as u32) {
+                w.panel_char(c);
+            }
+            Some(LRESULT(0))
+        }
         WM_CHAR if w.find.is_some() => {
             if let Some(c) = char::from_u32(wp.0 as u32) {
                 w.find_char(sh, c);
@@ -2960,6 +3108,11 @@ fn handle(
         }
         WM_COMMAND if (wp.0 & 0xFFFF) == IDM_OPEN => {
             actions.push(Action::OpenDialog);
+            Some(LRESULT(0))
+        }
+        WM_MOUSEWHEEL if w.settings.is_some() && w.dialog.is_none() => {
+            let delta = ((wp.0 >> 16) & 0xFFFF) as u16 as i16;
+            w.panel_wheel(sh, delta);
             Some(LRESULT(0))
         }
         WM_MOUSEWHEEL if wp.0 & MK_CONTROL_BIT != 0 || alt_down() => {
@@ -3043,10 +3196,11 @@ fn handle(
             let _ = unsafe { GetCursorPos(&mut pt) };
             let (x, y) = w.screen_xy(pt.x, pt.y);
             let bar = y < 0.0 || (w.fs && w.cap.reveal && y < yamdv_core::chrome::BAR_H);
-            let hand = !bar && w.dialog.is_none() && w.over_hot(sh, x, y);
+            let free = w.dialog.is_none() && w.settings.is_none();
+            let hand = !bar && free && w.over_hot(sh, x, y);
             let ibeam = !hand
                 && !bar
-                && w.dialog.is_none()
+                && free
                 && !(x >= w.cw - 16.0 && w.thumb().is_some())
                 && w.over_text(sh, x, y);
             let cur = if hand {
@@ -3271,20 +3425,19 @@ fn run_actions_inner(hwnd: HWND, actions: Vec<Action>) {
             }
             Action::ChromeMenu(more) => {
                 use yamdv_core::chrome::Part;
+                if !more {
+                    // ⚙ opens the settings panel (FUT-31).
+                    app::with_win(hwnd, |w, _| w.panel_open(None, true));
+                    continue;
+                }
                 let Some((ctx, anchor)) = win_of(hwnd).and_then(|w| {
-                    w.try_borrow().ok().map(|w| {
-                        let part = if more { Part::More } else { Part::Settings };
-                        (w.menu_ctx(None), w.button_anchor(part))
-                    })
+                    w.try_borrow()
+                        .ok()
+                        .map(|w| (w.menu_ctx(None), w.button_anchor(Part::More)))
                 }) else {
                     continue;
                 };
-                let model = if more {
-                    app::build(sh.lang, &ctx)
-                } else {
-                    app::build_settings(sh.lang)
-                };
-                popup::open_menu(hwnd, anchor, more, model, None);
+                popup::open_menu(hwnd, anchor, true, app::build(sh.lang, &ctx), None);
             }
             Action::SchemeCards => {
                 use yamdv_core::chrome::Part;
@@ -3306,12 +3459,15 @@ fn run_actions_inner(hwnd: HWND, actions: Vec<Action>) {
                 run_actions_inner(hwnd, more);
             }
             Action::ApplyTheme => app::apply_all(),
+            Action::Panel(op) => {
+                let more = setpanel::run_op(hwnd, op);
+                run_actions_inner(hwnd, more);
+            }
             Action::Help => {
                 if let Some(h) = create_window(&sh, None) {
                     app::with_win(h, |w, sh| w.show_help(sh));
                 }
             }
-            Action::FontDialog => app::font_dialog(hwnd),
             Action::SetSetting(k, v) => {
                 app::set(k, &v);
             }
@@ -3411,6 +3567,9 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
             return LRESULT(0);
         }
         _ => {}
+    }
+    if msg == jobui::taskbar_msg() {
+        jobui::taskbar_created();
     }
     if msg == WM_DESTROY {
         popup::close_for(hwnd);
@@ -3594,6 +3753,10 @@ fn create_window(sh: &Shared, path: Option<&str>) -> Option<HWND> {
         warm_pending: false,
         toast: None,
         toast_arg: String::new(),
+        done_file: None,
+        toast_rect: std::cell::Cell::new(None),
+        banner: None,
+        job_focus: false,
         history: Vec::new(),
         hist_pos: 0,
         code_hover: None,
@@ -3609,6 +3772,7 @@ fn create_window(sh: &Shared, path: Option<&str>) -> Option<HWND> {
         dimmed: false,
         watcher: None,
         find: None,
+        settings: None,
         side: sidebar::Side::default(),
         ctx_table: None,
         top: yamdv_core::chrome::BAR_H,
@@ -3803,13 +3967,21 @@ fn message_loop() -> i32 {
     // Message loop that also waits on the dialog host's process handle (F-09).
     loop {
         let h = HOST.with(|h| h.borrow().as_ref().map(|h| h.process));
-        if let Some(ph) = h {
-            // SAFETY: valid process handle; returns on input or when the host exits.
+        let j = jobui::process();
+        // Waits on the dialog host and the export worker (BUG-11) alongside input.
+        let hs: Vec<HANDLE> = h.into_iter().chain(j).collect();
+        if !hs.is_empty() {
+            // SAFETY: valid process handles; returns on input or when a process exits.
             let r = unsafe {
-                MsgWaitForMultipleObjectsEx(Some(&[ph]), INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE)
+                MsgWaitForMultipleObjectsEx(Some(&hs), INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE)
             };
-            if r == WAIT_OBJECT_0 {
-                host_exited();
+            let i = r.0.wrapping_sub(WAIT_OBJECT_0.0) as usize;
+            if i < hs.len() {
+                if h.is_some() && i == 0 {
+                    host_exited();
+                } else {
+                    jobui::exited();
+                }
                 continue;
             }
         } else {
@@ -3861,31 +4033,52 @@ impl Win {
             m: sh.m,
             fonts: sh.fonts.clone(),
             lang: sh.lang,
+            mode_forced: false,
         })
     }
 
     /// Runs an export to `path` chosen in the save dialog.
+    /// Runs an export to `path` chosen in the save dialog. HTML and PDF run in the worker
+    /// without blocking the window (BUG-11); CSV is small and written here.
     fn run_export(&mut self, sh: &Shared, k: &ExportKind, path: &str) {
+        use yamdv_core::progress::JobKind;
         let ok = match k {
-            ExportKind::Csv(text) => crate::shell::write_atomic(path, text),
-            ExportKind::Html => self
-                .export_job(sh)
-                .is_some_and(|j| crate::export::export_html(&sh.dw, &j, path)),
+            ExportKind::Csv(text) => {
+                let ok = crate::shell::write_atomic(path, text);
+                self.toast(if ok { Msg::Exported } else { Msg::ExportFailed });
+                self.invalidate();
+                return;
+            }
+            ExportKind::Html => self.export_job(sh).is_some_and(|j| {
+                let t = crate::print::Target {
+                    output: Some(path.to_string()),
+                    html: true,
+                    ..Default::default()
+                };
+                let text = crate::print::worker_job(&j, &t);
+                jobui::start(self.hwnd, JobKind::Html, &text, Some(path.to_string()))
+            }),
             ExportKind::Pdf => self.export_job(sh).is_some_and(|j| {
-                crate::print::print_in_worker(&j, &crate::print::pdf_target(path)).is_ok()
+                let text = crate::print::worker_job(&j, &crate::print::pdf_target(path));
+                jobui::start(self.hwnd, JobKind::Pdf, &text, Some(path.to_string()))
             }),
             ExportKind::Print => false,
         };
-        self.toast(if ok { Msg::Exported } else { Msg::ExportFailed });
+        if !ok {
+            self.toast(Msg::ExportFailed);
+        }
         self.invalidate();
     }
 
-    /// Prints the shown document to the printer chosen in the print dialog.
+    /// Prints the shown document to the printer chosen in the print dialog (worker, BUG-11).
     fn run_print(&mut self, sh: &Shared, t: &crate::print::Target) {
-        let ok = self
-            .export_job(sh)
-            .is_some_and(|j| crate::print::print_in_worker(&j, t).is_ok());
-        self.toast(if ok { Msg::PrintSent } else { Msg::PrintFailed });
+        let ok = self.export_job(sh).is_some_and(|j| {
+            let text = crate::print::worker_job(&j, t);
+            jobui::start(self.hwnd, yamdv_core::progress::JobKind::Print, &text, None)
+        });
+        if !ok {
+            self.toast(Msg::PrintFailed);
+        }
         self.invalidate();
     }
 }
@@ -3894,6 +4087,10 @@ impl Win {
 fn start_export(hwnd: HWND, k: ExportKind) {
     use yamdv_core::ipc::Kind;
     if HOST.with(|h| h.borrow().is_some()) {
+        return;
+    }
+    if jobui::busy() && !matches!(k, ExportKind::Csv(_)) {
+        show_toast(hwnd, Msg::ExportBusy);
         return;
     }
     let mut stem = None;

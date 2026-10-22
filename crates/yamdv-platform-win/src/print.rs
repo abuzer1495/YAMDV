@@ -24,7 +24,7 @@ use windows::Win32::Storage::Xps::{AbortDoc, DOCINFOW, EndDoc, EndPage, StartDoc
 use windows::core::{HSTRING, PCWSTR, w};
 use yamdv_core::doc::index::BlockKind;
 use yamdv_core::doc::{Document, ReadOpts};
-use yamdv_core::theme::{self, Palette};
+use yamdv_core::theme::Palette;
 use yamdv_export::paginate::{Page, Unit, footer, paginate};
 use yamdv_layout::viewer::{Content, Env, Viewer};
 
@@ -52,6 +52,8 @@ pub struct Target {
     pub paper_mm: Option<(f64, f64)>,
     /// Use `export.pdf_colors` (PDF) instead of `export.print_colors` (print).
     pub pdf: bool,
+    /// Worker job is an HTML export to `output` (BUG-11), not a print.
+    pub html: bool,
 }
 
 /// Why printing failed.
@@ -61,6 +63,8 @@ pub enum Error {
     NoPrinter,
     /// Printing failed or was aborted.
     Failed,
+    /// Cancelled by the user (BUG-11); partial output was removed.
+    Cancelled,
 }
 
 /// DEVMODE with only the paper size set (the driver merges it with its defaults).
@@ -226,29 +230,40 @@ pub struct Printed {
 /// Prints `job` on `t` (COM initialized). Frees every transient buffer and trims the working set
 /// once afterwards (D.4 rule 10).
 pub fn print(dw: &DWrite, job: &Job, t: &Target) -> Result<Printed, Error> {
-    let r = print_inner(dw, job, t);
+    print_with(dw, job, t, None)
+}
+
+/// [`print`] reporting progress to (and polling Cancel from) the owner window (BUG-11).
+pub fn print_with(
+    dw: &DWrite,
+    job: &Job,
+    t: &Target,
+    link: Option<&mut crate::job::Link>,
+) -> Result<Printed, Error> {
+    let r = print_inner(dw, job, t, link);
     crate::sys::trim_once();
     r
 }
 
 #[allow(clippy::too_many_lines)]
-fn print_inner(dw: &DWrite, job: &Job, t: &Target) -> Result<Printed, Error> {
+fn print_inner(
+    dw: &DWrite,
+    job: &Job,
+    t: &Target,
+    mut link: Option<&mut crate::job::Link>,
+) -> Result<Printed, Error> {
+    use yamdv_core::progress::Phase;
     let s = crate::window::load_settings();
     let dc = printer_dc(t).ok_or(Error::NoPrinter)?;
     let g = geometry(dc, s.int("export.pdf_margins_mm").clamp(5, 40) as f64);
-    let colors = s.str(if t.pdf {
+    // BUG-10: the palette comes only from this job's own setting (never from the UI mode alone).
+    let key = if t.pdf {
         "export.pdf_colors"
     } else {
         "export.print_colors"
-    });
-    let pal: Palette = if colors == "light" {
-        Palette {
-            bg: 0xffffff,
-            ..theme::palette(&job.scheme, false)
-        }
-    } else {
-        theme::palette(&job.scheme, job.dark)
     };
+    let (pal, _dark): (Palette, bool) =
+        crate::window::export_palette(&job.scheme, s.str(key), job.dark);
     let dev_per_dip = g.dpi / 96.0;
     let rscale = g.dpi.min(MAX_RENDER_DPI) / 96.0;
     let width_dips = g.width as f32 / dev_per_dip;
@@ -306,11 +321,31 @@ fn print_inner(dw: &DWrite, job: &Job, t: &Target) -> Result<Printed, Error> {
             // Not laid out (empty block): skip it rather than loop.
             next += 1;
         }
+        let (n, of) = (
+            u32::try_from(next).unwrap_or(u32::MAX),
+            u32::try_from(content.len()).unwrap_or(u32::MAX),
+        );
+        if link
+            .as_deref_mut()
+            .is_some_and(|l| !l.report(Phase::Preparing, n.min(of), of))
+        {
+            // SAFETY: DC created above; nothing was started on it.
+            let _ = unsafe { DeleteDC(dc) };
+            return Err(Error::Cancelled);
+        }
     }
     let pages: Vec<Page> = paginate(&units, page_h);
     drop(units);
     let total = pages.len();
     let (from, to) = t.range.unwrap_or((1, u32::MAX));
+    let in_range = u32::try_from(
+        (1..=pages.len())
+            .filter(|&n| n as u32 >= from && n as u32 <= to)
+            .count(),
+    )
+    .unwrap_or(u32::MAX);
+    let cancel = link.as_deref().map(crate::job::Link::cancel_handle);
+    let mut cancelled = false;
     let name = HSTRING::from(title.chars().take(200).collect::<String>());
     let out = t.output.as_deref().map(HSTRING::from);
     let di = DOCINFOW {
@@ -355,6 +390,14 @@ fn print_inner(dw: &DWrite, job: &Job, t: &Target) -> Result<Printed, Error> {
         if n < from || n > to {
             continue;
         }
+        if link
+            .as_deref_mut()
+            .is_some_and(|l| !l.report(Phase::Printing, sent as u32, in_range))
+        {
+            cancelled = true;
+            ok = false;
+            break;
+        }
         let vh = p.y1 - p.y0;
         prepare(&mut content, &mut viewer, p.y0, vh);
         // SAFETY: valid DC between StartDoc and EndDoc.
@@ -384,6 +427,11 @@ fn print_inner(dw: &DWrite, job: &Job, t: &Target) -> Result<Printed, Error> {
                 );
             },
             &mut |y, rows, bits| {
+                if cancelled || cancel.is_some_and(crate::job::is_set) {
+                    // Cancel between bands: skip the rest of this page (BUG-11).
+                    cancelled = true;
+                    return;
+                }
                 let bmi = BITMAPINFO {
                     bmiHeader: BITMAPINFOHEADER {
                         biSize: size_of::<BITMAPINFOHEADER>() as u32,
@@ -418,6 +466,10 @@ fn print_inner(dw: &DWrite, job: &Job, t: &Target) -> Result<Printed, Error> {
                 }
             },
         );
+        if cancelled {
+            ok = false;
+            break;
+        }
         if s.bool("export.pdf_page_numbers") {
             let text: Vec<u16> = footer(k + 1, total).encode_utf16().collect();
             // SAFETY: valid DC and font; the text buffer outlives the call.
@@ -442,6 +494,11 @@ fn print_inner(dw: &DWrite, job: &Job, t: &Target) -> Result<Printed, Error> {
         }
         sent += 1;
     }
+    if let Some(l) = link
+        && !cancelled
+    {
+        l.report(Phase::Printing, sent as u32, in_range);
+    }
     // SAFETY: valid DC; the font is ours.
     unsafe {
         if ok {
@@ -458,7 +515,15 @@ fn print_inner(dw: &DWrite, job: &Job, t: &Target) -> Result<Printed, Error> {
     if ok {
         Ok(Printed { pages: sent })
     } else {
-        Err(Error::Failed)
+        // No partial PDF stays behind (BUG-11).
+        if let Some(o) = &t.output {
+            let _ = std::fs::remove_file(o);
+        }
+        Err(if cancelled {
+            Error::Cancelled
+        } else {
+            Error::Failed
+        })
     }
 }
 
@@ -512,7 +577,7 @@ pub fn cli_pdf(input: &str, out: Option<&str>, scheme: Option<&str>, dark: Optio
             );
             1
         }
-        Err(Error::Failed) => 1,
+        Err(Error::Failed | Error::Cancelled) => 1,
     }
 }
 
@@ -536,7 +601,7 @@ fn job_text(job: &Job, t: &Target) -> String {
     };
     let one = |line: &str| line.replace(['\t', '\r', '\n'], " ");
     format!(
-        "{JOB_MAGIC}\npath\t{}\nscheme\t{}\ndark\t{}\nfont_size\t{}\nline_height\t{}\npara_spacing\t{}\nzebra\t{}\nrounded\t{}\nbody_font\t{}\ncode_font\t{}\nprinter\t{}\ndevmode\t{dm}\nrange\t{range}\noutput\t{}\npdf\t{}\npaper\t{paper}\n\n{}",
+        "{JOB_MAGIC}\npath\t{}\nscheme\t{}\ndark\t{}\nfont_size\t{}\nline_height\t{}\npara_spacing\t{}\nzebra\t{}\nrounded\t{}\nbody_font\t{}\ncode_font\t{}\nprinter\t{}\ndevmode\t{dm}\nrange\t{range}\noutput\t{}\npdf\t{}\nhtml\t{}\npaper\t{paper}\n\n{}",
         one(&job.path),
         one(&job.scheme),
         u8::from(job.dark),
@@ -550,6 +615,7 @@ fn job_text(job: &Job, t: &Target) -> String {
         one(&t.printer),
         opt(t.output.as_deref().map(one).as_deref()),
         u8::from(t.pdf),
+        u8::from(t.html),
         job.source,
     )
 }
@@ -626,37 +692,21 @@ fn parse_job(text: &str) -> Option<(Job, Target)> {
             output,
             paper_mm,
             pdf: flag("pdf"),
+            html: flag("html"),
         },
     ))
 }
 
-/// Prints in a worker process (`yamdv --print-job <file>`). Printer drivers run inside the
-/// printing process; the GUI keeps the full hardening (strict handle checks, ACG), the worker
-/// applies [`crate::hardening::apply_for_print`] (ADR-0018). Blocks until the worker exits.
-pub fn print_in_worker(job: &Job, t: &Target) -> Result<(), Error> {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static SEQ: AtomicU32 = AtomicU32::new(0);
-    let exe = std::env::current_exe().map_err(|_| Error::Failed)?;
-    let file = std::env::temp_dir().join(format!(
-        "yamdv-print-{}-{}.job",
-        std::process::id(),
-        SEQ.fetch_add(1, Ordering::Relaxed)
-    ));
-    std::fs::write(&file, job_text(job, t)).map_err(|_| Error::Failed)?;
-    let status = std::process::Command::new(exe)
-        .arg("--print-job")
-        .arg(&file)
-        .status();
-    let _ = std::fs::remove_file(&file);
-    match status.ok().and_then(|s| s.code()) {
-        Some(0) => Ok(()),
-        Some(3) => Err(Error::NoPrinter),
-        _ => Err(Error::Failed),
-    }
+/// The worker job file text for `job` + `t` (BUG-11: [`crate::job::spawn`] runs it).
+pub fn worker_job(job: &Job, t: &Target) -> String {
+    job_text(job, t)
 }
 
-/// `yamdv --print-job <file>` (internal worker): exit 0 printed, 3 no printer, 1 error.
-pub fn cli_print_job(file: &str) -> i32 {
+/// `yamdv --print-job <file> [<owner> <nonce> <cancel>]` (internal worker, ADR-0018; the GUI
+/// keeps the full hardening, the worker applies [`crate::hardening::apply_for_print`]). With the
+/// link arguments it reports progress to `owner` and stops on the inherited Cancel event. Exit 0
+/// done, 3 no printer, 4 cancelled, 1 error.
+pub fn cli_print_job(file: &str, link: Option<(isize, u64, isize)>) -> i32 {
     // SAFETY: COM for WIC on this thread.
     let _ = unsafe {
         windows::Win32::System::Com::CoInitializeEx(
@@ -664,7 +714,7 @@ pub fn cli_print_job(file: &str) -> i32 {
             windows::Win32::System::Com::COINIT_APARTMENTTHREADED,
         )
     };
-    let Some((job, t)) = std::fs::read_to_string(file)
+    let Some((mut job, t)) = std::fs::read_to_string(file)
         .ok()
         .as_deref()
         .and_then(parse_job)
@@ -674,9 +724,21 @@ pub fn cli_print_job(file: &str) -> i32 {
     let Ok(dw) = DWrite::new(&job.fonts.0, &job.fonts.1) else {
         return 1;
     };
-    match print(&dw, &job, &t) {
-        Ok(_) => 0,
+    let mut link = link.map(|(o, n, c)| crate::job::Link::new(o, n, c));
+    let r = if t.html {
+        // GUI exports follow `export.html_colors` (never a forced CLI mode).
+        job.mode_forced = false;
+        let Some(out) = t.output.as_deref() else {
+            return 1;
+        };
+        crate::export::export_html_with(&dw, &job, out, link.as_mut())
+    } else {
+        print_with(&dw, &job, &t, link.as_mut()).map(|_| ())
+    };
+    match r {
+        Ok(()) => 0,
         Err(Error::NoPrinter) => 3,
+        Err(Error::Cancelled) => 4,
         Err(Error::Failed) => 1,
     }
 }
@@ -700,6 +762,7 @@ mod tests {
             output: Some(r"C:\out\a.pdf".into()),
             paper_mm: Some((210.0, 297.0)),
             pdf: true,
+            html: true,
         };
         let (j2, t2) = parse_job(&job_text(&job, &t)).expect("parses");
         assert_eq!(j2.source, job.source);
@@ -712,6 +775,7 @@ mod tests {
         assert_eq!(t2.output, t.output);
         assert_eq!(t2.paper_mm, t.paper_mm);
         assert!(t2.pdf);
+        assert!(t2.html);
         assert!(parse_job("nope\n\nx").is_none());
     }
 }

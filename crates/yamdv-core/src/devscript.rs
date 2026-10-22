@@ -108,6 +108,11 @@ pub fn vk(name: &str) -> Option<u16> {
         "up" => 0x26,
         "right" => 0x27,
         "down" => 0x28,
+        "," | "comma" => 0xBC,
+        "." | "period" => 0xBE,
+        "/" | "slash" => 0xBF,
+        "-" | "minus" => 0xBD,
+        "=" | "equals" => 0xBB,
         f if f.len() >= 2
             && f.starts_with('f')
             && f[1..].parse::<u16>().is_ok_and(|k| (1..=12).contains(&k)) =>

@@ -6,6 +6,7 @@
 
 pub mod chrome;
 pub mod cmdline;
+pub mod colors;
 pub mod decode;
 pub mod devscript;
 pub mod doc;
@@ -17,9 +18,11 @@ pub mod i18n;
 pub mod image;
 pub mod ini;
 pub mod ipc;
+pub mod keymap;
 pub mod link;
 pub mod log;
 pub mod path;
+pub mod progress;
 pub mod reg;
 pub mod settings;
 mod settings_table;

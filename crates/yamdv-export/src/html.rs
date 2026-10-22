@@ -573,10 +573,26 @@ fn node(doc: &Document, d: &Detail, i: usize, sel: &Range<u32>, x: &mut Wr<'_>, 
 }
 
 fn blocks(doc: &Document, sel: &Range<u32>, x: &mut Wr<'_>, out: &mut String) {
+    let _ = blocks_with(doc, sel, x, out, &mut |_, _| true);
+}
+
+/// [`blocks`] with a progress callback `(done, total)` before each block; `false` from the
+/// callback stops (cancel, R-EXP-07) and returns `false`.
+fn blocks_with(
+    doc: &Document,
+    sel: &Range<u32>,
+    x: &mut Wr<'_>,
+    out: &mut String,
+    progress: &mut dyn FnMut(usize, usize) -> bool,
+) -> bool {
     let first = doc.index.block_at(sel.start);
-    for bi in first..doc.index.blocks.len() {
+    let total = doc.index.blocks.len();
+    for bi in first..total {
         if doc.index.blocks[bi].range.start >= sel.end {
             break;
+        }
+        if !progress(bi - first, total - first) {
+            return false;
         }
         let d = doc.detail_uncached(bi);
         x.img = 0;
@@ -584,6 +600,7 @@ fn blocks(doc: &Document, sel: &Range<u32>, x: &mut Wr<'_>, out: &mut String) {
             node(doc, &d, r, sel, x, out);
         }
     }
+    true
 }
 
 /// HTML fragment for the selection `sel` (source byte range).
@@ -680,6 +697,17 @@ details{{margin:0 0 1em}}summary{{cursor:pointer;font-weight:600}}",
 /// Standalone single-file HTML document (R-EXP-02 static per FUT-21): inline CSS, TOC, no script,
 /// CSP meta, images/math/diagrams as `data:` URIs from `host`.
 pub fn document(doc: &Document, host: &dyn ExportHost, o: &DocOpts) -> String {
+    document_with(doc, host, o, &mut |_, _| true).unwrap_or_default()
+}
+
+/// [`document`] reporting `(blocks done, total)` to `progress` (BUG-11: the export progress card
+/// counts blocks); `None` when `progress` returned `false` (cancelled).
+pub fn document_with(
+    doc: &Document,
+    host: &dyn ExportHost,
+    o: &DocOpts,
+    progress: &mut dyn FnMut(usize, usize) -> bool,
+) -> Option<String> {
     let mut x = Wr {
         host: Some(host),
         img: 0,
@@ -694,7 +722,13 @@ pub fn document(doc: &Document, host: &dyn ExportHost, o: &DocOpts) -> String {
     };
     let mut body = String::new();
     let len = u32::try_from(doc.source.len()).unwrap_or(u32::MAX);
-    blocks(doc, &(0..len), &mut x, &mut body);
+    if !blocks_with(doc, &(0..len), &mut x, &mut body, progress) {
+        return None;
+    }
+    let total = doc.index.blocks.len();
+    if !progress(total, total) {
+        return None;
+    }
     let mut out = String::with_capacity(body.len() + 8192);
     out.push_str("<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\">\n<meta http-equiv=\"Content-Security-Policy\" content=\"");
     out.push_str(EXPORT_CSP);
@@ -738,7 +772,7 @@ pub fn document(doc: &Document, host: &dyn ExportHost, o: &DocOpts) -> String {
         out.push_str("</ol></section>");
     }
     out.push_str("\n</main></body></html>\n");
-    out
+    Some(out)
 }
 
 /// Wraps a fragment in the `CF_HTML` clipboard format (offsets in UTF-8 bytes).
@@ -937,6 +971,75 @@ mod tests {
             dark: false,
             toc: true,
         }
+    }
+
+    /// BUG-10: `colors.md` exported with a dark UI and `html_colors=light`.
+    #[test]
+    fn bug_10_colors_md_dark_ui_light_export() {
+        use yamdv_core::theme::{self, ExportColors};
+        let src = include_str!("../../../tests/fixtures/colors.md");
+        let d = doc(src);
+        for scheme in theme::SCHEMES {
+            let c = ExportColors::parse("light");
+            let dark = c.dark(true);
+            assert!(!dark);
+            let pal = theme::export_palette(theme::palette(scheme, dark), dark);
+            let o = DocOpts {
+                pal,
+                dark,
+                ..opts()
+            };
+            let mut seen = Vec::new();
+            let h = document_with(&d, &Mock, &o, &mut |n, t| {
+                seen.push((n, t));
+                true
+            })
+            .expect("not cancelled");
+            let style = &h[h.find("<style>").unwrap_or(0)..h.find("</style>").unwrap_or(0)];
+            assert!(
+                style.starts_with("<style>body{margin:0;background:#ffffff;"),
+                "{scheme}"
+            );
+            // No dark-palette token value (that differs from the light palette) is used.
+            let l = theme::palette(scheme, false);
+            let k = theme::palette(scheme, true);
+            let pairs = [
+                (k.bg, l.bg),
+                (k.text, l.text),
+                (k.code_bg, l.code_bg),
+                (k.inline_code_bg, l.inline_code_bg),
+                (k.table_header_bg, l.table_header_bg),
+                (k.quote_text, l.quote_text),
+                (k.code_border, l.code_border),
+                (k.table_border, l.table_border),
+                (k.highlight_bg, l.highlight_bg),
+            ];
+            let light_css = css(&pal, false);
+            for (dv, lv) in pairs {
+                let hx = hex(dv);
+                if dv != lv && !light_css.contains(&hx) {
+                    assert!(
+                        !style.contains(&hx),
+                        "{scheme}: dark token {hx} in export CSS"
+                    );
+                }
+            }
+            for c in &CALLOUTS {
+                assert!(!style.contains(&hex(c.dark_bg)) || c.dark_bg == c.light_bg);
+            }
+            // Progress is monotonic and ends at the total.
+            assert!(seen.windows(2).all(|w| w[0].0 <= w[1].0));
+            assert_eq!(seen.last().map(|p| p.0 == p.1), Some(true));
+        }
+        // Cancel stops the export.
+        let mut n = 0;
+        assert!(
+            document_with(&d, &Mock, &opts(), &mut |_, _| {
+                n += 1;
+                n < 3
+            })
+            .is_none()
+        );
     }
 
     #[test]

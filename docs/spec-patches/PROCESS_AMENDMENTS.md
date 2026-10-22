@@ -59,3 +59,27 @@ A-7 v2 process (owner decision, 2026-10-22) — applies from Phase V2-A on; wher
 5. Report ≤ 80 lines. One full CI run at the end, plus at most one fix push. If the quota runs low: commit with [skip ci], write the report with "Next action", stop.
 6. Releases at the versions in docs/ROADMAP_V2.md, as drafts; the owner publishes them.
 ```
+
+**A-8 (Phase V2-B, prompt 012 §2 step 1; owner decision 2026-10-22).**
+```text
+A-8 No CI; the owner runs the Windows tests (owner decision, 2026-10-22). Applies from Phase V2-B until the owner turns CI back on; where it differs from A-7, A-8 wins.
+1. Every commit message ends with [skip ci], which also skips pull_request runs. Do not change workflows or repository settings.
+2. Local gates before every push: fmt; clippy native + cargo-xwin x86_64-pc-windows-msvc, with and without dev-tools; tests of the platform-independent crates; deny; spec-check; check-imports; size.
+3. Put as much new logic as possible into platform-independent crates with unit tests, so it is verified without Windows.
+4. Windows-only checks (driver scripts, golden compare, M0/M1/T4/T7) are written as usual; the owner runs them from the test pack, and the report marks them "OWNER (A-8)". No new goldens: planned goldens become screenshots in the pack's screens\ folder for the owner to look at.
+5. Test pack, once per phase:
+   - YAMDV-<phase>-test.zip plus its SHA-256, built locally with cargo-xwin;
+   - uploaded as the draft pre-release test-<phase> (gh release create test-<phase> --draft --prerelease; to replace assets, gh release upload --clobber);
+   - contents: yamdv.exe (release), yamdv-dev.exe (dev-tools), baseline\yamdv-dev.exe (the dev-tools build of main before this phase, for same-PC comparisons), the driver scripts, the existing goldens, the fixtures, run-tests.cmd and OWNER_TEST.md (numbered manual checks in EN and TR).
+6. run-tests.cmd:
+   - one double-click, no admin rights;
+   - runs every driver script, the golden compare and M0/M1/T4/T7 the way CI did, and M0/M1 also for the baseline;
+   - writes test-results.txt (one line per test: PASS / FAIL / SKIP + numbers + delta vs the baseline) and puts the diff PNGs of failures in failures\;
+   - golden diffs on the owner's PC are reported with their pixel percentage and are not a gate (DPI, fonts and ClearType differ from the CI runner);
+   - uses a temporary config folder and never touches the owner's settings, history, favorites, registry, or any files outside its own folder and %TEMP%;
+   - scripts that touch the registry or install anything are skipped unless --include-system is given;
+   - prints the expected duration and asks the owner not to use the mouse or keyboard while it runs.
+7. Gates on the owner's run: M0 and M1 at most +0.3 MiB vs the baseline on the same PC; T7 = 0; T4 is reported.
+8. Merge: after the local gates pass, merge to main and tag phase-<x>. Version tags (v1.x.0) and their releases wait for the owner's OK; the next prompt then tags them and uploads the zip with gh (no Actions). Owner-reported failures go first in the next prompt.
+9. Report ≤ 80 lines: a local-gates table, the pending owner tests, and the test-pack link.
+```

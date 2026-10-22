@@ -251,11 +251,12 @@ Sections: **General · Appearance · Typography & Layout · Sidebar · Reading �
 | `external_editor.mode` | enum | `auto` | `auto`, `custom` |
 | `external_editor.custom_exe` | path | `""` | absolute `.exe` |
 | `external_editor.custom_args` | string | `{file}` | placeholders `{file}` `{line}` `{col}` |
-| `export.pdf_colors` | enum | `theme` | `theme`, `light` |
+| `export.pdf_colors` | enum | `light` | `light`, `theme` |
 | `export.pdf_page_size` | enum | `auto` | `auto`, `a4`, `letter` |
 | `export.pdf_margins_mm` | int | `18` | 5–40 |
 | `export.pdf_page_numbers` | bool | `false` | |
 | `export.print_colors` | enum | `light` | `light`, `theme` |
+| `export.html_colors` | enum | `light` | `light`, `theme` |
 | `export.html_include_toc` | bool | `true` | |
 | `export.csv_formula_guard` | bool | `true` | S-EXP-04 |
 | `integration.context_menu` | bool | `false` | mirrors registry state |
@@ -278,6 +279,8 @@ Bottom-left, 8 px inset; height 22; max width 60 % of the window; 12 px; `toolti
 Top of the document area (under the title bar), full available width, height 36, bg = warning or note callout bg, 13 px text with a leading icon, text buttons right-aligned, × when dismissible. Used for: file changed on disk (with unsaved edits), file deleted, read-only, decoding fallback notice, recovery available.
 ### B.10.6 Popovers and dialogs
 Popover (external link "Ask", link editor, language picker, color picker): width 360, radius 8, `menu_bg`, `shadow`, anchored to its target; URL shown in code font 12 px, wrapped. In-window confirm dialog: width 420, title 15 px 600, body 13 px, buttons right-aligned (primary last), `Enter` = primary, `Esc` = cancel, backdrop `rgba(0,0,0,.25)`. Native dialogs are used only for open/save files and printing. Tooltips: 500 ms delay, 12 px, padding 4 × 8, radius 4.
+### B.10.7 Export progress card
+Bottom-center, above the toast stack; width 360, radius 8, `menu_bg`, `shadow`; shown only when a job runs longer than 300 ms. Line 1: 13 px 600 "Exporting PDF…" / "Printing…" / "Exporting HTML…" plus the file name (middle ellipsis). Bar: 4 px, `accent` on a `border` track; indeterminate while preparing (static with reduced motion), determinate after. Line 2: 12 px `text_muted` "Page 37 of 1093 · 3 % · about 3 min left" (HTML counts blocks; the estimate appears after 5 pages or 5 %). [Cancel] right-aligned; `Esc` cancels while the card has focus. Success replaces it with a toast "PDF saved — <name>" with [Open] · [Show in folder]; failure replaces it with an error banner (B.10.5). The taskbar button mirrors the progress (`ITaskbarList3`).
 
 ## B.11 Fullscreen viewers
 Overlay inside the window. Image / table / Mermaid: backdrop `scrim`; content centered at "fit" (≤ 92 % of the window); toolbar pill top-right (12 px inset), height 36, bg `rgba(32,32,32,.9)`, white 14 px glyphs: [−] [100 %] [+] [fit] [1:1] [copy] [×]. Wheel zooms at the cursor (10 %–800 %, ×1.1 per notch), drag pans (hand cursor), double-click toggles fit/100 %, `+ - 0` keys, `Esc` closes. Table viewer: the table on a page-colored card (radius 8) with a 28 px header ("Table · R × C" + [Export CSV]) that moves the card, a 14 px resize grip at the bottom-right, natural column widths, scrollbars. Mind map: opaque `bg` instead of the scrim, same toolbar plus [Right | Balanced] layout toggle.

@@ -4,3 +4,4 @@
 #![forbid(unsafe_code)]
 
 pub mod dialog;
+pub mod settings_panel;

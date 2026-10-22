@@ -30,6 +30,39 @@ thread_local! {
     static SCRIPT: RefCell<Option<Script>> = const { RefCell::new(None) };
     /// The file written by the last `export-html` / `export-csv` (V1-D).
     static LAST_OUT: RefCell<Option<String>> = const { RefCell::new(None) };
+    /// PWS baseline of `ui mem-mark` (`pws_delta_kib`).
+    static MEM_MARK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Pages seen by `ui job-wait` / `ui job-done` polls: (samples, last, monotonic).
+    static JOB_SEQ: std::cell::Cell<(u32, u32, bool, u32)> = const { std::cell::Cell::new((0, 0, true, 0)) };
+    static CPU_MARK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Re-runs the current command after `ms` (polling verbs; the message loop keeps running).
+fn again(ms: u64) -> String {
+    SCRIPT.with(|s| {
+        if let Some(s) = s.borrow_mut().as_mut() {
+            s.pc = s.pc.saturating_sub(1);
+            s.resume = Some(std::time::Instant::now() + std::time::Duration::from_millis(ms));
+        }
+    });
+    String::new()
+}
+
+/// Records a page count for the `job_monotonic` check.
+fn job_sample() -> u32 {
+    let (n, t) = super::jobui::state().map_or((0, 0), |(_, n, t, _)| (n, t));
+    JOB_SEQ.with(|q| {
+        let (k, last, mono, total) = q.get();
+        if super::jobui::busy() {
+            q.set((k + 1, n.max(last), mono && n >= last, t.max(total)));
+        }
+    });
+    n
+}
+
+/// Private working set now (no trim: what Task Manager shows).
+fn pws_now() -> u64 {
+    crate::perf::private_ws_bytes()
 }
 
 /// A script is running (popups then ignore the real mouse).
@@ -158,7 +191,9 @@ fn run(w: &mut Win, sh: &Shared, cmd: &Cmd) -> String {
             }
         },
         Cmd::Key(c) => {
-            if c.alt && (c.vk == 0x25 || c.vk == 0x27) {
+            if let Some(a) = w.key_chord(sh, c.vk, c.ctrl, c.shift, c.alt) {
+                w.actions.extend(a);
+            } else if c.alt && (c.vk == 0x25 || c.vk == 0x27) {
                 w.history_go(sh, if c.vk == 0x25 { -1 } else { 1 });
             } else if let Some(a) = w.key(sh, c.vk, c.ctrl, c.shift) {
                 w.actions.push(a);
@@ -200,7 +235,11 @@ fn run(w: &mut Win, sh: &Shared, cmd: &Cmd) -> String {
             None => format!("FAIL command {name}: unknown"),
         },
         Cmd::Type(t) => {
-            if w.find.is_none() && w.typing() {
+            if w.settings.is_some() {
+                for c in t.chars() {
+                    w.panel_char(c);
+                }
+            } else if w.find.is_none() && w.typing() {
                 SCRIPT.with(|s| {
                     if let Some(s) = s.borrow_mut().as_mut() {
                         s.chars.extend(t.chars());
@@ -503,6 +542,60 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
         },
         "popup-shot" => op(w, PopupOp::Shot(arg.to_string())),
         "shot-window" => snapshot(w, sh, &format!("top-{arg}")).replacen("top-", "", 1),
+        // BUG-11: background export through the worker (`job*` state fields).
+        "export-html-bg" | "export-pdf-bg" => {
+            let out = rel(arg);
+            let _ = std::fs::remove_file(&out);
+            let k = if verb == "export-html-bg" {
+                super::ExportKind::Html
+            } else {
+                super::ExportKind::Pdf
+            };
+            w.run_export(sh, &k, &out);
+            LAST_OUT.with(|l| *l.borrow_mut() = Some(out));
+            if super::jobui::busy() {
+                format!("ok ui {verb} {arg}")
+            } else {
+                format!("FAIL ui {verb} {arg}: no job")
+            }
+        }
+        v if v.starts_with("settings-") => w
+            .panel_drive(sh, verb, arg)
+            .unwrap_or_else(|| format!("FAIL ui {verb}: unknown verb")),
+        // BUG-11 export-progress: poll until `job_n >= N` (or the job ended) / until it ended.
+        "job-wait" => {
+            let want: u32 = arg.parse().unwrap_or(1);
+            let n = job_sample();
+            if super::jobui::busy() && n < want {
+                again(40)
+            } else {
+                format!("ok ui job-wait {arg} (pages {n})")
+            }
+        }
+        "job-done" => {
+            job_sample();
+            if super::jobui::busy() {
+                again(100)
+            } else {
+                "ok ui job-done".into()
+            }
+        }
+        "job-reset" => {
+            JOB_SEQ.with(|q| q.set((0, 0, true, 0)));
+            "ok ui job-reset".into()
+        }
+        "cpu-mark" => {
+            CPU_MARK.with(|m| m.set(crate::perf::cpu_ms()));
+            "ok ui cpu-mark".into()
+        }
+        "mem-mark" => {
+            MEM_MARK.with(|m| m.set(pws_now()));
+            "ok ui mem-mark".into()
+        }
+        "job-cancel" => {
+            super::jobui::cancel_job();
+            "ok ui job-cancel".to_string()
+        }
         _ => format!("FAIL ui {verb}: unknown verb"),
     }
 }
@@ -775,6 +868,11 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         }
         None => ("none".to_string(), String::new(), String::new()),
     };
+    let (job, job_n, job_total) = match super::jobui::state() {
+        Some((_, n, t, true)) => ("cancelling", n, t),
+        Some((_, n, t, false)) => ("running", n, t),
+        None => ("none", 0, 0),
+    };
     let out = LAST_OUT
         .with(|l| l.borrow().clone())
         .and_then(|p| std::fs::read(p).ok())
@@ -782,12 +880,24 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
     let out_text = String::from_utf8_lossy(&out).into_owned();
     let lower = out_text.to_ascii_lowercase();
     let srcs: Vec<&str> = lower.split(" src=\"").skip(1).collect();
-    vec![
+    let mut out = vec![
         ("document".into(), V::S(doc)),
         ("scroll_y".into(), V::N(w.scroll_pos())),
         ("focus".into(), V::S(focus)),
         ("popover".into(), V::S(popover.into())),
         ("banner".into(), V::S("none".into())),
+        ("job".into(), V::S(job.into())),
+        ("job_n".into(), V::N(f64::from(job_n))),
+        ("job_total".into(), V::N(f64::from(job_total))),
+        ("job_last".into(), V::S(super::jobui::last_outcome().into())),
+        (
+            "out_exists".into(),
+            V::N(f64::from(u8::from(
+                LAST_OUT
+                    .with(|l| l.borrow().clone())
+                    .is_some_and(|p| std::path::Path::new(&p).exists()),
+            ))),
+        ),
         ("nav_depth".into(), V::N(w.history.len() as f64)),
         ("nav_pos".into(), V::N(w.hist_pos as f64)),
         ("windows".into(), V::N(windows as f64)),
@@ -819,6 +929,15 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         ("file".into(), V::S(file)),
         ("title".into(), V::S(title)),
         ("out_len".into(), V::N(out.len() as f64)),
+        (
+            "out_body_bg".into(),
+            V::S(
+                out_text
+                    .split_once("body{margin:0;background:")
+                    .map(|(_, r)| r.chars().take_while(|c| *c != ';').collect())
+                    .unwrap_or_default(),
+            ),
+        ),
         (
             "out_hex".into(),
             V::S(sys::hex(out.get(..out.len().min(8)).unwrap_or(&[]))),
@@ -873,7 +992,66 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
             V::S(w.zoom_ind.clone().unwrap_or_default()),
         ),
         ("disk_scheme".into(), V::S(disk_scheme)),
-    ]
+    ];
+    let pws = pws_now();
+    let mark = MEM_MARK.with(std::cell::Cell::get);
+    out.push(("pws_kib".into(), V::N((pws / 1024) as f64)));
+    out.push((
+        "pws_delta_kib".into(),
+        V::N((pws as f64 - mark as f64) / 1024.0),
+    ));
+    out.push((
+        "code_line_numbers".into(),
+        V::N(f64::from(u8::from(sh.read.code_line_numbers))),
+    ));
+    // `ini.<section>.<key>` = settings.ini on disk; `theme.<light|dark>.<token>` = custom-theme.ini.
+    let ini = yamdv_core::ini::Ini::parse(&disk);
+    for sec in [
+        "reading",
+        "appearance",
+        "typography",
+        "shortcuts",
+        "general",
+        "privacy",
+    ] {
+        for (k, v) in ini.entries(sec) {
+            out.push((format!("ini.{sec}.{k}"), V::S(v.to_string())));
+        }
+    }
+    let th = std::fs::read(app::custom_theme_path()).unwrap_or_default();
+    let th = yamdv_core::ini::Ini::parse(&th);
+    for sec in ["light", "dark"] {
+        for (k, v) in th.entries(sec) {
+            out.push((format!("theme.{sec}.{k}"), V::S(v.to_string())));
+        }
+    }
+    let (samples, seen, mono, seen_total) = JOB_SEQ.with(std::cell::Cell::get);
+    out.push(("job_samples".into(), V::N(f64::from(samples))));
+    out.push(("job_seen_n".into(), V::N(f64::from(seen))));
+    out.push(("job_seen_total".into(), V::N(f64::from(seen_total))));
+    out.push((
+        "cpu_delta_ms".into(),
+        V::N(crate::perf::cpu_ms().saturating_sub(CPU_MARK.with(std::cell::Cell::get)) as f64),
+    ));
+    out.push(("job_monotonic".into(), V::N(f64::from(u8::from(mono)))));
+    out.push((
+        "worker".into(),
+        V::N(f64::from(u8::from(super::jobui::process().is_some()))),
+    ));
+    let km = app::keymap();
+    for a in yamdv_core::keymap::ACTIONS {
+        out.push((format!("key.{}", a.id), V::S(km.shown(a.id))));
+    }
+    for t in yamdv_core::colors::TOKENS {
+        let c = yamdv_core::colors::token(&w.pal, t).unwrap_or(0);
+        out.push((format!("pal.{t}"), V::S(yamdv_core::colors::to_hex(c))));
+    }
+    out.extend(
+        w.panel_state(sh.lang)
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), V::S(v))),
+    );
+    out
 }
 
 /// Minimal JSON for the state dump (no serde in the product dependency set).

@@ -54,7 +54,7 @@ fn main() {
             theme,
             dark,
         } => yamdv_platform_win::print::cli_pdf(&input, out.as_deref(), theme.as_deref(), dark),
-        cli::Command::PrintJob(file) => yamdv_platform_win::print::cli_print_job(&file),
+        cli::Command::PrintJob(file, link) => yamdv_platform_win::print::cli_print_job(&file, link),
         cli::Command::Install { launch } => yamdv_platform_win::install::install(launch),
         cli::Command::Uninstall { keep } => yamdv_platform_win::install::uninstall(keep),
         cli::Command::UninstallHelper(pid) => yamdv_platform_win::install::uninstall_helper(pid),

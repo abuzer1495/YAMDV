@@ -124,6 +124,11 @@ fn send_reply(owner: HWND, reply: &Reply) {
 /// Sends `data` as `WM_COPYDATA` (`dwData` = magic) from a temporary message-only window, so the
 /// receiver can identify the sending process (S-IPC-02). `true` when the receiver accepted it.
 pub(crate) fn send_copydata(owner: HWND, data: &[u8], timeout_ms: u32) -> bool {
+    send_copydata_as(owner, ipc::MAGIC as usize, data, timeout_ms)
+}
+
+/// [`send_copydata`] with an explicit `dwData` tag (progress records use their own magic).
+pub(crate) fn send_copydata_as(owner: HWND, tag: usize, data: &[u8], timeout_ms: u32) -> bool {
     // SAFETY: registering and creating a message-only window of our own class.
     let me = unsafe {
         let inst = GetModuleHandleW(None).unwrap_or_default();
@@ -151,7 +156,7 @@ pub(crate) fn send_copydata(owner: HWND, data: &[u8], timeout_ms: u32) -> bool {
     };
     let Ok(me) = me else { return false };
     let cds = COPYDATASTRUCT {
-        dwData: ipc::MAGIC as usize,
+        dwData: tag,
         cbData: data.len() as u32,
         lpData: data.as_ptr() as *mut _,
     };
@@ -306,7 +311,7 @@ impl Drop for HostWait {
     }
 }
 
-fn nonce() -> u64 {
+pub(crate) fn nonce() -> u64 {
     let mut b = [0u8; 8];
     // SAFETY: valid buffer; system-preferred RNG needs no algorithm handle.
     let _ = unsafe { BCryptGenRandom(None, &mut b, BCRYPT_USE_SYSTEM_PREFERRED_RNG) };

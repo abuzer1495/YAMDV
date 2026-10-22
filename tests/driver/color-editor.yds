@@ -1,0 +1,44 @@
+# V2-B custom-color editor (prompt 012 §5.2, FUT-04, R-THEME-06/07): the link colour is set
+# to #ff0000 with the hex input, applied live and written to custom-theme.ini; Reset token.
+command mode light
+wait-idle
+ui settings-open appearance
+wait-idle
+assert settings_section == appearance
+ui settings-click color:link
+wait-idle
+assert color_popover == link:light
+snapshot color-picker.png
+key ctrl+A
+type "#ff0000"
+key enter
+wait-idle
+assert color_popover == closed
+assert theme.light.link == #ff0000
+assert ini.appearance.use_custom_colors == true
+assert pal.link == #ff0000
+# Reset token: the entry leaves the file and the theme colour returns.
+ui settings-click color:link
+wait-idle
+assert color_popover == link:light
+ui settings-color-reset
+wait-idle
+assert color_popover == closed
+assert theme.light.link != #ff0000
+assert pal.link != #ff0000
+# Dark swatch opens the dark half.
+ui settings-click color:link:dark
+wait-idle
+assert color_popover == link:dark
+key esc
+wait-idle
+assert color_popover == closed
+# Appearance in dark mode for the screenshot set.
+command mode dark
+wait-idle
+snapshot settings-appearance-dark.png
+key esc
+wait-idle
+assert settings == closed
+command mode system
+wait-idle

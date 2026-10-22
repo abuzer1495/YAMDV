@@ -1,0 +1,38 @@
+# Spec patches of prompt 012 (Phase V2-B) §2 step 3, extracted verbatim from docs/prompts/012_V2B_SETTINGS_PANEL.md.
+
+=== P-34 docs/SPEC.md REPLACE
+--- old
+colors per setting `pdf_colors` (*Follow theme* default, or *Light*), backgrounds kept (dark themes do not turn white unless *Light* is chosen);
+--- new
+colors per setting `pdf_colors` (*Light* default = the scheme's light palette on a white page, whatever the UI mode; or *Follow theme* = the current mode, with the theme background on the whole page);
+
+=== P-35 docs/SPEC.md REPLACE
+--- old
+one `.html` with inline CSS for the current theme,
+--- new
+one `.html` with inline CSS from the current scheme in the palette chosen by `html_colors` (*Light* default, or *Follow theme*),
+
+=== P-36 docs/SPEC.md INSERT_AFTER
+--- anchor
+- **R-EXP-06 SHOULD** Copy whole document as rich HTML; export a Mermaid diagram or the mind map as PNG.
+--- new
+- **R-EXP-07 MUST** Export PDF, Print and Export HTML never block the UI. The job runs outside the UI thread (PDF and Print in the print worker process, ADR-0018) on a snapshot of the document as shown, including unsaved edits. It reports progress on the export progress card (B.10.7) and on the taskbar button; [Cancel] stops it and removes the partial file; one job runs at a time. Exports never contain selection, find highlights, hover or focus states, and math and Mermaid images in them are rendered in the export palette.
+
+=== P-37 docs/UI_SPEC.md REPLACE
+--- old
+| `export.pdf_colors` | enum | `theme` | `theme`, `light` |
+--- new
+| `export.pdf_colors` | enum | `light` | `light`, `theme` |
+
+=== P-38 docs/UI_SPEC.md INSERT_AFTER
+--- anchor
+| `export.print_colors` | enum | `light` | `light`, `theme` |
+--- new
+| `export.html_colors` | enum | `light` | `light`, `theme` |
+
+=== P-39 docs/UI_SPEC.md INSERT_AFTER
+--- anchor
+Popover (external link "Ask", link editor, language picker, color picker): width 360, radius 8, `menu_bg`, `shadow`, anchored to its target; URL shown in code font 12 px, wrapped. In-window confirm dialog: width 420, title 15 px 600, body 13 px, buttons right-aligned (primary last), `Enter` = primary, `Esc` = cancel, backdrop `rgba(0,0,0,.25)`. Native dialogs are used only for open/save files and printing. Tooltips: 500 ms delay, 12 px, padding 4 × 8, radius 4.
+--- new
+### B.10.7 Export progress card
+Bottom-center, above the toast stack; width 360, radius 8, `menu_bg`, `shadow`; shown only when a job runs longer than 300 ms. Line 1: 13 px 600 "Exporting PDF…" / "Printing…" / "Exporting HTML…" plus the file name (middle ellipsis). Bar: 4 px, `accent` on a `border` track; indeterminate while preparing (static with reduced motion), determinate after. Line 2: 12 px `text_muted` "Page 37 of 1093 · 3 % · about 3 min left" (HTML counts blocks; the estimate appears after 5 pages or 5 %). [Cancel] right-aligned; `Esc` cancels while the card has focus. Success replaces it with a toast "PDF saved — <name>" with [Open] · [Show in folder]; failure replaces it with an error banner (B.10.5). The taskbar button mirrors the progress (`ITaskbarList3`).

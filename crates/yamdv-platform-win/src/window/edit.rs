@@ -236,6 +236,11 @@ pub(super) fn block_of(content: &Content, pos: usize) -> usize {
     lo
 }
 
+thread_local! {
+    /// Alt state of a chord re-dispatched by the keymap (FUT-05); `None` = read the keyboard.
+    pub(super) static KEY_ALT: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
 fn key_down(vk: u16) -> bool {
     // SAFETY: GetKeyState has no preconditions.
     unsafe { GetKeyState(i32::from(vk)) < 0 }
@@ -1230,7 +1235,9 @@ impl Win {
         if !matches!(self.view, View::Doc(_)) {
             return None;
         }
-        let alt = key_down(0x12);
+        let alt = KEY_ALT
+            .with(std::cell::Cell::get)
+            .unwrap_or_else(|| key_down(0x12));
         match vk {
             0x71 => {
                 self.edit_toggle(sh, Mode::Live);
@@ -2465,7 +2472,7 @@ impl Win {
                     let sel_alpha = f32::from(pal.selection_alpha_pct) / 100.0;
                     let r = u32::try_from(s.start).unwrap_or(0)..u32::try_from(s.end).unwrap_or(0);
                     for rr in yamdv_layout::viewer::selection_rects(p, &r) {
-                        b.fill(rr.offset(ox, oy), pal.accent, sel_alpha, 0.0);
+                        b.fill(rr.offset(ox, oy), pal.selection_color(), sel_alpha, 0.0);
                     }
                 }
                 if let Some(r) = self.caret_rect(sh) {

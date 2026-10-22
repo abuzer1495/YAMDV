@@ -53,6 +53,11 @@ pub enum Value {
     Str(String),
 }
 
+/// Definition of `key` (`section.key`).
+pub fn def(key: &str) -> Option<&'static Def> {
+    DEFS.iter().find(|d| d.key == key)
+}
+
 /// Normalizes `raw` for `def`: `None` when the value cannot be interpreted (→ default).
 pub fn coerce(def: &Def, raw: &str) -> Option<Value> {
     let raw = raw.trim();
