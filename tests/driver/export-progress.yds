@@ -10,6 +10,7 @@ ui job-reset
 ui export-pdf-bg ep-30.tmp.pdf
 assert job == running
 ui job-wait 3
+snapshot progress-card.png
 wheel -360
 wait-idle
 assert scroll_y > 0

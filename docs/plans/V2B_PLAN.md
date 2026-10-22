@@ -27,3 +27,7 @@ Branch `phase/v2b-settings`; A-8: no CI, every commit `[skip ci]`, local gates b
   job_monotonic, worker, cpu_delta_ms, out_body_bg; fixture pages-30.md), titlebar.yds asserts the
   panel, xtask root falls back to the cwd (pack). §4.6 done: 1.1.0 + CHANGELOG (no tag).
   Next: §5 run-tests.cmd/.ps1, OWNER_TEST.md, baseline build, zip, draft release test-v2b; §6.
+- 23:00 §5 pack tooling: tools/testpack/run-tests.cmd + run-tests.ps1 (driver loop with temp
+  profiles, export-progress WM_NULL poll, goldens report-only, headless export, opt-in install,
+  M0/M1 release budget + dev vs baseline delta gate, T7, T4), OWNER_TEST.md (EN+TR, 12 items),
+  build-pack.sh (baseline = dev-tools build of 9f6906e). Next: upload draft test-v2b, then §6.
