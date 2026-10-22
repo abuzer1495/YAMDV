@@ -204,6 +204,37 @@ impl Ini {
         }
     }
 
+    /// All `(key, value)` entries of `section`, in file order.
+    pub fn entries(&self, section: &str) -> Vec<(&str, &str)> {
+        let mut cur = "";
+        let mut out = Vec::new();
+        for l in &self.lines {
+            match l {
+                Line::Section(s) => cur = s,
+                Line::Entry { key, value } if cur.eq_ignore_ascii_case(section) => {
+                    out.push((key.as_str(), value.as_str()));
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// Removes every `section.key` entry.
+    pub fn remove(&mut self, section: &str, key: &str) {
+        let mut cur = String::new();
+        self.lines.retain(|l| match l {
+            Line::Section(s) => {
+                cur.clone_from(s);
+                true
+            }
+            Line::Entry { key: k, .. } => {
+                !(cur.eq_ignore_ascii_case(section) && k.eq_ignore_ascii_case(key))
+            }
+            Line::Other(_) => true,
+        });
+    }
+
     /// Serializes with LF line endings and a final newline.
     pub fn write(&self) -> String {
         let mut s = String::new();
@@ -265,6 +296,18 @@ mod tests {
         assert!(out.ends_with("[privacy]\ndiagnostic_log = false\n"));
         let again = Ini::parse(out.as_bytes());
         assert_eq!(again.get("reading", "new"), Some(" spaced "));
+    }
+
+    #[test]
+    fn entries_and_remove() {
+        let mut ini = Ini::parse(b"[a]\nx = 1\n[shortcuts]\nfind = Ctrl+Alt+F\nprint = \n");
+        assert_eq!(
+            ini.entries("shortcuts"),
+            vec![("find", "Ctrl+Alt+F"), ("print", "")]
+        );
+        ini.remove("shortcuts", "find");
+        assert_eq!(ini.entries("shortcuts"), vec![("print", "")]);
+        assert_eq!(ini.get("a", "x"), Some("1"));
     }
 
     #[test]

@@ -676,6 +676,9 @@ dependencies = [
 [[package]]
 name = "yamdv-ui"
 version = "1.0.0"
+dependencies = [
+ "yamdv-core",
+]
 
 [[package]]
 name = "zlib-rs"
