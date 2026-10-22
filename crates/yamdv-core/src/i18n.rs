@@ -224,6 +224,15 @@ messages! {
     ExportFailed => "Export failed", "Dışa aktarma başarısız";
     PrintSent => "Sent to the printer", "Yazıcıya gönderildi";
     PrintFailed => "Printing failed", "Yazdırma başarısız";
+    ExportBusy => "An export is already running", "Bir dışa aktarma zaten sürüyor";
+    ExportCancelled => "Export cancelled", "Dışa aktarma iptal edildi";
+    PrintCancelled => "Printing cancelled", "Yazdırma iptal edildi";
+    JobCloseTitle => "An export is running", "Bir dışa aktarma sürüyor";
+    JobCloseBody => "Closing this window cancels the export and removes the unfinished file.", "Bu pencereyi kapatmak dışa aktarmayı iptal eder ve bitmemiş dosyayı siler.";
+    JobCloseCancel => "Cancel export and close", "Dışa aktarmayı iptal et ve kapat";
+    JobCloseKeep => "Keep exporting", "Dışa aktarmaya devam et";
+    Open => "Open", "Aç";
+    ShowInFolder => "Show in folder", "Klasörde göster";
     WelcomeInstall => "Install YAMDV for this user", "YAMDV'yi bu kullanıcı için yükle";
     InstallFailed => "Installation failed", "Yükleme başarısız";
     UninstallTitle => "Uninstall YAMDV", "YAMDV'yi kaldır";

@@ -503,6 +503,27 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
         },
         "popup-shot" => op(w, PopupOp::Shot(arg.to_string())),
         "shot-window" => snapshot(w, sh, &format!("top-{arg}")).replacen("top-", "", 1),
+        // BUG-11: background export through the worker (`job*` state fields).
+        "export-html-bg" | "export-pdf-bg" => {
+            let out = rel(arg);
+            let _ = std::fs::remove_file(&out);
+            let k = if verb == "export-html-bg" {
+                super::ExportKind::Html
+            } else {
+                super::ExportKind::Pdf
+            };
+            w.run_export(sh, &k, &out);
+            LAST_OUT.with(|l| *l.borrow_mut() = Some(out));
+            if super::jobui::busy() {
+                format!("ok ui {verb} {arg}")
+            } else {
+                format!("FAIL ui {verb} {arg}: no job")
+            }
+        }
+        "job-cancel" => {
+            super::jobui::cancel_job();
+            "ok ui job-cancel".to_string()
+        }
         _ => format!("FAIL ui {verb}: unknown verb"),
     }
 }
@@ -775,6 +796,11 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         }
         None => ("none".to_string(), String::new(), String::new()),
     };
+    let (job, job_n, job_total) = match super::jobui::state() {
+        Some((_, n, t, true)) => ("cancelling", n, t),
+        Some((_, n, t, false)) => ("running", n, t),
+        None => ("none", 0, 0),
+    };
     let out = LAST_OUT
         .with(|l| l.borrow().clone())
         .and_then(|p| std::fs::read(p).ok())
@@ -788,6 +814,18 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         ("focus".into(), V::S(focus)),
         ("popover".into(), V::S(popover.into())),
         ("banner".into(), V::S("none".into())),
+        ("job".into(), V::S(job.into())),
+        ("job_n".into(), V::N(f64::from(job_n))),
+        ("job_total".into(), V::N(f64::from(job_total))),
+        ("job_last".into(), V::S(super::jobui::last_outcome().into())),
+        (
+            "out_exists".into(),
+            V::N(f64::from(u8::from(
+                LAST_OUT
+                    .with(|l| l.borrow().clone())
+                    .is_some_and(|p| std::path::Path::new(&p).exists()),
+            ))),
+        ),
         ("nav_depth".into(), V::N(w.history.len() as f64)),
         ("nav_pos".into(), V::N(w.hist_pos as f64)),
         ("windows".into(), V::N(windows as f64)),

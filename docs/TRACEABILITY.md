@@ -40,7 +40,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-EXP-04 | 011 | implemented (008 V1-D): context menu, csv.rs (r_exp_04_*), driver export-csv |
 | R-EXP-05 | 011 | implemented (008 V1-D): --export-html / --export-pdf (r_exp_05_export_flags, CI v1d-checks) |
 | R-EXP-06 | 011 | deferred (FUT-23) |
-| R-EXP-07 | V2-B | planned (V2-B; BUG-11 #78) |
+| R-EXP-07 | V2-B | implemented (V2-B; BUG-11 #78: worker job, progress card, Cancel, taskbar) |
 | R-EXT-01 | 005 | implemented (005 V1-A) |
 | R-EXT-02 | 005 | deferred (FUT-10) |
 | R-EXT-03 | 005 | partial (005): template tokenizer + CreateProcessW; no settings UI |

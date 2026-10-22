@@ -62,8 +62,10 @@ pub enum Command {
     },
     /// `--uninstall-helper <pid>` (internal: the temp copy that deletes the install folder).
     UninstallHelper(u32),
-    /// `--print-job <file>` (internal: the print worker started by Print… / Export PDF…).
-    PrintJob(String),
+    /// `--print-job <file> [<owner> <nonce> <cancel>]` (internal: the export worker started by
+    /// Print… / Export PDF… / Export HTML…; the optional link is the owner window, the progress
+    /// nonce and the inherited Cancel event handle, BUG-11).
+    PrintJob(String, Option<(isize, u64, isize)>),
     /// `--register` (R-SYS-01; explicit action, S-REG-03).
     Register,
     /// `--unregister` (S-REG-02).
@@ -178,7 +180,17 @@ pub fn parse_with<I: IntoIterator<Item = String>>(args: I, dev_tools: bool) -> C
                 .parse::<u32>()
                 .map_or_else(|_| usage("--uninstall-helper"), Command::UninstallHelper);
         }
-        ["--print-job", f] => return Command::PrintJob((*f).to_string()),
+        ["--print-job", f] => return Command::PrintJob((*f).to_string(), None),
+        ["--print-job", f, owner, nonce, cancel] => {
+            return match (
+                owner.parse::<isize>(),
+                nonce.parse::<u64>(),
+                cancel.parse::<isize>(),
+            ) {
+                (Ok(o), Ok(n), Ok(c)) => Command::PrintJob((*f).to_string(), Some((o, n, c))),
+                _ => usage("--print-job"),
+            };
+        }
         [
             f @ ("--install" | "--uninstall" | "--uninstall-helper" | "--print-job"),
             ..,
@@ -478,8 +490,16 @@ mod tests {
         assert!(matches!(p(&["--uninstall-helper", "x"]), Command::Usage(_)));
         assert_eq!(
             p(&["--print-job", "C:\\t\\a.job"]),
-            Command::PrintJob("C:\\t\\a.job".into())
+            Command::PrintJob("C:\\t\\a.job".into(), None)
         );
+        assert_eq!(
+            p(&["--print-job", "a.job", "1234", "99", "88"]),
+            Command::PrintJob("a.job".into(), Some((1234, 99, 88)))
+        );
+        assert!(matches!(
+            p(&["--print-job", "a.job", "x", "1", "2"]),
+            Command::Usage(_)
+        ));
         assert!(matches!(p(&["--print-job"]), Command::Usage(_)));
         assert!(help_text().contains("--export-pdf"));
     }
