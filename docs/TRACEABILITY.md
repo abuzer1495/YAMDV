@@ -125,7 +125,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-READ-04 | 005 | implemented (005 V1-A) |
 | R-READ-05 | 005 | implemented (005 V1-A) |
 | R-READ-06 | 005 | deferred (FUT-34) |
-| R-READ-07 | 005 | deferred (FUT-35) |
+| R-READ-07 | 005 | implemented (011): word-count badge, chrome.rs count + fullscreen-wordcount.yds (FUT-35) |
 | R-READ-08 | 005 | deferred (FUT-06, FUT-36) |
 | R-READ-09 | 005 | planned |
 | R-READ-10 | 005 | implemented (005 V1-A) |
@@ -181,7 +181,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-TBL-08 | 003/008 | deferred (FUT-44) |
 | R-THEME-01 | 004 | implemented (005 V1-A) |
 | R-THEME-02 | 004 | partial (002): data only |
-| R-THEME-03 | 004 | deferred (FUT-32) |
+| R-THEME-03 | 004 | implemented (011): scheme cards, popup.rs + scheme-cards.yds (FUT-32) |
 | R-THEME-04 | 004 | deferred (FUT-49) |
 | R-THEME-05 | 004 | planned |
 | R-THEME-06 | 004 | deferred (FUT-04) |
@@ -193,8 +193,8 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-WIN-02 | 005 | implemented (005 V1-A) |
 | R-WIN-03 | 005 | implemented (005 V1-A) |
 | R-WIN-04 | 005 | partial (001): window skeleton (size/min size/centering) |
-| R-WIN-05 | 005 | deferred (FUT-30) |
-| R-WIN-06 | 005 | deferred (FUT-46) |
+| R-WIN-05 | 005 | implemented (011): custom title bar, window/chrome.rs + titlebar.yds (FUT-30, BUG-09) |
+| R-WIN-06 | 005 | implemented (011): F11 fullscreen + fullscreen-wordcount.yds (FUT-46) |
 | R-WIN-07 | 005 | planned |
 | S-EXEC-01 | 003/005 | planned |
 | S-EXEC-02 | 003/005 | planned |
