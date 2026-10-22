@@ -218,7 +218,7 @@ rows! {
     Files "info.portable", "Portable mode", "Taşınabilir mod", "yamdv.portable beside the exe keeps data next to it", "Exe yanındaki yamdv.portable verileri yanında tutar";
     Files "btn.install", "Install", "Yükle", "Copy YAMDV to your user programs folder", "YAMDV'yi kullanıcı programları klasörüne kopyalar";
     Privacy "info.offline", "Offline", "Çevrimdışı", "YAMDV never connects to the network", "YAMDV hiçbir zaman ağa bağlanmaz";
-    Privacy "privacy.diagnostic_log", "Diagnostic log", "Tanılama günlüğü", "Write yamdv.log in the config folder", "Yapılandırma klasörüne yamdv.log yazar";
+    Privacy "privacy.diagnostic_log", "Diagnostic log", "Tanılama günlüğü", "Write yamdv.log to %LOCALAPPDATA%\\YAMDV\\logs (no document text)", "%LOCALAPPDATA%\\YAMDV\\logs içine yamdv.log yazar (belge metni yok)";
     Privacy "btn.clear_history", "Clear history", "Geçmişi temizle", "Forget recently opened files", "Son açılan dosyaları unutur";
     Privacy "btn.clear_favorites", "Clear favorites", "Sık kullanılanları temizle", "Remove every favorite", "Tüm sık kullanılanları kaldırır";
     Privacy "btn.clear_positions", "Clear reading positions", "Okuma konumlarını temizle", "Forget where you left off", "Kaldığınız yerleri unutur";

@@ -1,6 +1,6 @@
 //! Internal logger (ARCHITECTURE §E.11): compile-time levels, **off by default**, local file only.
-//! PHASE-004: enabled by the `privacy.diagnostic_log` setting; until then nothing turns it on, so
-//! log calls are no-ops in normal builds.
+//! Enabled by the `privacy.diagnostic_log` setting (V2-B, `app::reload_keymap` on start and on
+//! every settings change); off, every log call is a no-op.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 

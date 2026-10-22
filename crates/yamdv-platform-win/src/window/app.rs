@@ -31,6 +31,10 @@ fn reload_keymap() {
     }) {
         KEYMAP.with(|k| *k.borrow_mut() = km);
     }
+    // The diagnostic log follows its setting (S-PRIV-02); called on start and on every change.
+    if let Some(on) = with(|a| a.settings.bool("privacy.diagnostic_log")) {
+        crate::log::set_enabled(on);
+    }
 }
 
 /// Writes `settings.ini` from the in-memory INI and re-styles every window.
@@ -835,6 +839,26 @@ pub(super) fn set_transient(key: &str, value: &str) {
 // ---- commands -------------------------------------------------------------------------------
 
 /// Built-in help document (F1), compiled into the exe.
+/// The current key bindings as a Markdown table, appended to F1 help (FUT-05).
+fn bindings_table(lang: Lang, km: &Keymap) -> String {
+    use std::fmt::Write as _;
+    let (title, a, k) = match lang {
+        Lang::Tr => ("Geçerli kısayollar", "Eylem", "Tuşlar"),
+        Lang::En => ("Current shortcuts", "Action", "Keys"),
+    };
+    let mut out = format!("\n\n## {title}\n\n| {a} | {k} |\n|---|---|\n");
+    for d in yamdv_core::keymap::ACTIONS {
+        let keys = km.shown(d.id);
+        let keys = if keys.is_empty() {
+            "—".to_string()
+        } else {
+            keys.replace('|', "\\|")
+        };
+        let _ = writeln!(out, "| {} | {keys} |", yamdv_core::keymap::label(d, lang));
+    }
+    out
+}
+
 pub(super) fn help_text(lang: Lang) -> &'static str {
     match lang {
         Lang::Tr => include_str!("../../assets/help_tr.md"),
@@ -1192,7 +1216,8 @@ impl Win {
 
     /// Shows the built-in help document (F1) in this window.
     pub(super) fn show_help(&mut self, sh: &Shared) {
-        let text = help_text(sh.lang).to_string();
+        let mut text = help_text(sh.lang).to_string();
+        text.push_str(&bindings_table(sh.lang, &keymap()));
         self.show_text(sh, "YAMDV help".to_string(), text, false, true);
     }
 
