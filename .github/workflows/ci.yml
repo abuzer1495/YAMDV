@@ -173,9 +173,14 @@ jobs:
           retention-days: 7
 
   pack-smoke:
-    name: pack exes start on Windows (startup smoke)
+    # windows-2022 (build 20348) is the closest runner to the owner's Windows 10 (19045).
+    name: pack exes start on ${{ matrix.os }} (startup smoke)
     needs: [pack-build]
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
