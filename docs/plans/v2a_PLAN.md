@@ -9,8 +9,8 @@ Issues: FUT-30 #29, FUT-32 #31, FUT-35 #34, FUT-46 #44, BUG-09 #69.
 - [x] §3.5 word-count badge (pure counter in core + unit tests)
 - [x] §3.6 zoom indicator pill
 - [x] tests: titlebar.yds, scheme-cards.yds, fullscreen-wordcount.yds; 4 goldens from CI artifact
-- [ ] TRACEABILITY by script; local gates; CI run; fix push; merge; tag phase-v2a
-- [ ] report docs/reports/v2a_REPORT.md
+- [x] TRACEABILITY by script; local gates; CI run; fix push; merge; tag phase-v2a
+- [x] report docs/reports/v2a_REPORT.md
 
 ## CHECKPOINT
 (see latest entry below)
@@ -20,3 +20,4 @@ Issues: FUT-30 #29, FUT-32 #31, FUT-35 #34, FUT-46 #44, BUG-09 #69.
 - 13:57 popup.rs + app model written (not yet wired/compiling); next: chrome.rs + window.rs integration
 - 14:10 all features wired; local gates green (fmt, clippy native+xwin, tests, deny, spec-check, check-imports, size 2,826,752 B); TRACEABILITY updated; next: full CI run, goldens from artifact
 - 14:30 CI run 39768308649 red: creation NCCALCSIZE (wParam FALSE) kept caption → client +31 px (7 old goldens size mismatch); TIMER_ZOOM id clash (13 = autosave); real cursor hovered the cards. Fix push: SWP_FRAMECHANGED after create, TIMER_ZOOM 17, popups ignore the real mouse under a driver script, 4 goldens from the artifact (top shots at content 1000×731 as taken)
+- 14:50 run 39770339165 green; PR #76 merged (7deb0b3), tag phase-v2a pushed, issues closed; report written
