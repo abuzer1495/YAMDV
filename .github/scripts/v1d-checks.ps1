@@ -59,7 +59,8 @@ if (-not (Test-Path $inst)) { $fail += 'install: exe missing' }
 if (-not (Test-Path $lnk)) { $fail += 'install: shortcut missing' }
 if (Test-Path $un) {
   $v = Get-ItemProperty $un
-  if ($v.DisplayVersion -ne '1.0.0') { $fail += "install: DisplayVersion $($v.DisplayVersion)" }
+  $want = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+  if ($v.DisplayVersion -ne $want) { $fail += "install: DisplayVersion $($v.DisplayVersion)" }
   if ($v.UninstallString -ne "`"$inst`" --uninstall") { $fail += "install: UninstallString $($v.UninstallString)" }
   if (-not $v.EstimatedSize) { $fail += 'install: EstimatedSize' }
 } else { $fail += 'install: uninstall entry missing' }

@@ -15,7 +15,8 @@ key enter
 wait-idle
 assert color_popover == closed
 assert theme.light.link == #ff0000
-assert ini.appearance.use_custom_colors == true
+# use_custom_colors defaults to true (UI_SPEC), so it is on without an entry in settings.ini.
+assert ini.appearance.use_custom_colors != false
 assert pal.link == #ff0000
 # Reset token: the entry leaves the file and the theme colour returns.
 ui settings-click color:link

@@ -38,7 +38,8 @@ ui job-done
 assert job_last == cancelled
 assert out_exists == 0
 assert worker == 0
-sleep 1500
+# The "Export cancelled" toast hides (and repaints once) 4 s after the job ends; mark CPU after it.
+sleep 4500
 assert pws_delta_kib <= 205
 ui cpu-mark
 sleep 3000

@@ -22,7 +22,7 @@ version = "1.1.0"
 edition = "2024"
 rust-version = "1.99"
 license = "LicenseRef-YAMDV-Proprietary"
-repository = "https://github.com/snipeTR/YAMDV"
+repository = "https://github.com/abuzer1495/YAMDV"
 publish = false
 
 [workspace.dependencies]
