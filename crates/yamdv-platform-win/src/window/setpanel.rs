@@ -606,6 +606,9 @@ impl Win {
             let t = p.text.take();
             self.commit_text(t);
         }
+        // Built on demand, fully freed on close: the family list goes too (open lists keep
+        // their own `Rc`).
+        FONTS.with(|f| f.borrow_mut().take());
         self.invalidate();
     }
 
@@ -1697,7 +1700,19 @@ impl Win {
             It::Row(i) => {
                 let Some(row) = ROWS.get(i) else { return };
                 let (l, d) = sp::row_text(row, lang);
-                self.draw_label(sh, b, r, label_w, l, d);
+                if matches!(sp::control(row), Control::Font(_)) {
+                    // The resolved face under the control (R-THEME-04).
+                    let (bo, co) = sh.dw.resolved();
+                    let res = if row.key.ends_with("code_font") {
+                        co
+                    } else {
+                        bo
+                    };
+                    let d = format!("{} {res}", pick(lang, "Resolved:", "Kullanılan:"));
+                    self.draw_label(sh, b, r, label_w, l, &d);
+                } else {
+                    self.draw_label(sh, b, r, label_w, l, d);
+                }
                 self.draw_control(sh, b, p, i, row, c);
             }
         }
