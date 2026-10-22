@@ -23,3 +23,7 @@ Branch `phase/v2b-settings`; A-8: no CI, every commit `[skip ci]`, local gates b
   Driver verbs `ui settings-*`, state `settings*`, `key.*`, `pal.*`, `ini.*`, `theme.*`, PWS.
   Scripts settings-panel / color-editor / shortcuts written. Next: export-progress (ps1 +
   yds), titlebar.yds update, §4.6 version 1.1.0 + CHANGELOG, §5 pack, §6.
+- 22:50 export-progress.yds (verbs `ui job-wait|job-done|job-reset|cpu-mark`, state job_seen_*,
+  job_monotonic, worker, cpu_delta_ms, out_body_bg; fixture pages-30.md), titlebar.yds asserts the
+  panel, xtask root falls back to the cwd (pack). §4.6 done: 1.1.0 + CHANGELOG (no tag).
+  Next: §5 run-tests.cmd/.ps1, OWNER_TEST.md, baseline build, zip, draft release test-v2b; §6.
