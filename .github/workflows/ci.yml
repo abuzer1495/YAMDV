@@ -138,51 +138,63 @@ jobs:
           path: m/
           retention-days: 30
 
-  pack-build:
-    # V2-B fix: the owner test pack is built with cargo-xwin on Linux (tools/testpack/build-pack.sh);
-    # build the same exes here so the Windows job below can start them (build parity check).
-    name: pack exes (cargo-xwin, ubuntu)
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
+  pack-exes:
+    # V2-B fix (A-9): the owner test pack is assembled only from these MSVC-built exes. The
+    # cargo-xwin/lld-link build used for the first V2-B pack exited 0xC0000409 on every Windows
+    # start (see docs/reports/v2b_fix_REPORT.md); tools/testpack/build-pack.sh refuses exes
+    # without the MSVC linker's Rich header.
+    name: pack exes (MSVC) + startup smoke
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      BASELINE: 9f6906e
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
-            ~/.cargo/bin/cargo-xwin
-            ~/.cache/cargo-xwin
             target
-          key: xwin-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
-      - name: install cargo-xwin + lld
+            base/target
+          key: pack-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+      - name: build (release + xtask, dev-tools, baseline dev-tools at ${{ env.BASELINE }})
+        shell: pwsh
         run: |
-          command -v cargo-xwin || cargo install cargo-xwin --version 0.23.1 --locked
-          sudo apt-get install -y -qq lld llvm clang >/dev/null
-      - name: build (same commands as build-pack.sh)
+          cargo build --release --locked -p yamdv-app -p xtask
+          cargo build --release --locked -p yamdv-app --features dev-tools,mem-stats --target-dir target/dev
+          git worktree add base $env:BASELINE
+          Push-Location base
+          cargo build --release --locked -p yamdv-app --features dev-tools,mem-stats
+          Pop-Location
+          New-Item -ItemType Directory -Force -Path pack | Out-Null
+          Copy-Item target/release/yamdv.exe pack/yamdv.exe
+          Copy-Item target/release/xtask.exe pack/xtask.exe
+          Copy-Item target/dev/release/yamdv.exe pack/yamdv-dev.exe
+          Copy-Item base/target/release/yamdv.exe pack/baseline-dev.exe
+          git rev-parse HEAD | Out-File -Encoding ascii pack/COMMIT
+      - name: startup smoke (pack exes + baseline)
+        shell: pwsh
         run: |
-          T=x86_64-pc-windows-msvc
-          cargo xwin build --release --locked --target $T -p yamdv-app
-          cargo xwin build --release --locked --target $T -p yamdv-app --features dev-tools,mem-stats --target-dir target/dev
-          mkdir -p pack && cp target/$T/release/yamdv.exe pack/yamdv.exe && cp target/dev/$T/release/yamdv.exe pack/yamdv-dev.exe
-      - name: diagnosis variants (hardening flags on/off; V2-B fix)
-        run: ./.github/scripts/xwin-variants.sh
+          ./.github/scripts/smoke.ps1 -Rel pack/yamdv.exe -Dev pack/yamdv-dev.exe
+          $r = $LASTEXITCODE
+          $b = (& pack/baseline-dev.exe --version 2>$null | Out-String).Trim()
+          Write-Host "baseline --version: '$b' (exit $LASTEXITCODE)"
+          if ($b -notmatch 'yamdv') { Write-Host '::error::baseline --version failed'; $r = 1 }
+          exit $r
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pack-exes
           path: pack/
-          retention-days: 7
+          retention-days: 14
 
   pack-smoke:
     # windows-2022 (build 20348) is the closest runner to the owner's Windows 10 (19045).
-    name: pack exes start on ${{ matrix.os }} (startup smoke)
-    needs: [pack-build]
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, windows-2022]
-    runs-on: ${{ matrix.os }}
+    name: pack exes start on windows-2022 (startup smoke)
+    needs: [pack-exes]
+    runs-on: windows-2022
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -195,10 +207,6 @@ jobs:
       - name: startup smoke (pack exes)
         shell: pwsh
         run: ./.github/scripts/smoke.ps1 -Rel pack/yamdv.exe -Dev pack/yamdv-dev.exe
-      - name: diagnosis variants
-        if: always()
-        shell: pwsh
-        run: ./.github/scripts/variants-smoke.ps1
 
   owner-kit:
     name: owner kit (F-05)
