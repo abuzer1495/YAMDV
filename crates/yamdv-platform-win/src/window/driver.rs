@@ -35,6 +35,8 @@ thread_local! {
     /// Pages seen by `ui job-wait` / `ui job-done` polls: (samples, last, monotonic).
     static JOB_SEQ: std::cell::Cell<(u32, u32, bool, u32)> = const { std::cell::Cell::new((0, 0, true, 0)) };
     static CPU_MARK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// GDI / USER object counts at `ui mem-mark` (`gdi_delta`, `user_delta`).
+    static GUI_MARK: std::cell::Cell<(u32, u32)> = const { std::cell::Cell::new((0, 0)) };
 }
 
 /// Re-runs the current command after `ms` (polling verbs; the message loop keeps running).
@@ -66,6 +68,21 @@ fn job_sample() -> u32 {
 /// Private working set now (no trim: what Task Manager shows).
 fn pws_now() -> u64 {
     crate::perf::private_ws_bytes()
+}
+
+/// GDI and USER objects this process owns now (exact, unlike the working set).
+fn gui_now() -> (u32, u32) {
+    use windows::Win32::System::Threading::{
+        GR_GDIOBJECTS, GR_USEROBJECTS, GetCurrentProcess, GetGuiResources,
+    };
+    // SAFETY: the pseudo handle of this process is always valid.
+    unsafe {
+        let p = GetCurrentProcess();
+        (
+            GetGuiResources(p, GR_GDIOBJECTS),
+            GetGuiResources(p, GR_USEROBJECTS),
+        )
+    }
 }
 
 /// A script is running (popups then ignore the real mouse).
@@ -593,6 +610,7 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
         }
         "mem-mark" => {
             MEM_MARK.with(|m| m.set(pws_now()));
+            GUI_MARK.with(|m| m.set(gui_now()));
             "ok ui mem-mark".into()
         }
         "job-cancel" => {
@@ -1003,6 +1021,10 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         "pws_delta_kib".into(),
         V::N((pws as f64 - mark as f64) / 1024.0),
     ));
+    let (g0, u0) = GUI_MARK.with(std::cell::Cell::get);
+    let (g, u) = gui_now();
+    out.push(("gdi_delta".into(), V::N(f64::from(g) - f64::from(g0))));
+    out.push(("user_delta".into(), V::N(f64::from(u) - f64::from(u0))));
     out.push((
         "code_line_numbers".into(),
         V::N(f64::from(u8::from(sh.read.code_line_numbers))),
