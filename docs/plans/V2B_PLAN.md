@@ -23,14 +23,14 @@ Branch `phase/v2b-settings`; A-8: no CI, every commit `[skip ci]`, local gates b
   Driver verbs `ui settings-*`, state `settings*`, `key.*`, `pal.*`, `ini.*`, `theme.*`, PWS.
   Scripts settings-panel / color-editor / shortcuts written. Next: export-progress (ps1 +
   yds), titlebar.yds update, §4.6 version 1.1.0 + CHANGELOG, §5 pack, §6.
-- 22:50 export-progress.yds (verbs `ui job-wait|job-done|job-reset|cpu-mark`, state job_seen_*,
+- 22:27 export-progress.yds (verbs `ui job-wait|job-done|job-reset|cpu-mark`, state job_seen_*,
   job_monotonic, worker, cpu_delta_ms, out_body_bg; fixture pages-30.md), titlebar.yds asserts the
   panel, xtask root falls back to the cwd (pack). §4.6 done: 1.1.0 + CHANGELOG (no tag).
   Next: §5 run-tests.cmd/.ps1, OWNER_TEST.md, baseline build, zip, draft release test-v2b; §6.
-- 23:00 §5 pack tooling: tools/testpack/run-tests.cmd + run-tests.ps1 (driver loop with temp
+- 22:33 §5 pack tooling: tools/testpack/run-tests.cmd + run-tests.ps1 (driver loop with temp
   profiles, export-progress WM_NULL poll, goldens report-only, headless export, opt-in install,
   M0/M1 release budget + dev vs baseline delta gate, T7, T4), OWNER_TEST.md (EN+TR, 12 items),
   build-pack.sh (baseline = dev-tools build of 9f6906e). Next: upload draft test-v2b, then §6.
-- 23:15 §5 uploaded: draft pre-release test-v2b (SHA-256 1e142d9f…a7e). §6 done: PR #79 squash-merged
+- 22:38 §5 uploaded: draft pre-release test-v2b (SHA-256 1e142d9f…a7e). §6 done: PR #79 squash-merged
   as 9119b44, tag phase-v2b, #25 commented, issues closed, docs/reports/v2b_REPORT.md.
   Next: owner runs the pack (A-8); v1.1.0 tag only after sign-off.
