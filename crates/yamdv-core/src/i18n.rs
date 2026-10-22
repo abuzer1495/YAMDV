@@ -232,6 +232,8 @@ messages! {
     JobCloseCancel => "Cancel export and close", "Dışa aktarmayı iptal et ve kapat";
     JobCloseKeep => "Keep exporting", "Dışa aktarmaya devam et";
     Open => "Open", "Aç";
+    PdfSaved => "PDF saved", "PDF kaydedildi";
+    HtmlSaved => "HTML saved", "HTML kaydedildi";
     ShowInFolder => "Show in folder", "Klasörde göster";
     WelcomeInstall => "Install YAMDV for this user", "YAMDV'yi bu kullanıcı için yükle";
     InstallFailed => "Installation failed", "Yükleme başarısız";

@@ -357,7 +357,7 @@ pub fn export_html_with(
     let mut report = |n: usize, total: usize| {
         link.as_deref_mut().is_none_or(|l| {
             l.report(
-                Phase::Preparing,
+                Phase::Printing,
                 u32::try_from(n).unwrap_or(u32::MAX),
                 u32::try_from(total).unwrap_or(u32::MAX),
             )

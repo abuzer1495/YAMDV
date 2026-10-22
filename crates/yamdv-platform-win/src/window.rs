@@ -383,6 +383,10 @@ struct Win {
     done_file: Option<String>,
     /// Where the toast was drawn (hit-testing its buttons).
     toast_rect: std::cell::Cell<Option<Rect>>,
+    /// Error banner after a failed export (B.10.5, BUG-11).
+    banner: Option<Msg>,
+    /// The export progress card has the keyboard focus (`Esc` cancels).
+    job_focus: bool,
     /// Navigation history (path, scroll) and position (R-LINK-02).
     history: Vec<(String, f64)>,
     hist_pos: usize,
@@ -1511,6 +1515,7 @@ impl Win {
             self.draw_side(sh, b);
         }
         self.draw_find(sh, b);
+        self.draw_banner(sh, b);
         self.draw_job(sh, b);
         self.toast_rect.set(None);
         if let Some(m) = self.toast {
@@ -1681,6 +1686,7 @@ impl Win {
             v if ctrl && v == VK_UP.0 => return Some(Action::Command(app::FONT_BIG)),
             v if ctrl && v == VK_DOWN.0 => return Some(Action::Command(app::FONT_SMALL)),
             0xDC if ctrl => return Some(Action::Command(app::OUTLINE)),
+            v if v == VK_ESCAPE.0 && self.job_esc() => {}
             v if v == VK_ESCAPE.0 && self.focus.is_some() => {
                 self.focus = None;
                 self.invalidate();
@@ -1711,7 +1717,9 @@ impl Win {
     }
 
     fn mouse_down(&mut self, sh: &Shared, x: f32, y: f32, ctrl: bool) {
-        if self.dialog.is_none() && (self.job_click(x, y) || self.toast_click(x, y)) {
+        if self.dialog.is_none()
+            && (self.job_click(x, y) || self.toast_click(x, y) || self.banner_click(x, y))
+        {
             return;
         }
         if self.dialog.is_none() && matches!(self.view, View::Empty { note: None }) {
@@ -3460,6 +3468,9 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
         }
         _ => {}
     }
+    if msg == jobui::taskbar_msg() {
+        jobui::taskbar_created();
+    }
     if msg == WM_DESTROY {
         popup::close_for(hwnd);
         if let Some(w) = WINDOWS.with(|m| m.borrow().get(&(hwnd.0 as isize)).cloned())
@@ -3644,6 +3655,8 @@ fn create_window(sh: &Shared, path: Option<&str>) -> Option<HWND> {
         toast_arg: String::new(),
         done_file: None,
         toast_rect: std::cell::Cell::new(None),
+        banner: None,
+        job_focus: false,
         history: Vec::new(),
         hist_pos: 0,
         code_hover: None,

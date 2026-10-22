@@ -11,3 +11,8 @@ Branch `phase/v2b-settings`; A-8: no CI, every commit `[skip ci]`, local gates b
 
 ## CHECKPOINT
 - 21:45 §2 done and pushed; next: §3.1 survey palette use in yamdv-export/html.rs, print.rs, cli.rs.
+- §3.1 BUG-10 done (yamdv_core::theme::export_palette, colors::apply, html/pdf/print per-job setting).
+- §3.2 BUG-11 done: yamdv_core::progress (codec/throttle/ETA, tests), crate::job (worker spawn with
+  handle-list inheritance, Link), window/jobui.rs (card, taskbar, Cancel, close confirm, toast
+  [Open]/[Show in folder], error banner), driver verbs `ui export-html-bg|export-pdf-bg|job-cancel`.
+  Next: §4.1 settings panel (pure model in yamdv-ui::settings_panel, then window/settings.rs).
