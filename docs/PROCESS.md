@@ -167,3 +167,14 @@ A-6 No-Actions fallback (owner decision; only when GitHub Actions cannot run):
 5. Do not merge to `main` and do not tag `v1.0.0` until a CI run is green (V1-D: PR #49 stays open; the owner also tests RC1 on a real PC).
 6. The report (≤ 80 lines, A-5) includes a step-by-step manual QA list for RC1, replacing CI evidence.
 ```
+
+**A-7 (Phase V2-A, prompt 011 §2 step 1; owner decision 2026-10-22).**
+```text
+A-7 v2 process (owner decision, 2026-10-22) — applies from Phase V2-A on; where it differs from A-4/A-5, A-7 wins.
+1. Goal: implement docs/ROADMAP_V2.md phase by phase — the originally specified product — while staying as fast and light as v1.
+2. "Light" gates in every phase: M0, M1, T4 typical warm and T7 idle CPU are CI gates (two-attempt retry rule). Per phase, M0 and M1 may grow by at most 0.3 MiB versus the previous phase unless the prompt allows more. Report the exe-size delta. Idle CPU must stay at 0: timers run only while something animates.
+3. Tests: unit tests for new pure logic; at most 3 new driver scripts and 4 new goldens per phase (P-28 total ≤ 12 MB still holds).
+4. For every implemented item: update TRACEABILITY by script (deferred → DONE); close the GitHub issue through the merged PR ("Closes #n" in the PR body; find the numbers with `gh issue list --search "<ID> in:title"`).
+5. Report ≤ 80 lines. One full CI run at the end, plus at most one fix push. If the quota runs low: commit with [skip ci], write the report with "Next action", stop.
+6. Releases at the versions in docs/ROADMAP_V2.md, as drafts; the owner publishes them.
+```
