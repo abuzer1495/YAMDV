@@ -158,7 +158,9 @@ fn run(w: &mut Win, sh: &Shared, cmd: &Cmd) -> String {
             }
         },
         Cmd::Key(c) => {
-            if c.alt && (c.vk == 0x25 || c.vk == 0x27) {
+            if let Some(a) = w.key_chord(sh, c.vk, c.ctrl, c.shift, c.alt) {
+                w.actions.extend(a);
+            } else if c.alt && (c.vk == 0x25 || c.vk == 0x27) {
                 w.history_go(sh, if c.vk == 0x25 { -1 } else { 1 });
             } else if let Some(a) = w.key(sh, c.vk, c.ctrl, c.shift) {
                 w.actions.push(a);
@@ -200,7 +202,11 @@ fn run(w: &mut Win, sh: &Shared, cmd: &Cmd) -> String {
             None => format!("FAIL command {name}: unknown"),
         },
         Cmd::Type(t) => {
-            if w.find.is_none() && w.typing() {
+            if w.settings.is_some() {
+                for c in t.chars() {
+                    w.panel_char(c);
+                }
+            } else if w.find.is_none() && w.typing() {
                 SCRIPT.with(|s| {
                     if let Some(s) = s.borrow_mut().as_mut() {
                         s.chars.extend(t.chars());
@@ -520,6 +526,9 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
                 format!("FAIL ui {verb} {arg}: no job")
             }
         }
+        v if v.starts_with("settings-") => w
+            .panel_drive(sh, verb, arg)
+            .unwrap_or_else(|| format!("FAIL ui {verb}: unknown verb")),
         "job-cancel" => {
             super::jobui::cancel_job();
             "ok ui job-cancel".to_string()
@@ -808,7 +817,7 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
     let out_text = String::from_utf8_lossy(&out).into_owned();
     let lower = out_text.to_ascii_lowercase();
     let srcs: Vec<&str> = lower.split(" src=\"").skip(1).collect();
-    vec![
+    let mut out = vec![
         ("document".into(), V::S(doc)),
         ("scroll_y".into(), V::N(w.scroll_pos())),
         ("focus".into(), V::S(focus)),
@@ -911,7 +920,13 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
             V::S(w.zoom_ind.clone().unwrap_or_default()),
         ),
         ("disk_scheme".into(), V::S(disk_scheme)),
-    ]
+    ];
+    out.extend(
+        w.panel_state(sh.lang)
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), V::S(v))),
+    );
+    out
 }
 
 /// Minimal JSON for the state dump (no serde in the product dependency set).

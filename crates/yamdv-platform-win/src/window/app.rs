@@ -415,6 +415,9 @@ pub(super) fn apply_all() {
                             .ok();
                 }
                 w.restyle(&sh);
+                if let Some(p) = &mut w.settings {
+                    p.refresh();
+                }
                 w.hwnd
             }
             Err(_) => continue,

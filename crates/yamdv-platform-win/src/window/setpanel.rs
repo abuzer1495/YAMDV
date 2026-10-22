@@ -2140,3 +2140,198 @@ pub(super) fn option_chosen(hwnd: HWND, j: u32) {
         run_op(hwnd, Op::Set(row.key, v.clone()));
     }
 }
+
+// ---- driver (dev-tools scripts) ---------------------------------------------------------------
+
+#[cfg(feature = "dev-tools")]
+/// Script slug of a section (`settings-open typography`).
+pub(super) fn section_slug(s: Section) -> String {
+    format!("{s:?}").to_ascii_lowercase()
+}
+
+#[cfg(feature = "dev-tools")]
+fn slug_section(a: &str) -> Option<Section> {
+    let a = a.replace(['-', '_'], "");
+    SECTIONS.into_iter().find(|&s| section_slug(s) == a)
+}
+
+#[cfg(feature = "dev-tools")]
+/// The item a script names: a row key (`appearance.mode`, `btn.reset_all`), `key:<action>`,
+/// or `color:<token>`.
+fn item_of(name: &str) -> Option<It> {
+    if let Some(id) = name.strip_prefix("key:") {
+        return km::index(id).map(It::Key);
+    }
+    if let Some(t) = name.strip_prefix("color:") {
+        return TOKENS.iter().position(|x| *x == t).map(It::Color);
+    }
+    ROWS.iter().position(|r| r.key == name).map(It::Row)
+}
+
+#[cfg(feature = "dev-tools")]
+impl Win {
+    /// `ui settings-*` verbs; `None` = not a settings verb.
+    pub(super) fn panel_drive(&mut self, sh: &Shared, verb: &str, arg: &str) -> Option<String> {
+        let r = match verb {
+            "settings-open" => {
+                let sec = slug_section(arg);
+                if !arg.is_empty() && sec.is_none() {
+                    return Some(format!("FAIL ui settings-open {arg}: unknown section"));
+                }
+                self.panel_open(sec, false);
+                format!("ok ui settings-open {arg}")
+            }
+            "settings-close" => {
+                self.panel_close();
+                "ok ui settings-close".into()
+            }
+            "settings-search" => {
+                let Some(p) = &mut self.settings else {
+                    return Some("FAIL ui settings-search: panel closed".into());
+                };
+                p.search.set(arg);
+                p.scroll = 0.0;
+                p.focus = Focus::Search;
+                self.invalidate();
+                format!("ok ui settings-search {arg}")
+            }
+            "settings-section" => match (slug_section(arg), &mut self.settings) {
+                (Some(s), Some(p)) => {
+                    p.sec = SECTIONS.iter().position(|&x| x == s).unwrap_or(0);
+                    p.search.set("");
+                    p.scroll = 0.0;
+                    self.invalidate();
+                    format!("ok ui settings-section {arg}")
+                }
+                _ => format!("FAIL ui settings-section {arg}"),
+            },
+            "settings-click" => {
+                let (name, dark) = match arg.strip_suffix(":dark") {
+                    Some(n) => (n, Some(true)),
+                    None => (arg.strip_suffix(":light").unwrap_or(arg), None),
+                };
+                let (Some(it), Some(g)) = (item_of(name), self.panel_geo()) else {
+                    return Some(format!("FAIL ui settings-click {arg}: unknown item"));
+                };
+                let Some(p) = &mut self.settings else {
+                    return Some("FAIL ui settings-click: panel closed".into());
+                };
+                if !p.items(sh.lang).contains(&it) {
+                    p.search.set("");
+                    p.sec = SECTIONS
+                        .iter()
+                        .position(|&x| x == it.section())
+                        .unwrap_or(0);
+                }
+                let items = p.items(sh.lang);
+                let k = items.iter().position(|x| *x == it).unwrap_or(0);
+                p.ensure_visible(&g, &items, k);
+                let rects = p.layout(&g, &items);
+                let r = rects.get(k).copied().unwrap_or_else(|| rr(g.content));
+                let at = match (it, dark) {
+                    (It::Color(_), Some(true)) => {
+                        let c = control_rect(it, r, sh.lang);
+                        Some((c.x + 70.0, c.y + 4.0))
+                    }
+                    (It::Color(_), None) => {
+                        let c = control_rect(it, r, sh.lang);
+                        Some((c.x + 4.0, c.y + 4.0))
+                    }
+                    _ => None,
+                };
+                self.activate(sh, it, r, at);
+                format!("ok ui settings-click {arg}")
+            }
+            "settings-set" => {
+                let (k, v) = arg.split_once('=').unwrap_or((arg, ""));
+                match ROWS.iter().find(|r| r.key == k) {
+                    Some(r) => {
+                        self.actions
+                            .push(Action::Panel(Op::Set(r.key, v.to_string())));
+                        format!("ok ui settings-set {arg}")
+                    }
+                    None => format!("FAIL ui settings-set {arg}: unknown key"),
+                }
+            }
+            "settings-capture" => match Chord::parse(arg) {
+                Some(c) if self.settings.as_ref().is_some_and(|p| p.capture.is_some()) => {
+                    self.capture_key(c.vk, c.ctrl, c.shift, c.alt);
+                    format!("ok ui settings-capture {arg}")
+                }
+                _ => format!("FAIL ui settings-capture {arg}"),
+            },
+            "settings-color" => {
+                let hex = colors::parse_hex(arg);
+                match (self.settings.as_mut().and_then(|p| p.color.as_mut()), hex) {
+                    (Some(c), Some(v)) => {
+                        c.set_rgb(v);
+                        self.apply_color(true);
+                        format!("ok ui settings-color {arg}")
+                    }
+                    _ => format!("FAIL ui settings-color {arg}"),
+                }
+            }
+            "settings-font" => match self.settings.as_mut().and_then(|p| p.font.as_mut()) {
+                Some(f) => {
+                    f.query.set(arg);
+                    f.sel = 0;
+                    if f.shown().is_empty() {
+                        format!("FAIL ui settings-font {arg}: not installed")
+                    } else {
+                        self.choose_font();
+                        format!("ok ui settings-font {arg}")
+                    }
+                }
+                None => "FAIL ui settings-font: picker closed".into(),
+            },
+            _ => return None,
+        };
+        Some(r)
+    }
+
+    /// State fields for scripts.
+    pub(super) fn panel_state(&self, lang: Lang) -> Vec<(&'static str, String)> {
+        let Some(p) = &self.settings else {
+            return vec![
+                ("settings", "closed".into()),
+                ("settings_section", "none".into()),
+                ("settings_rows", "0".into()),
+                ("capture", "none".into()),
+                ("conflict", "none".into()),
+                ("color_popover", "closed".into()),
+                ("font_list", "closed".into()),
+            ];
+        };
+        let items = p.items(lang);
+        let rows = items.iter().filter(|i| !matches!(i, It::Head(_))).count();
+        let capture = p
+            .capture
+            .and_then(|i| ACTIONS.get(i))
+            .map_or_else(|| "none".to_string(), |a| a.id.to_string());
+        let conflict = p
+            .conflict
+            .as_ref()
+            .and_then(|c| ACTIONS.get(c.1))
+            .map_or_else(|| "none".to_string(), |a| a.id.to_string());
+        let color = p.color.as_ref().map_or_else(
+            || "closed".to_string(),
+            |c| {
+                let t = TOKENS.get(c.token).copied().unwrap_or("?");
+                format!("{t}:{}", if c.dark { "dark" } else { "light" })
+            },
+        );
+        let font = p
+            .font
+            .as_ref()
+            .map_or_else(|| "closed".to_string(), |f| f.shown().len().to_string());
+        vec![
+            ("settings", "open".into()),
+            ("settings_section", section_slug(p.section())),
+            ("settings_rows", rows.to_string()),
+            ("capture", capture),
+            ("conflict", conflict),
+            ("color_popover", color),
+            ("font_list", font),
+        ]
+    }
+}
