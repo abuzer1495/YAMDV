@@ -1,0 +1,4 @@
+# Startup smoke check (V2-B fix): the window opens, renders and the script ends cleanly.
+wait-idle
+assert document == a.md
+dump

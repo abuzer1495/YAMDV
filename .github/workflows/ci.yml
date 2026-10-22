@@ -71,6 +71,10 @@ jobs:
       - name: dev-tools build (render-png, autoscroll, mem-stats; never shipped)
         id: devbuild
         run: cargo build --release --locked -p yamdv-app --features dev-tools,mem-stats --target-dir target/dev
+      - name: startup smoke (V2-B fix; --version, dev-tools start, crash note)
+        if: ${{ !cancelled() && steps.devbuild.outcome == 'success' }}
+        shell: pwsh
+        run: ./.github/scripts/smoke.ps1
       - name: golden images (H.4)
         shell: pwsh
         run: |
@@ -96,7 +100,10 @@ jobs:
             $null = $p.Handle
             if (-not $p.WaitForExit(30000)) { $p.Kill(); Write-Host "::error::$($s.Name) timed out"; $fail = 1; continue }
             if (Test-Path "$($s.FullName).log") { Get-Content "$($s.FullName).log"; Copy-Item "$($s.FullName).log" m/driver/ }
-            if ($p.ExitCode -ne 0) { Write-Host "::error::$($s.Name) failed (exit $($p.ExitCode))"; $fail = 1 } else { Write-Host "$($s.Name): PASS" }
+            if ($p.ExitCode -ne 0) {
+              Write-Host "::error::$($s.Name) failed (exit $($p.ExitCode))"; $fail = 1
+              Get-ChildItem -Recurse -Filter 'crash-*.txt' -Path $env:LOCALAPPDATA -ErrorAction SilentlyContinue | ForEach-Object { Get-Content $_.FullName }
+            } else { Write-Host "$($s.Name): PASS" }
           }
           exit $fail
       - name: V1-D headless export, PDF and install/uninstall checks (prompt 008 §6)

@@ -202,3 +202,8 @@ A-8 No CI; the owner runs the Windows tests (owner decision, 2026-10-22). Applie
 8. Merge: after the local gates pass, merge to main and tag phase-<x>. Version tags (v1.x.0) and their releases wait for the owner's OK; the next prompt then tags them and uploads the zip with gh (no Actions). Owner-reported failures go first in the next prompt.
 9. Report ≤ 80 lines: a local-gates table, the pending owner tests, and the test-pack link.
 ```
+
+**A-9 (V2-B fix, owner decision 2026-10-22).**
+```text
+A-9 (owner decision 2026-10-22): repo moved to abuzer1495/YAMDV; CI is back; A-8 ends, A-7 gates apply again (CI on windows-latest: M0, M1, T4 typical warm, T7, with the retry rule). The owner test pack stays optional.
+```
