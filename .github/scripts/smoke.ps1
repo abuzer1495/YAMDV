@@ -4,8 +4,11 @@ param([string]$Rel = 'target/release/yamdv.exe', [string]$Dev = 'target/dev/rele
 $ErrorActionPreference = 'Continue'
 $fail = 0
 $root = (New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP/smoke").FullName
+# The crash hook resolves %LOCALAPPDATA% through the known-folder API (not the environment), so
+# also look in the real profile.
+$realLogs = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'YAMDV\logs'
 function Show-Crash([string]$prof) {
-  Get-ChildItem -Recurse -Filter 'crash-*.txt' -Path $prof -ErrorAction SilentlyContinue | ForEach-Object {
+  Get-ChildItem -Recurse -Filter 'crash-*.txt' -Path $prof, $realLogs -ErrorAction SilentlyContinue | ForEach-Object {
     Write-Host "--- crash note $($_.Name)"; Get-Content $_.FullName
   }
 }

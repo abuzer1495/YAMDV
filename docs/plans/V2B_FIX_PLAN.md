@@ -10,5 +10,6 @@ Branch `fix/v2b-startup-crash`. Owner pack run: every driver script exit 0xC0000
 
 ## CHECKPOINT
 - 2026-10-22 23:15 (UTC+3): step 1 committed and pushed; waiting for first CI run.
-- 23:50: run 39846032458: CI-built exes start fine (smoke green, 28/32 driver PASS). Suspect cargo-xwin pack build; added pack-build + pack-smoke jobs.
-- 00:05: run 1 also found 5 V2-B test failures (color-editor default, titlebar submenu path, settings-panel cold caches, export-progress 30 s limit + missing large fixture, v1d DisplayVersion 1.0.0); fixed in 3 commits. wine on the box reproduces driver scripts (/workspace/.wine/run.sh). Next: pack-smoke result (xwin exes on windows-latest + windows-2022).
+- 23:32: run 39846032458: CI-built exes start fine (smoke green, 28/32 driver PASS). Suspect cargo-xwin pack build; added pack-build + pack-smoke jobs.
+- 23:38: run 1 also found 5 V2-B test failures (color-editor default, titlebar submenu path, settings-panel cold caches, export-progress 30 s limit + missing large fixture, v1d DisplayVersion 1.0.0); fixed in 3 commits. wine on the box reproduces driver scripts (/workspace/.wine/run.sh). Next: pack-smoke result (xwin exes on windows-latest + windows-2022).
+- 23:46: run 39850233795: pack-smoke FAILS on windows-latest and windows-2022: cargo-xwin exes exit 0xC0000409 on --version (empty stdout); the dev exe runs a script to PASS and then also exits 0xC0000409. CI (MSVC) exes are fine. Root cause = the cargo-xwin/lld-link pack build. Next: flag variants (CFG/CET on/off, hello-world) to pin the mechanism; then build the pack exes with MSVC.

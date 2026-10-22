@@ -166,6 +166,8 @@ jobs:
           cargo xwin build --release --locked --target $T -p yamdv-app
           cargo xwin build --release --locked --target $T -p yamdv-app --features dev-tools,mem-stats --target-dir target/dev
           mkdir -p pack && cp target/$T/release/yamdv.exe pack/yamdv.exe && cp target/dev/$T/release/yamdv.exe pack/yamdv-dev.exe
+      - name: diagnosis variants (hardening flags on/off; V2-B fix)
+        run: ./.github/scripts/xwin-variants.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pack-exes
@@ -193,6 +195,10 @@ jobs:
       - name: startup smoke (pack exes)
         shell: pwsh
         run: ./.github/scripts/smoke.ps1 -Rel pack/yamdv.exe -Dev pack/yamdv-dev.exe
+      - name: diagnosis variants
+        if: always()
+        shell: pwsh
+        run: ./.github/scripts/variants-smoke.ps1
 
   owner-kit:
     name: owner kit (F-05)
