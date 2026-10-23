@@ -18,3 +18,4 @@ Order: §1.1 F-25 → F-26 → F-27 → F-28 → §2 P-46 + regex ADR → §3 it
 - CHECKPOINT 2026-10-23 21:01 R-EDIT-07 missing keys Ctrl+T, Ctrl+Shift+K added; TRACEABILITY via tools/trace_set.py docs/plans/v2e_trace.tsv. Next: driver regression review, gates M0/M1/T4/T7, exe delta.
 - CHECKPOINT 2026-10-23 21:03 T7 check (F3, autosave off, after journal write) in paste-recovery: 10 ms/2 s under Wine. Issues: FUT-45=#43, FUT-12=#17, FUT-15=#18. Wine-only driver failures (hit test, PDF, CPU) noted. Next: exe delta + regex share, PR.
 - CHECKPOINT 2026-10-23 21:06 exe (xwin release): v2d 3,077,632 B → v2e 3,244,544 B (+166,912); regex_lite symbols ≈42.7 KB (lld map). Opening PR for the one CI run.
+- 21:34 DONE: PR #84 merged a9a9bc0 (CI 40000635873 green, no fix push); issues #43/#17/#18 closed; tag phase-v2e → a9a9bc0 pushed (release job is v* only); report docs/reports/v2e_REPORT.md (01bf898).
