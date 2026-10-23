@@ -24,6 +24,20 @@ pub const HARD_EDGES: usize = 6000;
 pub const BUDGET: Duration = Duration::from_millis(200);
 /// Card padding (B.6.12).
 const PAD: f32 = 24.0;
+/// Diagram text size at scale 1 (layered / sequence labels).
+const BASE_TEXT: f32 = 14.0;
+/// BUG-08: diagram text never shrinks below this at 100 % zoom.
+pub const MIN_TEXT_PX: f32 = 10.0;
+
+/// Scale for a drawing `dr_w` wide at scale `s` to fit `inner_w` — never up, never below the
+/// minimum text size (BUG-08); a wider result scrolls horizontally like a code block.
+pub fn fit_scale(s: f32, inner_w: f32, dr_w: f32) -> f32 {
+    let min = MIN_TEXT_PX / BASE_TEXT;
+    if dr_w <= inner_w || dr_w <= 0.0 {
+        return s;
+    }
+    (s * inner_w / dr_w).clamp(min.min(s), s)
+}
 
 #[derive(Debug, Clone)]
 struct TextSpec {
@@ -125,7 +139,11 @@ fn lay(ctx: &mut Ctx<'_>, d: &Diagram, inner_w: f32) -> Laid {
         if dr.complex || dr.w <= inner_w || dr.w <= 0.0 {
             break;
         }
-        s = (s * inner_w / dr.w).max(0.05);
+        let ns = fit_scale(s, inner_w, dr.w);
+        if (ns - s).abs() < 1e-4 {
+            break;
+        }
+        s = ns;
         m.texts.clear();
         dr = d.layout(&mut m, s);
     }
@@ -211,10 +229,15 @@ pub(crate) fn block(
         let hot = (!laid.drawing.complex).then_some(hash);
         return placeholder(ctx, &msg, hot, x, y, w, out);
     }
-    emit(ctx, &laid, x, y, w, out)
+    emit(ctx, &laid, (node, x, y, w), out)
 }
 
-fn emit(ctx: &mut Ctx<'_>, laid: &Laid, x: f32, y: f32, w: f32, out: &mut Out) -> f32 {
+fn emit(
+    ctx: &mut Ctx<'_>,
+    laid: &Laid,
+    (node, x, y, w): (usize, f32, f32, f32),
+    out: &mut Out,
+) -> f32 {
     let dr = &laid.drawing;
     let h = dr.h + 2.0 * PAD;
     let card = Rect::new(x, y, w, h);
@@ -225,7 +248,25 @@ fn emit(ctx: &mut Ctx<'_>, laid: &Laid, x: f32, y: f32, w: f32, out: &mut Out) -
         color: bg,
         radius: 8.0,
     });
-    let ox = x + ((w - dr.w) / 2.0).max(0.0);
+    // BUG-08: wider than the card (minimum text size) → clipped, horizontal scroll region.
+    let wide = dr.w > w - 2.0 * PAD + 0.5;
+    let region = if wide {
+        let view = Rect::new(x, y, w, h);
+        out.regions.push(crate::block::HRegion {
+            view,
+            content_w: dr.w + 2.0 * PAD,
+            track: Rect::new(x + 8.0, y + h - 10.0, (w - 16.0).max(1.0), 6.0),
+        });
+        out.items.push(Item::PushClip(view));
+        Some(u16::try_from(out.regions.len() - 1).unwrap_or(u16::MAX))
+    } else {
+        None
+    };
+    let ox = if wide {
+        x + PAD
+    } else {
+        x + ((w - dr.w) / 2.0).max(0.0)
+    };
     let oy = y + PAD;
     let col = |i: Ink| color(i, dark, bg);
     for p in &dr.prims {
@@ -249,6 +290,7 @@ fn emit(ctx: &mut Ctx<'_>, laid: &Laid, x: f32, y: f32, w: f32, out: &mut Out) -
                     stroke: p.stroke.map(col),
                     width: p.width,
                     dash: p.dash,
+                    hscroll: region,
                 });
             }
             Prim::Text(t) => {
@@ -256,14 +298,22 @@ fn emit(ctx: &mut Ctx<'_>, laid: &Laid, x: f32, y: f32, w: f32, out: &mut Out) -
                     continue;
                 };
                 let sh = shape(&mut *ctx.shaper, spec, col(t.color));
-                out.para(ox + t.x, oy + t.y, sh, None, None);
+                out.para(ox + t.x, oy + t.y, sh, None, region);
             }
         }
+    }
+    if let Some(r) = region {
+        out.items.push(Item::PopClip);
+        out.items.push(Item::HScrollBar(usize::from(r)));
     }
     out.items.push(Item::Stroke {
         rect: card,
         color: border,
         radius: 8.0,
+    });
+    out.hot.push(crate::block::Hot {
+        rect: card,
+        kind: crate::block::HotKind::Diagram { node },
     });
     h
 }
@@ -342,4 +392,22 @@ fn placeholder(
         radius: 8.0,
     });
     h
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn min_scale_bug08() {
+        // Fits: unchanged.
+        assert_eq!(fit_scale(1.0, 600.0, 500.0), 1.0);
+        // Moderately wide: scaled to fit.
+        assert!((fit_scale(1.0, 600.0, 750.0) - 0.8).abs() < 1e-6);
+        // Very wide: clamped so 14 px text stays at 10 px.
+        let s = fit_scale(1.0, 300.0, 1800.0);
+        assert!((s * BASE_TEXT - MIN_TEXT_PX).abs() < 1e-4);
+        // Never up, and never below a scale already under the minimum.
+        assert_eq!(fit_scale(0.5, 300.0, 1800.0), 0.5);
+    }
 }

@@ -97,10 +97,14 @@ impl Win {
             .find
             .as_ref()
             .and_then(|f| f.cur.and_then(|i| f.matches.get(i)).cloned());
-        if let Some(m) = cur
+        if let Some(m) = cur.clone()
             && self.find_reveal_edit(sh, m)
         {
             return;
+        }
+        // R-READ-06: a hit inside a folded section unfolds it first.
+        if let Some(m) = cur {
+            self.tz_reveal_offset(m.start);
         }
         let target = {
             let (View::Doc(d), Some(f)) = (&self.view, &self.find) else {

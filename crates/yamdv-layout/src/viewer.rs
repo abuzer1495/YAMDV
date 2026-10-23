@@ -100,6 +100,17 @@ impl Content {
         }
     }
 
+    /// Heading level of top-level block `i` (fold toggles, R-READ-06).
+    pub fn heading_level(&self, i: usize) -> Option<u8> {
+        match self {
+            Content::Markdown(d) => match d.index.blocks.get(i)?.kind {
+                yamdv_core::doc::index::BlockKind::Heading(l) => Some(l),
+                _ => None,
+            },
+            Content::Plain { .. } => None,
+        }
+    }
+
     /// No units.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
@@ -410,6 +421,13 @@ pub struct Viewer {
     pub source_block: Option<SourceBlock>,
     /// Verbatim layout options (F3 editor pane).
     pub plain: PlainOpts,
+    /// Folded blocks (R-READ-06); empty when nothing is folded.
+    hidden: Vec<bool>,
+    /// Hidden blocks that are animating (folding or unfolding): their height factor is
+    /// `squash`; the other hidden blocks have 0.
+    moving: Vec<bool>,
+    /// Height factor of the moving hidden blocks (fold animation).
+    squash: f64,
 }
 
 impl Viewer {
@@ -561,6 +579,9 @@ impl Viewer {
             code_opts: std::collections::HashMap::new(),
             source_block: None,
             plain: PlainOpts::default(),
+            hidden: Vec::new(),
+            moving: Vec::new(),
+            squash: 0.0,
         };
         v.reestimate(content);
         v
@@ -574,6 +595,88 @@ impl Viewer {
         self.heights = Fenwick::from_heights(&h);
         self.measured = vec![false; n];
         self.layouts.clear();
+        if self.hidden.len() == n {
+            for (i, v) in h.iter().enumerate() {
+                if self.hidden.get(i).copied().unwrap_or(false) {
+                    self.heights.set(i, v * self.factor(i));
+                }
+            }
+        } else {
+            self.hidden.clear();
+            self.moving.clear();
+        }
+    }
+
+    /// Height factor of block `i` (R-READ-06 folding): 1, or the fold animation factor.
+    fn factor(&self, i: usize) -> f64 {
+        if !self.hidden.get(i).copied().unwrap_or(false) {
+            1.0
+        } else if self.moving.get(i).copied().unwrap_or(false) {
+            self.squash
+        } else {
+            0.0
+        }
+    }
+
+    /// Whether block `i` is folded away (R-READ-06).
+    pub fn is_hidden(&self, i: usize) -> bool {
+        self.hidden.get(i).copied().unwrap_or(false)
+    }
+
+    /// Hides the blocks marked in `hidden` (folded headings, R-READ-06). Hidden blocks also
+    /// marked in `moving` get the height factor `squash` (between 0 and 1 while the 120 ms
+    /// fold animation runs), the others 0. Layout heights are kept, so unfolding restores
+    /// exact positions. The caller keeps the heading on screen.
+    pub fn set_hidden(
+        &mut self,
+        content: &Content,
+        hidden: Vec<bool>,
+        moving: Vec<bool>,
+        squash: f64,
+    ) {
+        let n = self.heights.len();
+        let hidden = if hidden.iter().any(|&h| h) && hidden.len() == n {
+            hidden
+        } else {
+            Vec::new()
+        };
+        let moving = if hidden.is_empty() || moving.len() != n {
+            Vec::new()
+        } else {
+            moving
+        };
+        let squash = squash.clamp(0.0, 1.0);
+        for i in 0..n {
+            let was = self.factor(i);
+            let now = if !hidden.get(i).copied().unwrap_or(false) {
+                1.0
+            } else if moving.get(i).copied().unwrap_or(false) {
+                squash
+            } else {
+                0.0
+            };
+            if (was - now).abs() < f64::EPSILON {
+                continue;
+            }
+            let full = self.layout_of(i).map_or_else(
+                || f64::from(content.gap(i, &self.m) + content.estimate(i, self.width, &self.m)),
+                |bl| f64::from(content.gap(i, &self.m) + bl.height),
+            );
+            if self.layout_of(i).is_none()
+                && let Some(m) = self.measured.get_mut(i)
+            {
+                *m = false;
+            }
+            self.heights.set(i, full * now);
+        }
+        self.hidden = hidden;
+        self.moving = moving;
+        self.squash = squash;
+    }
+
+    /// Slot of block `i` in document y (top, height) — the clip of a block that is folding.
+    pub fn slot(&self, i: usize) -> (f64, f64) {
+        (self.slot_top(i), self.heights.get(i))
     }
 
     /// Total document height.
@@ -666,7 +769,7 @@ impl Viewer {
             let last = self.block_at_y(hi);
             let mut changed = false;
             for i in first..=last.min(content.len() - 1) {
-                if self.layouts.iter().any(|e| e.0 == i) {
+                if self.layouts.iter().any(|e| e.0 == i) || self.factor(i) <= 0.0 {
                     continue;
                 }
                 let (def, map) = (self.code_default, &self.code_opts);
@@ -717,7 +820,7 @@ impl Viewer {
                     }
                     _ => content.layout(i, &mut ctx, self.width),
                 };
-                let h = f64::from(content.gap(i, &self.m) + bl.height);
+                let h = f64::from(content.gap(i, &self.m) + bl.height) * self.factor(i);
                 if (self.heights.get(i) - h).abs() > 0.01 {
                     self.heights.set(i, h);
                     changed = true;
@@ -754,6 +857,9 @@ impl Viewer {
         let first = self.block_at_y(self.scroll);
         let last = self.block_at_y(self.scroll + view_h);
         for i in first..=last.min(content.len() - 1) {
+            if self.factor(i) <= 0.0 {
+                continue;
+            }
             if let Some(e) = self.layouts.iter().find(|e| e.0 == i) {
                 out.push((i, self.block_top(content, i) - self.scroll, &e.2));
             }
@@ -771,8 +877,19 @@ impl Viewer {
         let ins = sp.inserted;
         let mut h: Vec<f64> = Vec::with_capacity(old_n + ins);
         let mut meas: Vec<bool> = Vec::with_capacity(old_n + ins);
+        // Folded blocks get their full height back (folds end on an edit).
+        let full = |v: &Self, i: usize, ni: usize| {
+            if v.is_hidden(i) {
+                v.layout_of(i).map_or_else(
+                    || f64::from(content.gap(ni, &v.m) + content.estimate(ni, v.width, &v.m)),
+                    |bl| f64::from(content.gap(ni, &v.m) + bl.height),
+                )
+            } else {
+                v.heights.get(i)
+            }
+        };
         for i in 0..r.start {
-            h.push(self.heights.get(i));
+            h.push(full(self, i, i));
             meas.push(self.is_measured(i));
         }
         for k in 0..ins {
@@ -783,7 +900,7 @@ impl Viewer {
             meas.push(false);
         }
         for i in r.end..old_n {
-            h.push(self.heights.get(i));
+            h.push(full(self, i, i - r.len() + ins));
             meas.push(self.is_measured(i));
         }
         // The block after the splice may have a different gap (its predecessor changed kind).
@@ -810,6 +927,9 @@ impl Viewer {
         };
         self.heights = Fenwick::from_heights(&h);
         self.measured = meas;
+        // Folds are session state of the unchanged document (the caller clears them).
+        self.hidden.clear();
+        self.moving.clear();
         let start = r.start;
         self.layouts.retain(|e| e.0 < start);
         if sp.refs_changed {
@@ -978,6 +1098,40 @@ mod tests {
             }
         }
         Content::Markdown(Document::new(s, ReadOpts::default()))
+    }
+
+    /// R-READ-06: folding a heading hides its section (shorter document, nothing laid out
+    /// there) and unfolding restores the exact height.
+    #[test]
+    fn fold_hides_section_and_restores() {
+        let mut c = doc(40);
+        let pal = theme::palette("default", false);
+        let mut sh = MockShaper;
+        let strings = EnStrings;
+        let mut env = Env {
+            images: &crate::img::NO_IMAGES,
+            rich: &crate::rich::NO_RICH,
+            shaper: &mut sh,
+            m: Metrics::default(),
+            pal: &pal,
+            strings: &strings,
+            single_newline_break: false,
+        };
+        let view_h = 5000.0;
+        let mut v = Viewer::new(&c, 600.0, Metrics::default());
+        v.prepare(&mut c, &mut env, view_h);
+        let full = v.total_height();
+        let levels: Vec<Option<u8>> = (0..c.len()).map(|i| c.heading_level(i)).collect();
+        let mut f = crate::fold::Folds::default();
+        assert!(f.toggle(&levels, 0));
+        v.set_hidden(&c, f.hidden(&levels), Vec::new(), 0.0);
+        v.prepare(&mut c, &mut env, view_h);
+        assert!(v.total_height() < full - 50.0);
+        assert!(v.is_hidden(1) && !v.is_hidden(5));
+        assert!(v.visible(&c, view_h).iter().all(|e| e.0 == 0 || e.0 >= 5));
+        v.set_hidden(&c, Vec::new(), Vec::new(), 1.0);
+        v.prepare(&mut c, &mut env, view_h);
+        assert!((v.total_height() - full).abs() < 0.5);
     }
 
     /// Prompt 006 §2.3: edits splice the document and the viewer; the result equals a fresh

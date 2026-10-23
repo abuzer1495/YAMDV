@@ -194,23 +194,6 @@ pub fn run_host(kind: &str, owner: isize, nonce: u64, arg: Option<&str>) -> i32 
         text: tr(lang, Msg::FilterText),
         all: tr(lang, Msg::FilterAll),
     };
-    if kind == "font" {
-        let current = s.str("typography.body_font").to_string();
-        let (outcome, code) = match crate::sys::font_dialog(owner, &current) {
-            Some(Some(name)) => (Outcome::Paths(vec![name]), EXIT_OK),
-            Some(None) => (Outcome::Cancel, EXIT_OK),
-            None => (Outcome::Error, EXIT_DIALOG_FAILED),
-        };
-        send_reply(
-            owner,
-            &Reply {
-                kind: Kind::Font,
-                nonce,
-                outcome,
-            },
-        );
-        return code;
-    }
     if kind == "print" {
         let (outcome, code) = match crate::sys::print_dialog(owner) {
             Some(Some(c)) => (
@@ -326,7 +309,6 @@ pub fn launch(owner: HWND) -> Option<HostWait> {
 /// Starts the host for a dialog of `kind` owned by `owner`.
 pub fn launch_kind(owner: HWND, kind: Kind) -> Option<HostWait> {
     let verb = match kind {
-        Kind::Font => "font",
         Kind::Save => "save",
         Kind::Print => "print",
         _ => "open",

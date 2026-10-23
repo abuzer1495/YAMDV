@@ -699,6 +699,32 @@ impl Band<'_> {
         });
     }
 
+    /// Draws premultiplied BGRA pixels (`w`×`h`) scaled into the DIP rectangle `dst` with
+    /// bilinear filtering (B.11 fullscreen viewer).
+    pub fn image_scaled(&self, dst: Rect, w: u32, h: u32, px: &[u8]) {
+        if w == 0 || h == 0 || !self.visible(dst.y, dst.h) || !self.clip_allows(&dst) {
+            return;
+        }
+        let Some(src) = tiny_skia::PixmapRef::from_bytes(px, w, h) else {
+            return;
+        };
+        self.with_clipped(|pm, t, m| {
+            let (sx, sy) = (dst.w * t.sx / w as f32, dst.h * t.sy / h as f32);
+            let paint = tiny_skia::PixmapPaint {
+                quality: tiny_skia::FilterQuality::Bilinear,
+                ..Default::default()
+            };
+            pm.draw_pixmap(
+                0,
+                0,
+                src,
+                &paint,
+                Transform::from_row(sx, 0.0, 0.0, sy, dst.x * t.sx + t.tx, dst.y * t.sy + t.ty),
+                m,
+            );
+        });
+    }
+
     /// Strokes a (rounded) rectangle with a line of `width` DIPs inside its bounds.
     pub fn stroke(&self, r: Rect, color: u32, radius: f32, width: f32) {
         if !self.visible(r.y, r.h) || !self.clip_allows(&r) {

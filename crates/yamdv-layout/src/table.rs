@@ -230,6 +230,14 @@ pub(crate) fn table(
         color: ctx.pal.table_border,
         radius,
     });
+    out.hot.push(crate::block::Hot {
+        rect: Rect::new(x, y, total_w, h),
+        kind: crate::block::HotKind::Table {
+            node: i,
+            rows: u32::try_from(rows.len()).unwrap_or(u32::MAX),
+            cols: u32::try_from(ncols).unwrap_or(u32::MAX),
+        },
+    });
     h
 }
 

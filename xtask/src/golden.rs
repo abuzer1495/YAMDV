@@ -214,7 +214,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
 /// Window-level goldens of prompt 005 (welcome, sidebar, find bar, scheme), produced by the
 /// driver script `tests/golden/v1a/shots.yds` through the same draw path as `WM_PAINT`.
 /// V1-B adds the Split Edit and Live Edit (active source block) shots (prompt 006 §2.7).
-pub const SHELL_SHOTS: [&str; 11] = [
+pub const SHELL_SHOTS: [&str; 15] = [
     // V1-D: the welcome page gained [Install YAMDV for this user] (prompt 008 §4).
     "welcome-install-light.png",
     "doc-sidebar-light.png",
@@ -228,6 +228,11 @@ pub const SHELL_SHOTS: [&str; 11] = [
     "top-dark.png",
     "menu-light.png",
     "cards-light.png",
+    // V2-C (prompt 013 §4): tooltip, banner + popover, image viewer, BUG-08 wide diagram.
+    "top-v2c-footnote-light.png",
+    "top-v2c-motw-dark.png",
+    "top-v2c-image-light.png",
+    "top-v2c-wide-light.png",
 ];
 
 /// `golden-shell --exe <yamdv.exe (dev-tools)> [--out dir] [--update]`: runs the shot script with

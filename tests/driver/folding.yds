@@ -1,0 +1,38 @@
+# V2-C heading folding (prompt 013 §3.5, FUT-06): session-only, find expands, Alt folds a level.
+resize 1000 700
+command mode light
+open v2c.md
+wait-idle
+assert folds == 0
+ui height-mark
+ui fold Pictures
+wait-idle
+assert folds == 1
+# The document got shorter than with every section open.
+assert doc_height_delta < -40
+key ctrl+F
+type "Paragraph 3 of filler"
+key Enter
+wait-idle
+key esc
+ui fold Filler
+assert folds == 2
+key ctrl+F
+type "Paragraph 3 of filler"
+key Enter
+wait-idle
+key esc
+assert folds == 1
+# Alt+click folds every H2.
+ui fold-alt Table
+wait-idle
+assert folds == 4
+# Unfold the level again, then fold all and reopen: folds are not saved.
+ui fold-alt Table
+assert folds == 0
+assert doc_height_delta > -1
+ui fold-alt Diagram
+assert folds == 4
+open v2c.md
+wait-idle
+assert folds == 0

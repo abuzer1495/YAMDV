@@ -438,6 +438,16 @@ impl Store {
         }
     }
 
+    /// Resolved source and intrinsic size of a probed image (B.11 viewer decodes its own copy).
+    pub fn source(&self, key: &str) -> Option<(Source, u32, u32)> {
+        let map = self.map.borrow();
+        let e = map.get(key)?;
+        match (&e.state, &e.src) {
+            (ImgState::Ready { w, h }, Some(s)) => Some((s.clone(), *w, *h)),
+            _ => None,
+        }
+    }
+
     /// Pixels of `key` at `w × h` device px, if decoded; otherwise queues a decode.
     pub fn pixels(&self, key: &str, w: u32, h: u32) -> Option<std::cell::Ref<'_, Bitmap>> {
         self.pinned.borrow_mut().push(key.into());

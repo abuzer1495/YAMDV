@@ -1592,21 +1592,8 @@ impl Win {
     }
 
     fn ask_conflict(&mut self, sh: &Shared) {
-        if self.dialog.is_some() {
-            return;
-        }
-        self.ask(
-            sh,
-            Msg::ConflictTitle,
-            Msg::ConflictBody,
-            vec![
-                (Msg::Cancel, BTN_CANCEL),
-                (Msg::Overwrite, BTN_OVERWRITE),
-                (Msg::ReloadDiscard, BTN_RELOAD_DISCARD),
-                (Msg::SaveMineAs, BTN_SAVE_AS),
-            ],
-            Pending::Edit(Ask::Conflict),
-        );
+        // FUT-34: a banner above the content instead of a modal dialog.
+        self.tz_banner(sh, yamdv_ui::transient::BannerKind::Conflict, true);
     }
 
     /// Answer of an editing dialog.

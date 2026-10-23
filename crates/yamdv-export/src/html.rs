@@ -640,7 +640,7 @@ pre{{background:{cg};border:1px solid {cb};border-radius:6px;padding:12px 16px;o
 table{{border-collapse:collapse;margin:0 0 1em}}th,td{{border:1px solid {tb};padding:6px 12px}}th{{background:{th}}}tr:nth-child(even) td{{background:{zb}}}\
 hr{{border:0;border-top:2px solid {bs}}}mark{{background:{hb};color:{ht}}}\
 li.task{{list-style:none}}li.task input{{margin:0 .4em 0 -1.4em}}\
-img{{max-width:100%}}.display-math,figure.diagram{{text-align:center;margin:1em 0;overflow-x:auto}}\
+img{{max-width:100%}}.display-math,figure.diagram{{text-align:center;margin:1em 0;overflow-x:auto}}figure.diagram img{{max-width:none}}\
 nav.toc{{border:1px solid {bs};border-radius:6px;padding:8px 16px;margin-bottom:24px}}nav.toc ul{{margin:0;padding-left:1.2em}}\
 .footnotes{{border-top:1px solid {bs};margin-top:2em;font-size:.9em}}.fnref a{{text-decoration:none}}\
 .callout{{border-left:4px solid;border-radius:4px;padding:8px 16px;margin:0 0 1em}}.callout-title{{font-weight:600;margin:.2em 0}}\
@@ -1058,6 +1058,8 @@ mod tests {
         let h = document(&d, &Mock, &opts());
         assert!(h.starts_with("<!DOCTYPE html>"), "{h}");
         assert!(h.contains(&format!("content=\"{EXPORT_CSP}\"")));
+        // BUG-08: wide diagrams scroll inside their figure instead of shrinking.
+        assert!(h.contains("figure.diagram img{max-width:none}"));
         assert!(!h.to_ascii_lowercase().contains("<script"));
         assert!(h.contains("<title>T &lt;x&gt;</title>"));
         assert!(

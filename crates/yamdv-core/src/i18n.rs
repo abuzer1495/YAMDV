@@ -271,6 +271,31 @@ messages! {
     WordBadge => "{w} words · {c} characters", "{w} sözcük · {c} karakter";
     ZoomFont => "{} px", "{} px";
     ZoomColumn => "Column {} %", "Sütun %{}";
+    BannerMotw => "This file came from the internet — links always ask", "Bu dosya internetten geldi — bağlantılar her zaman sorulur";
+    BannerElevated => "Running as administrator is not recommended", "Yönetici olarak çalıştırmak önerilmez";
+    BannerReadOnly => "This file is read-only", "Bu dosya salt okunur";
+    BannerDecoding => "Not valid UTF-8 — shown as {}", "Geçerli UTF-8 değil — {} olarak gösteriliyor";
+    BannerExportFailed => "Export failed — see the log for the reason", "Dışa aktarma başarısız — nedeni için günlüğe bakın";
+    Dismiss => "Dismiss", "Kapat";
+    TipMinimize => "Minimize", "Simge durumuna küçült";
+    TipMaximize => "Maximize", "Ekranı kapla";
+    TipRestore => "Restore down", "Önceki boyutuna getir";
+    TipClose => "Close", "Kapat";
+    TipMore => "More (⋯)", "Diğer (⋯)";
+    TipWords => "{w} words · {c} characters · about {m} min read", "{w} sözcük · {c} karakter · yaklaşık {m} dk okuma";
+    TipFold => "Fold or unfold · Alt+click: every heading of this level", "Katla veya aç · Alt+tık: bu düzeydeki tüm başlıklar";
+    TipViewer => "Open full screen (double-click)", "Tam ekranda aç (çift tık)";
+    ViewZoomOut => "Zoom out (−)", "Uzaklaştır (−)";
+    ViewZoomIn => "Zoom in (+)", "Yakınlaştır (+)";
+    ViewZoom => "Zoom level — click for fit / 100 %", "Yakınlaştırma — sığdır / %100 için tıklayın";
+    ViewFit => "Fit to window (0)", "Pencereye sığdır (0)";
+    ViewActual => "Actual size (1:1)", "Gerçek boyut (1:1)";
+    ViewCopy => "Copy", "Kopyala";
+    ViewClose => "Close (Esc)", "Kapat (Esc)";
+    ViewTable => "Table · {r} × {c}", "Tablo · {r} × {c}";
+    ExportCsv => "Export CSV", "CSV dışa aktar";
+    CopiedImage => "Image copied", "Görüntü kopyalandı";
+    CopiedCsv => "Table copied as CSV", "Tablo CSV olarak kopyalandı";
 }
 
 /// Resolves the UI language from the setting (`system`/`en`/`tr`) and the user's UI language

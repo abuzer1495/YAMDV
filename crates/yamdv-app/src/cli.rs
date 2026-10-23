@@ -130,15 +130,7 @@ pub fn parse_with<I: IntoIterator<Item = String>>(args: I, dev_tools: bool) -> C
     let args: Vec<String> = args.into_iter().collect();
     if args.first().map(String::as_str) == Some("--dialog-host") {
         // Exactly `--dialog-host open <owner> <nonce>`; anything else is a usage error (exit 2).
-        const KINDS: [&str; 7] = [
-            "open",
-            "font",
-            "save",
-            "save-html",
-            "save-pdf",
-            "save-csv",
-            "print",
-        ];
+        const KINDS: [&str; 6] = ["open", "save", "save-html", "save-pdf", "save-csv", "print"];
         let (k, o, n, arg) = match args.as_slice() {
             [_, k, o, n] => (k, o, n, None),
             [_, k, o, n, a]

@@ -434,17 +434,30 @@ mod tests {
         let flow = "```mermaid\nflowchart LR\nA[Start] --> B{Ok?}\nB -->|yes| C\n```\n";
         let (it, _) = lay(flow, &r, 600.0);
         assert!(count(&it, is_path) > 5);
-        // Scaled to fit a narrow column: every path stays inside the column.
-        let (it, _) = lay(flow, &r, 200.0);
+        // Scaled to fit a medium column: every path stays inside the column, no scroll region.
+        let (it, _) = lay(flow, &r, 420.0);
         for i in &it {
-            if let Item::Path { segs, .. } = i {
+            if let Item::Path { segs, hscroll, .. } = i {
+                assert!(hscroll.is_none());
                 for s in segs {
                     if let yamdv_mermaid::Seg::M(x, _) | yamdv_mermaid::Seg::L(x, _) = s {
-                        assert!(*x >= -0.5 && *x <= 200.5, "{x}");
+                        assert!(*x >= -0.5 && *x <= 420.5, "{x}");
                     }
                 }
             }
         }
+        // BUG-08: a 9-node LR flowchart in a narrow column keeps ≥ 10 px text and scrolls.
+        let wide = "```mermaid\nflowchart LR\nA[Alpha] --> B[Bravo] --> C[Charlie] --> D[Delta] \
+                    --> E[Echo] --> F[Foxtrot] --> G[Golf] --> H[Hotel] --> I[India]\n```\n";
+        let (it, _) = lay(wide, &r, 300.0);
+        assert!(it.iter().any(|i| matches!(i, Item::HScrollBar(_))));
+        assert!(it.iter().any(|i| matches!(
+            i,
+            Item::Path {
+                hscroll: Some(_),
+                ..
+            }
+        )));
         let seq = "```mermaid\nsequenceDiagram\nA->>B: hi\n```\n";
         assert!(count(&lay(seq, &r, 600.0).0, is_path) > 3);
         // Unsupported type and syntax error: code card, no diagram.
