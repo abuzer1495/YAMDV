@@ -24,3 +24,9 @@ Order: §1.1 F-31 → F-32 → §2 ADR-0021 (before SVG code), ADR-0022, P-48, I
 - §3.5: yamdv-core image/ico.rs (directory, pick, PNG/BGRA/BMP+mask payloads), WebP → "WebP codec not installed" (ADR-0022); ACG rows ico-png/ico-bmp/webp-lossy/lossless/alpha (webp = placeholder rows). Commit 3fc4815.
 - §3.6: new lexers Console, Jsx, Tsx (jsx.rs element stack in State::ext), Html (`<script>` JS / `<style>` CSS embedded; vue → Html); LESS `@x` variables. Table docs/CODE_LANGUAGES.md (42 lexers). FUT-01 marked done.
 - Next: §3.7 F2 image resize, then drivers content-engines / image-resize, goldens v2g-a/b/c, gates, PR.
+
+## CHECKPOINT 5 (§3.7 F2 image resize done)
+- yamdv-editor imgsize.rs `set_width` (wiki `|N`, `![alt](src)` → `<img … width>`, `<img>` width replaced, height dropped); test resize_writer.
+- platform wysi/imgsize.rs: select on click in F2 (hooked first in edit_mouse_down F2 path), 4 accent 8×8 handles, aspect-locked drag with "W px" label, seal/replace/seal (one undo), Esc cancels drag / clears selection; driver verb `v2f-img "needle[@n] dx [esc]"`, dump `img_sel`. tests/driver/image-resize.yds PASS in Wine.
+- Fix: images.rs Entry keeps a second decoded size (`alt`); the same image at two sizes in one doc ping-ponged decodes and starved the UI thread (pre-existing).
+- Next: content-engines driver (fold zz-gif/zz-img), goldens v2g-a/b/c, gates, PR.

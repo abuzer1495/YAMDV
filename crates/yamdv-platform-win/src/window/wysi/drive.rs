@@ -168,6 +168,14 @@ impl Win {
                 })
             }
             "v2f-tsv-convert" => self.tsv_convert(sh),
+            // Image resize through the mouse handlers: "needle dx [esc]".
+            "v2f-img" => {
+                let p: Vec<&str> = arg.split_whitespace().collect();
+                match (p.first(), p.get(1).and_then(|s| s.parse().ok())) {
+                    (Some(n), Some(dx)) => self.img_drive(sh, n, dx, p.get(2) == Some(&"esc")),
+                    _ => false,
+                }
+            }
             // Click the tool strip button `arg` through the mouse handler.
             "v2f-tool" => {
                 let r = super::table::TblOp::from_name(arg).and_then(|op| {

@@ -457,6 +457,8 @@ struct Entry {
     state: ImgState,
     src: Option<Source>,
     bmp: Option<Bitmap>,
+    /// The previously decoded size (one image shown at two sizes must not ping-pong decodes).
+    alt: Option<Bitmap>,
     pending: Option<(u32, u32)>,
     /// `Some(true)`: an animated GIF candidate (checked once from the header).
     gif: Option<bool>,
@@ -527,7 +529,9 @@ impl Store {
             .borrow()
             .values()
             .map(|e| {
-                e.bmp.as_ref().map_or(0, |b| b.px.len()) + e.anim.as_ref().map_or(0, |a| a.bytes())
+                e.bmp.as_ref().map_or(0, |b| b.px.len())
+                    + e.alt.as_ref().map_or(0, |b| b.px.len())
+                    + e.anim.as_ref().map_or(0, |a| a.bytes())
             })
             .sum()
     }
@@ -571,13 +575,14 @@ impl Store {
                 self.lru.borrow_mut().remove(id);
                 continue;
             }
-            let size = b.px.len();
+            let size = b.px.len() + e.alt.as_ref().map_or(0, |a| a.px.len());
             let evict = self.lru.borrow_mut().touch(id, size, image::LRU_BYTES);
             for v in evict {
                 if let Some((vk, _)) = self.ids.borrow().iter().find(|(_, x)| **x == v)
                     && let Some(e) = map.get_mut(vk)
                 {
                     e.bmp = None;
+                    e.alt = None;
                 }
             }
         }
@@ -609,9 +614,10 @@ impl Store {
             if !matches!(e.state, ImgState::Ready { .. }) {
                 return None;
             }
-            let ok = e.bmp.as_ref().is_some_and(|b| {
+            let fits = |b: &Bitmap| {
                 b.w == w && b.h == h && b.svg_color.is_none_or(|c| c == svg::text_color())
-            });
+            };
+            let ok = e.bmp.as_ref().is_some_and(fits) || e.alt.as_ref().is_some_and(fits);
             if !ok && e.pending != Some((w, h)) {
                 e.pending = Some((w, h));
                 e.src.clone()
@@ -634,9 +640,12 @@ impl Store {
         }
         let map = self.map.borrow();
         std::cell::Ref::filter_map(map, |m| {
-            m.get(key)
-                .and_then(|e| e.bmp.as_ref())
-                .filter(|b| b.w == w && b.h == h)
+            m.get(key).and_then(|e| {
+                e.bmp
+                    .as_ref()
+                    .filter(|b| b.w == w && b.h == h)
+                    .or_else(|| e.alt.as_ref().filter(|b| b.w == w && b.h == h))
+            })
         })
         .ok()
     }
@@ -796,12 +805,16 @@ impl Store {
         }
         match r {
             Ok(b) => {
+                if e.bmp.as_ref().is_some_and(|o| o.w != b.w || o.h != b.h) {
+                    e.alt = e.bmp.take();
+                }
                 e.bmp = Some(b);
                 false
             }
             Err(p) => {
                 e.state = ImgState::Fail(p);
                 e.bmp = None;
+                e.alt = None;
                 true
             }
         }
@@ -880,6 +893,7 @@ impl ImageHost for Store {
                     state: st.clone(),
                     src: None,
                     bmp: None,
+                    alt: None,
                     pending: None,
                     gif: None,
                     anim: None,
@@ -893,6 +907,7 @@ impl ImageHost for Store {
                 state: ImgState::Pending,
                 src: None,
                 bmp: None,
+                alt: None,
                 pending: None,
                 gif: None,
                 anim: None,

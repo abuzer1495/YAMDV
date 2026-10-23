@@ -1124,6 +1124,7 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
             V::N(f64::from(u8::from(w.tsv_offered()))),
         ),
         ("table_tools".into(), V::N(w.table_tools(sh).len() as f64)),
+        ("img_sel".into(), V::N(f64::from(u8::from(w.img_probe().0)))),
         (
             "xsel".into(),
             V::S(w.xsel().map_or(String::new(), |r| {

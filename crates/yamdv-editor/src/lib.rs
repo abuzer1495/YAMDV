@@ -6,6 +6,7 @@
 pub mod buffer;
 pub mod clear;
 pub mod history;
+pub mod imgsize;
 pub mod insert;
 pub mod lines;
 pub mod linkedit;

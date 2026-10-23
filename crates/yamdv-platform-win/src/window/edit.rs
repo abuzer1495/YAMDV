@@ -2092,6 +2092,9 @@ impl Win {
         if x >= self.cw - 16.0 && self.thumb().is_some() {
             return false;
         }
+        if self.img_down(sh, x, y) {
+            return true;
+        }
         let (cx, _) = self.col(sh);
         let hot = {
             let View::Doc(d) = &self.view else {
