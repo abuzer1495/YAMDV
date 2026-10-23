@@ -112,7 +112,14 @@ fn nested_and_selection_ends() {
 
 #[test]
 fn block_level_kinds_are_not_inline() {
-    for t in ["```\ncode\n```", "$$\nx\n$$", "<div>x</div>", "---\na: 1\n---", "a\n\nb", "| a |\n|---|\n| 1 |"] {
+    for t in [
+        "```\ncode\n```",
+        "$$\nx\n$$",
+        "<div>x</div>",
+        "---\na: 1\n---",
+        "a\n\nb",
+        "| a |\n|---|\n| 1 |",
+    ] {
         assert!(analyze(t, ReadOpts::default()).is_none(), "{t:?}");
     }
     assert!(analyze("", ReadOpts::default()).is_some());

@@ -94,7 +94,10 @@ fn crate_root(r: &str) -> Option<&str> {
         let t = match t.strip_prefix('s') {
             Some(u) => {
                 let k = u.find('_')?;
-                u.get(..k)?.bytes().all(|c| c.is_ascii_alphanumeric()).then_some(())?;
+                u.get(..k)?
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric())
+                    .then_some(())?;
                 u.get(k + 1..)?
             }
             None => t,
@@ -159,7 +162,9 @@ pub fn table(map: &str, n: usize) -> String {
             pct % 10
         ));
     }
-    s.push_str(&format!("| | total (.text + .rdata symbols) | {total} | |\n"));
+    s.push_str(&format!(
+        "| | total (.text + .rdata symbols) | {total} | |\n"
+    ));
     s
 }
 

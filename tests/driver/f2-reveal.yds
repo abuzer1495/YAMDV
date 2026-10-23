@@ -1,0 +1,19 @@
+# F2 inline reveal, transforms, link editor, data safety (prompt 016 §3 Part 1)
+write-file r1.tmp.md "a **bold** and *it* `code` [link](u)\n\n# Title\n\nlast para\n"
+open r1.tmp.md
+wait-idle
+key f2
+ui v2f-caret "0|a **bold**"
+wait-idle
+assert active_block == 0
+assert revealed == ""
+ui v2f-caret "6|a **bold**"
+wait-idle
+assert revealed == "** **"
+type "er"
+wait-idle
+assert buffer contains "a **boerld** and"
+assert revealed == "** **"
+key ctrl+end
+wait-idle
+assert revealed == "[ ](u)"

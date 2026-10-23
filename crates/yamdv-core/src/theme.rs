@@ -49,6 +49,8 @@ pub struct Palette {
     pub border_subtle: u32,
     /// Muted text (H6, labels).
     pub text_muted: u32,
+    /// Revealed Markdown syntax in F2 (B.3 `marker`, B.13.2).
+    pub marker: u32,
     /// Selection alpha applied to `accent` (percent).
     pub selection_alpha_pct: u8,
     /// Error text.
@@ -81,6 +83,7 @@ pub const LIGHT_SHARED: Palette = Palette {
     table_border: 0xdddddd,
     border_subtle: 0xeeeeee,
     text_muted: 0x7a7a7a,
+    marker: 0xb0b0b0,
     selection_alpha_pct: 20,
     error: 0xcc0000,
     line_number: 0xb8b8b8,
@@ -106,6 +109,7 @@ pub const DARK_BASE: Palette = Palette {
     table_border: 0x3a3a3a,
     border_subtle: 0x333333,
     text_muted: 0x9a9a9a,
+    marker: 0x6a6a6a,
     selection_alpha_pct: 30,
     error: 0xff6b6b,
     line_number: 0x5a5a5a,

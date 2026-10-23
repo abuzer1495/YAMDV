@@ -685,6 +685,7 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
         }
         v if v.starts_with("nav-") => w.nav_ui(sh, v, arg),
         v if v.starts_with("v2e-") => w.v2e_ui(sh, v, arg),
+        v if v.starts_with("v2f-") => w.v2f_ui(sh, v, arg),
         _ => format!("FAIL ui {verb}: unknown verb"),
     }
 }
@@ -1035,6 +1036,7 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         ("active_block".into(), V::N(active)),
         ("caret".into(), V::N(caret as f64)),
         ("sel_len".into(), V::N(sel_len as f64)),
+        ("revealed".into(), V::S(w.revealed_markers().join(" "))),
         ("undo_depth".into(), V::N(undo as f64)),
         ("buffer".into(), V::S(buffer)),
         ("preview".into(), V::S(preview)),

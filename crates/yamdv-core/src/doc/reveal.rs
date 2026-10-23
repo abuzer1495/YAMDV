@@ -95,7 +95,10 @@ pub struct Analysis {
 pub fn inline_kind(k: BlockKind) -> bool {
     matches!(
         k,
-        BlockKind::Paragraph | BlockKind::Heading(_) | BlockKind::BlockQuote { .. } | BlockKind::List
+        BlockKind::Paragraph
+            | BlockKind::Heading(_)
+            | BlockKind::BlockQuote { .. }
+            | BlockKind::List
     )
 }
 
@@ -143,7 +146,7 @@ fn line_display(s: &str, alert: Option<Alert>) -> String {
     }
     let digits = t.bytes().take_while(u8::is_ascii_digit).count();
     if digits > 0 && matches!(b.get(digits), Some(b'.' | b')')) {
-        return format!("{indent}{}", &t[..=digits].to_string()) + " ";
+        return format!("{indent}{} ", &t[..=digits]);
     }
     if t.starts_with('#') {
         return String::new();
@@ -303,7 +306,10 @@ fn from_detail(text: &str, d: &Detail) -> Analysis {
                 group,
                 display,
             } if at_line_start => {
-                let li = a.lines.partition_point(|&l| l <= range.start).saturating_sub(1);
+                let li = a
+                    .lines
+                    .partition_point(|&l| l <= range.start)
+                    .saturating_sub(1);
                 *line = true;
                 *group = u(li);
                 *display = line_display(&text[range.start as usize..range.end as usize], alert);
@@ -441,7 +447,15 @@ pub fn build(a: &Analysis, text: &str, shown: &[bool]) -> RevealPara {
                     out.shown.push(s.to_string());
                     push(&mut out, s, range.clone(), true, 0, NO_LINK, true);
                 } else {
-                    push(&mut out, display, range.clone(), false, *style, NO_LINK, false);
+                    push(
+                        &mut out,
+                        display,
+                        range.clone(),
+                        false,
+                        *style,
+                        NO_LINK,
+                        false,
+                    );
                 }
             }
             Piece::Mark { range, display, .. } => {

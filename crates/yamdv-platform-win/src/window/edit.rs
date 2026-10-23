@@ -178,6 +178,8 @@ pub(super) struct Edit {
     close_ok: bool,
     dirty_shown: bool,
     nums: Cell2<HashMap<usize, Box<dyn yamdv_layout::shaper::Shaped>>>,
+    /// F2 inline reveal analysis of the active block (ADR-0020).
+    pub reveal: Option<super::wysi::RevealCache>,
 }
 
 impl Edit {
@@ -203,6 +205,7 @@ impl Edit {
             close_ok: false,
             dirty_shown: false,
             nums: Cell2::new(HashMap::new()),
+            reveal: None,
         }
     }
 }
@@ -587,9 +590,11 @@ impl Win {
                 start: u32::try_from(start).unwrap_or(0),
                 text: src.get(start..end).unwrap_or("").to_string(),
                 code_font: e.opts.code_font,
+                reveal: None,
             });
             d.viewer.invalidate_block(bi);
         }
+        self.live_reveal();
         self.prepare_now(sh);
         self.live_scroll_to_caret(sh);
         self.blink_restart();
@@ -903,6 +908,9 @@ impl Win {
                 self.invalidate_pane();
             }
             Some(Mode::Live) => {
+                if !changed && self.live_reveal() {
+                    self.prepare_now(sh);
+                }
                 self.live_scroll_to_caret(sh);
                 self.invalidate();
             }
@@ -962,6 +970,7 @@ impl Win {
             let b = sb.block;
             d.viewer.invalidate_block(b);
         }
+        self.live_reveal();
         self.prepare_now(sh);
     }
 

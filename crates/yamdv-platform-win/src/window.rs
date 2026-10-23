@@ -75,6 +75,7 @@ mod setpanel;
 mod sidebar;
 mod transient;
 mod welcome;
+mod wysi;
 use windows::Win32::UI::WindowsAndMessaging::{
     MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, QS_ALLINPUT,
     SetForegroundWindow, WM_COPYDATA, WM_MOUSEHWHEEL, WM_QUIT, WaitMessage,

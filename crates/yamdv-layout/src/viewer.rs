@@ -295,8 +295,10 @@ pub struct SourceBlock {
     pub start: u32,
     /// Current source text of the block (from the editor buffer).
     pub text: String,
-    /// `editing.editor_font = code`.
+    /// `editing.editor_font = code` (or a code / math / diagram block).
     pub code_font: bool,
+    /// Inline reveal (ADR-0020); `None` = block-level reveal (source in place).
+    pub reveal: Option<crate::reveal::Reveal>,
 }
 
 /// Options of the verbatim (plain / F3 editor) layout.
@@ -802,6 +804,10 @@ impl Viewer {
                     rich: env.rich,
                 };
                 let bl = match (&self.source_block, &*content) {
+                    (Some(sb), _) if sb.block == i && sb.reveal.is_some() => match &sb.reveal {
+                        Some(r) => crate::reveal::layout(&mut ctx, r, sb.start, self.width),
+                        None => BlockLayout::default(),
+                    },
                     (Some(sb), _) if sb.block == i => {
                         let fam = if sb.code_font {
                             Family::Code
