@@ -59,3 +59,8 @@ EOL/BOM kept) then Part 2.
 - Size (cross lld build, hardened flags): 3,378,688 B vs phase-v2e 3,244,544 B = +134,144 B (< 150 KB); size map in docs/reports/v2f_sizemap.md.
 - Version 1.3.0 (Cargo.toml + lock; About and version resource use CARGO_PKG_VERSION); CHANGELOG [1.3.0] for V2-E + V2-F.
 - Next: push without [skip ci] → PR (Closes FUT-43/44) → CI run → goldens from artifact (fix push) → merge → phase-v2f → v1.3.0.
+
+## CHECKPOINT 11 (fix push)
+- CI run 40017140073 (PR #85, da51d9f): all steps green up to window goldens; live-block-light FAIL (44,310 px — intended: F2 is WYSIWYG now, no source pane), two V2-F shots not committed yet; later steps skipped.
+- Fix push: goldens top-v2f-reveal-light, top-v2f-table-dark, live-block-light from that artifact (self-reviewed); ⛶ and CSV buttons end the table tool strip (badge stays hidden on the active table; Wine diff vs committed shot 0.06 % < 0.5 %).
+- Next: CI run 2 → merge → F-24 → phase-v2f → v1.3.0.

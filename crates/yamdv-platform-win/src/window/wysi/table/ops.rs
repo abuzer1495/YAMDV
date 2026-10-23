@@ -275,18 +275,25 @@ impl Win {
         out
     }
 
+    /// The ⛶ and CSV buttons that end the strip (R-TBL-02; the hover badge is hidden meanwhile).
+    fn table_media_tools(&self, sh: &Shared) -> Option<(Rect, Rect)> {
+        let last = self.table_tools(sh).last()?.0;
+        let x = last.right() + GAP;
+        Some((
+            Rect::new(x, last.y, TOOL + 4.0, TOOL),
+            Rect::new(x + TOOL + 4.0, last.y, 36.0, TOOL),
+        ))
+    }
+
     /// Paints the tool strip.
     pub(in crate::window) fn table_tools_draw(&self, sh: &Shared, b: &Band<'_>) {
         let tools = self.table_tools(sh);
         let (Some(first), Some(last)) = (tools.first(), tools.last()) else {
             return;
         };
-        let pill = Rect::new(
-            first.0.x - 4.0,
-            first.0.y,
-            last.0.right() - first.0.x + 8.0,
-            TOOL,
-        );
+        let media = self.table_media_tools(sh);
+        let end = media.map_or(last.0.right(), |(_, c)| c.right());
+        let pill = Rect::new(first.0.x - 4.0, first.0.y, end - first.0.x + 8.0, TOOL);
         // Hairline ring so the strip stays visible on dark schemes; opaque body hides the text below.
         b.fill(
             Rect::new(pill.x - 1.0, pill.y - 1.0, pill.w + 2.0, pill.h + 2.0),
@@ -296,6 +303,25 @@ impl Win {
         );
         b.fill(pill, 0x202020, 1.0, 6.0);
         let (mx, my) = self.tz_mouse();
+        if let Some((open, csv)) = media {
+            b.fill(
+                Rect::new(open.x - GAP / 2.0, open.y + 5.0, 1.0, open.h - 10.0),
+                0xffffff,
+                0.4,
+                0.0,
+            );
+            for (r, label, size, weight) in [(open, "⛶", 14.0, 400), (csv, "CSV", 11.0, 600)] {
+                if r.contains(mx, my) {
+                    b.fill(r, 0xffffff, 0.18, 4.0);
+                }
+                let g = self.shape_ui(sh, label, size, weight, 0xffffff, None);
+                b.text(
+                    g.as_ref(),
+                    (r.x + (r.w - g.width()) / 2.0).round(),
+                    (r.y + (r.h - g.height()) / 2.0).round(),
+                );
+            }
+        }
         for (i, (r, op)) in tools.iter().enumerate() {
             if op.group_start() && i > 0 {
                 b.fill(
@@ -348,7 +374,13 @@ impl Win {
             .find(|(r, _)| r.contains(x, y))
             .map(|(_, o)| o)
         else {
-            return false;
+            return match self.table_media_tools(sh) {
+                Some((open, csv)) if open.contains(x, y) || csv.contains(x, y) => {
+                    self.active_table_media(sh, csv.contains(x, y));
+                    true
+                }
+                _ => false,
+            };
         };
         self.table_op(sh, op);
         true

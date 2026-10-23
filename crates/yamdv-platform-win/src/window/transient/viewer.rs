@@ -110,6 +110,30 @@ impl Win {
         matches!(m.kind, MediaKind::Table(..)) && self.active_table().is_some()
     }
 
+    /// ⛶ (`csv` false) or CSV export of the active F2 table, from its tool strip.
+    pub(in crate::window) fn active_table_media(&mut self, sh: &Shared, csv: bool) {
+        let Some(r) = self.active_table_rect(sh) else {
+            return;
+        };
+        if csv {
+            if let Some(t) = self.table_csv_at(sh, r.x + 4.0, r.y + r.h / 2.0) {
+                self.actions.push(Action::Export(ExportKind::Csv(t)));
+            }
+            return;
+        }
+        let View::Doc(d) = &self.view else { return };
+        let Some(bi) = d.edit.as_deref().and_then(|e| e.active).map(|a| a.block) else {
+            return;
+        };
+        let kind = d
+            .viewer
+            .layout_of(bi)
+            .and_then(|bl| bl.hot.iter().find_map(|h| MediaKind::of(&h.kind)));
+        if let Some(k @ MediaKind::Table(..)) = kind {
+            self.fv_open(sh, bi, &k);
+        }
+    }
+
     /// `Some(false)` = ⛶, `Some(true)` = CSV.
     pub(super) fn media_badge_hit(&self, sh: &Shared, m: &Media, x: f32, y: f32) -> Option<bool> {
         if self.table_badge_hidden(m) {
