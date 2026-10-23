@@ -6,7 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-23
+
+V2-C tooltips, banners and viewers (prompt 013) and V2-D navigation (prompt 014).
+
 ### Added
+- Files tab (V2-D, FUT-33): a lazy tree of the Markdown files under the document's folder
+  (folders first, natural order, worker-thread listing, 5 000 entries / depth 8, hidden,
+  system, build and reparse-point folders skipped, no network crossing), watched for changes;
+  a dropped folder opens it; `Ctrl+Shift+1…4` switch tabs; `sidebar.show_files`.
+- Floating sidebar (FUT-02): `left-floating` / `right-floating` cards over the page without
+  reflow; Appearance ▸ Sidebar position ▸ Floating.
+- Favorites reorder (FUT-03): drag with a drop line, or `Alt+↑/↓` on a focused favorite.
+- Go to heading (FUT-08): `Ctrl+Shift+O` palette with fuzzy filtering.
+- `[TOC]` / `[[_TOC_]]` render a linked "Contents" list (also in HTML export, PDF and Print).
+- Mind map (FUT-37): `Ctrl+Shift+M` or Export ▸ View as mind map; right or balanced layout,
+  zoom, pan, collapse, double-click to jump, copy as PNG.
+- Keyboard reach (HARD-04): every interactive element is in the `Tab` order with a focus ring
+  after keyboard use; `F6` / `Shift+F6` cycle title bar, banners, sidebar and document.
 - Tooltips (V2-C, FUT-40): link titles, `<abbr>` and image titles, footnote previews, the
   word-count badge, title-bar and viewer buttons; 500 ms delay, also on keyboard focus; a link
   status pill at the bottom left.
