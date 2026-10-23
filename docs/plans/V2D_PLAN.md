@@ -31,3 +31,4 @@ and `v1.2.0` on it (the v1.2.0 tag run builds the draft). Otherwise let the main
 - CHECKPOINT 19:01 owner approved one more CI run; triggering it.
 - CHECKPOINT 19:27 run 3 39983230028 red: only export-progress cpu_delta_ms 16>15 (timer tick); no fixes pushed; waiting for owner decision (rerun or relax to <32).
 - CHECKPOINT 19:32 A-10 owner override: export-progress CPU assert report-only, anchor.yds removed (covered by navigation.yds); final CI run then merge regardless.
+- CHECKPOINT 19:55 run 4 39987570191 green; merged aaac914 (tree = db674fb); tags phase-v2d, v1.2.0 pushed; tag workflow skipped by [skip ci] in merge subject → no draft release; owner decides (move tags or manual draft).

@@ -1,38 +1,43 @@
 # V2-D report: navigation (prompt 014)
 
-Status: **CI red on the owner-approved run 3 → no merge, no tags.** One check failed: a V2-B timing assert in `export-progress.yds` (`cpu_delta_ms <= 15`, actual 16 ms). The V2-D fix worked: `files-favorites` passes, and 37/38 driver scripts pass. Following the instruction, no more fixes were pushed.
-Next action: the owner decides on one of two fixes. (a) Re-run the failed job unchanged. 16 ms is one Windows timer tick (15.6 ms) of CPU over 3 s, which looks like timer-granularity noise. (b) Approve a one-line fix that relaxes the assert to `< 32` (two ticks), then one CI run. If it goes green: squash-merge, check `git diff --quiet <green head> <merge>` (F-24), tag `phase-v2d` and `v1.2.0`, keep the release as a draft.
+Status: **merged** as aaac914 (squash of PR #83, head db674fb). Tags `phase-v2d` and `v1.2.0` are on aaac914 and pushed. Last CI run 39987570191 on db674fb is **green**.
+**Draft release v1.2.0 not created.** The merge subject carries `[skip ci]`, so GitHub skipped the push workflow for both tags, and the tag job never ran.
+Next action (owner): choose one. (a) Move both tags to a commit whose message has no `[skip ci]` (delete and re-push the tags), so the tag job builds the draft. (b) Create the draft by hand from the release build.
 
 ## 1. Acceptance criteria
 | AC | Status | Evidence |
 |----|--------|----------|
 | AC-1 F-23, F-24, P-43…P-45 | done | `doc::plain` test `f23_markup_is_removed`; golden `top-v2c-footnote-light` updated; A-9 line in PROCESS.md; spec-check green |
 | AC-2 §3 items 1–7, TRACEABILITY by script, S-FILE-08 | done (code) | 12 rows updated by `trace_v2d.py`; watchers: doc folder, config, expanded Files folders (≤ 32) |
-| AC-3 tests, driver scripts, goldens | partial | unit tests pass; run 3: goldens + window goldens green, 37/38 driver scripts pass (`files-favorites` fixed); `export-progress` fails by 1 ms (see §4) |
+| AC-3 tests, driver scripts, goldens | done | unit tests pass; run 4: all 37 driver scripts, goldens and window goldens green (A-10 changes in §4) |
 | AC-4 gates | done | see §2 |
 | AC-5 version 1.2.0, CHANGELOG, docs | done | workspace 1.2.0; `[1.2.0] - 2026-10-23` |
-| AC-6 merge, tags, draft release | **not started** | blocked by F-24 (no green PR head); run 3 red |
+| AC-6 merge, tags, draft release | done except the draft | merge aaac914; `git diff --quiet db674fb aaac914` succeeds (tree = green head, F-24 met, A-10 waiver not needed); tags pushed; draft blocked by `[skip ci]` (see Status) |
 
-## 2. Gates (run 3 39983230028, windows-2022; measurements step green)
+## 2. Gates (run 4 39987570191, windows-2022, green)
 | Gate | V2-C | V2-D | Limit |
 |------|------|------|-------|
 | M0 private WS | 2.36 MiB | 2.36 MiB | ≤ +0.3 |
-| M1 private WS | 4.61 MiB | 4.73 MiB (fix run 4.63) | ≤ +0.3 |
-| T4 typical warm p99 | 9.95 ms | 11.32 ms (fix run 10.88, run 1 8.79) | A-7 |
+| M1 private WS | 4.61 MiB | 4.72 MiB (+0.11) | ≤ +0.3 |
+| T4 typical warm p99 | 9.95 ms | 7.27 ms (runs 1–3: 8.79 / 10.88 / 11.32) | A-7 |
 | T7 idle (doc / empty, 30 s) | 0 | 0 ms / 0 ms CPU | report |
 | T7 Files tab visible / mind map open (2 s) | — | 0 ms / 16 ms | < 60 ms |
 | Exe size | 2,988,032 B | 3,082,752 B (+94,720 B) | report |
-| Mind map, large-1mb.md | — | 15,704 nodes, build 191 ms, +3,136 KiB PWS | report only |
+| Mind map, large-1mb.md | — | 15,704 nodes, build 148 ms, +3,620 KiB PWS | report only |
 
 ## 3. CI
 - Run 1 (f05a7f8): https://github.com/abuzer1495/YAMDV/actions/runs/39927529395 (red: `tab-order` needed the heading fold stops, `keyboard-reach` walk wrapped, `files-favorites` timed out; `menu-light`, `top-v2c-footnote-light` goldens)
 - Fix run (ef7ad7e): https://github.com/abuzer1495/YAMDV/actions/runs/39931340336 (red: only `files-favorites`, last step)
 - Run 3 (af625d7, owner-approved): https://github.com/abuzer1495/YAMDV/actions/runs/39983230028 (red: only `export-progress.yds`, `cpu_delta_ms` 16 > 15; every other windows step green, pure crates green, pack/owner-kit jobs skipped)
+- Run 4 (db674fb, after A-10): https://github.com/abuzer1495/YAMDV/actions/runs/39987570191 (**green**: windows + pure crates; pack, owner-kit and release jobs skipped on PRs by design)
 - PR: https://github.com/abuzer1495/YAMDV/pull/83 (Closes #32 #9 #10 #14 #36 #53)
 
-## 4. Open item
-Run 3 failure: `tests/driver/export-progress.yds:46` `assert cpu_delta_ms <= 15` failed with 16 ms, measured over 3 s idle after a cancelled background PDF export. The script was not changed in V2-D (last change #80). Earlier runs passed it.
-Resolved: `ui nav-drop-folder .` passed `…\tests\driver\.` to the Files tab; `\\?\` long paths keep the `.`, so the listing was empty. The fix is test-side: the probe strips the trailing `\.`. Real drops come from `DragQueryFileW`, which gives absolute paths. It was verified in run 3 (`files-favorites.yds: PASS`).
+## 4. A-10 (owner override, 2026-10-23: "testleri azalt gereksiz test olmasın birleştir yinede")
+Recorded in PROCESS.md (via `docs/spec-patches/PROCESS_AMENDMENTS.md`). Removed or demoted tests:
+- Demoted: `export-progress.yds` `cpu_delta_ms <= 15` is now report-only (`>= 0`, the value is logged). One timer tick (16 ms) failed run 3; the T7 gate stays in the measurements step. Run 4 logged 0 ms.
+- Removed: `anchor.yds`. `navigation.yds` covers it: the same click on "Go to target", the same `scroll_y > 500`, and `document == a.md`.
+- Kept: the `< 60 ms` CPU asserts (four ticks, the V2-C/V2-D T7 checks), all goldens, the M0/M1/T4/T7 gates, pack smoke and the security scripts. No unit tests were removed; this conservative pass found no exact duplicates.
+Resolved earlier: `ui nav-drop-folder .` passed `…\tests\driver\.` to the Files tab; `\\?\` long paths keep the `.`, so the listing was empty. The fix is test-side: the probe strips the trailing `\.`. Real drops come from `DragQueryFileW`, which gives absolute paths. It was verified in runs 3 and 4 (`files-favorites.yds: PASS`).
 
 ## 5. Deviations
 - Toasts have no action buttons, so the Tab order has no toast stops.
