@@ -125,3 +125,19 @@ fn insert_table_and_code_block() {
     ed.undo();
     assert_eq!(ed.text(), "a = 1");
 }
+
+#[test]
+fn insert_image_caret_in_alt() {
+    let mut ed = Editor::new("x ", "\n");
+    ed.set_selection(2, 2);
+    crate::md::image(&mut ed);
+    assert_eq!(ed.text(), "x ![]()");
+    assert_eq!(ed.selection(), 4..4);
+    let mut ed = Editor::new("cat", "\n");
+    ed.set_selection(0, 3);
+    crate::md::image(&mut ed);
+    assert_eq!(ed.text(), "![cat]()");
+    assert_eq!(ed.selection(), 2..5);
+    ed.undo();
+    assert_eq!(ed.text(), "cat");
+}

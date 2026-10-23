@@ -106,6 +106,7 @@ actions! {
     "toggle_task", "Toggle task", "Görevi işaretle", ["Ctrl+Enter"], Edit;
     "code_block", "Code block", "Kod bloğu", ["Ctrl+Shift+K"], Edit;
     "insert_table", "Insert table", "Tablo ekle", ["Ctrl+T"], Edit;
+    "insert_image", "Insert image", "Görsel ekle", ["Ctrl+Shift+I"], Edit;
     "heading_jump", "Go to heading", "Başlığa git", ["Ctrl+Shift+O"], Global;
     "mind_map", "Mind map", "Zihin haritası", ["Ctrl+Shift+M"], Global;
     "sidebar_contents", "Sidebar: Contents", "Kenar çubuğu: İçindekiler", ["Ctrl+Shift+1"], Global;

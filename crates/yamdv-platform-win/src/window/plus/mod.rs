@@ -121,6 +121,7 @@ impl Win {
                 self.with_ed(sh, |ed| sess = snippets::insert(ed, word, (&d, &t)));
                 self.plus.snip = sess;
             }
+            "insert_image" => self.with_ed(sh, md::image),
             "highlight" => self.with_ed(sh, |ed| md::toggle_wrap(ed, md::Wrap::Highlight)),
             _ => return None,
         }
