@@ -9,6 +9,7 @@ pub mod index;
 pub mod inline;
 pub mod mind;
 pub mod plain;
+pub mod reveal;
 pub mod slug;
 pub mod text;
 pub mod toc;
