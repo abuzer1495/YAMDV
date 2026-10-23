@@ -64,3 +64,8 @@ EOL/BOM kept) then Part 2.
 - CI run 40017140073 (PR #85, da51d9f): all steps green up to window goldens; live-block-light FAIL (44,310 px — intended: F2 is WYSIWYG now, no source pane), two V2-F shots not committed yet; later steps skipped.
 - Fix push: goldens top-v2f-reveal-light, top-v2f-table-dark, live-block-light from that artifact (self-reviewed); ⛶ and CSV buttons end the table tool strip (badge stays hidden on the active table; Wine diff vs committed shot 0.06 % < 0.5 %).
 - Next: CI run 2 → merge → F-24 → phase-v2f → v1.3.0.
+
+## CHECKPOINT 12 (done)
+- Merged 0a41b78 (PR #85) after green run 40020890007; #41, #42 closed. phase-v2f → 0a41b78; v1.3.0 → 47d68db (empty release commit). The trees of 0a41b78 and 47d68db equal ff0955c.
+- Tag run 40024306004 green; draft v1.3.0 has YAMDV-1.3.0-win-x64.zip, SHA-256 1d4d0859…6351b (verified), still a draft. Main run 40024303448 green; phase-v2f tag run 40024300810: export-progress pws_delta_kib 216 > 205 (noise, not rerun).
+- Report: docs/reports/v2f_REPORT.md. Next action: owner checks + publishes the draft.
