@@ -16,7 +16,9 @@ mod typing;
 mod xsel;
 
 pub(super) use reveal::RevealCache;
-pub(super) use table::{TblOp, pick_label};
+pub(super) use table::TblOp;
+#[cfg(feature = "dev-tools")]
+pub(super) use table::pick_label;
 
 /// Debounced Mermaid preview timer.
 pub(super) const TIMER_F2_PREVIEW: usize = 32;

@@ -100,7 +100,7 @@ impl Win {
         let Some(e) = self.edit() else { return false };
         let eol = e.ed.eol;
         let before = e.ed.slice(o.range.start.saturating_sub(2)..o.range.start);
-        let after = e.ed.slice(o.range.end..(o.range.end + 2).min(e.ed.len()));
+        let after = e.ed.slice(o.range.end..(o.range.end + 4).min(e.ed.len()));
         let mut md = String::new();
         if !before.is_empty() && !before.ends_with("\n\n") && !before.ends_with('\n') {
             md.push_str(eol);
@@ -111,8 +111,15 @@ impl Win {
         let body = tb.to_markdown(eol, pretty());
         let caret = o.range.start + md.len() + body.len();
         md.push_str(&body);
-        md.push_str(eol);
-        if !after.is_empty() && !after.starts_with('\n') && !after.starts_with("\r\n") {
+        // Exactly one blank line before the following text (the pasted line breaks go).
+        let lead = after.len() - after.trim_start_matches(['\r', '\n']).len();
+        let breaks = after.get(..lead).map_or(0, |l| l.matches('\n').count());
+        let n = if after.is_empty() {
+            1
+        } else {
+            2 - breaks.min(2)
+        };
+        for _ in 0..n {
             md.push_str(eol);
         }
         let range = o.range.clone();
@@ -151,6 +158,7 @@ impl Win {
         );
     }
 
+    #[cfg(feature = "dev-tools")]
     /// Driver probe: the offer is shown.
     pub(in crate::window) fn tsv_offered(&self) -> bool {
         self.tsv_live().is_some()

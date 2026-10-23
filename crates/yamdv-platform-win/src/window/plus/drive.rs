@@ -101,7 +101,10 @@ impl Win {
                 let cf = yamdv_export::html::cf_html(arg);
                 sys::copy_text_html(self.hwnd, "plain fallback", Some(&cf))
             }
-            "v2e-clip-text" => sys::copy_text_html(self.hwnd, arg, None),
+            "v2e-clip-text" => {
+                let t = arg.replace("\\t", "\t").replace("\\n", "\n");
+                sys::copy_text_html(self.hwnd, &t, None)
+            }
             "v2e-clip-bitmap" => {
                 let (w, h) = arg.split_once('x').unwrap_or(("4", "3"));
                 let (w, h) = (w.parse().unwrap_or(4), h.parse().unwrap_or(3));

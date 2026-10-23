@@ -20,7 +20,9 @@ use yamdv_layout::table_edit::TableReveal;
 pub(in crate::window) use grips::GripDrag;
 pub(in crate::window) use ops::TblOp;
 pub(in crate::window) use paste::TsvOffer;
-pub(in crate::window) use pick::{Picker, pick_label};
+pub(in crate::window) use pick::Picker;
+#[cfg(feature = "dev-tools")]
+pub(in crate::window) use pick::pick_label;
 
 /// The F2 active block when it is a table.
 pub(in crate::window) struct ActiveTable {
@@ -164,6 +166,7 @@ impl Win {
         true
     }
 
+    #[cfg(feature = "dev-tools")]
     /// Driver probe: "row,col" of the caret cell (empty outside a table).
     pub(in crate::window) fn table_probe(&self) -> String {
         self.table_cell()

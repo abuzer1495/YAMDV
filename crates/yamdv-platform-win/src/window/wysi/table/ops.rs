@@ -47,6 +47,7 @@ impl TblOp {
         Self::DelTable,
     ];
 
+    #[cfg(feature = "dev-tools")]
     /// Script / driver name.
     pub(in crate::window) fn name(self) -> &'static str {
         [
@@ -70,6 +71,7 @@ impl TblOp {
         ][self as usize]
     }
 
+    #[cfg(feature = "dev-tools")]
     pub(in crate::window) fn from_name(s: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|o| o.name() == s)
     }

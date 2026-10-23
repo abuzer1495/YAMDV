@@ -22,12 +22,12 @@ fn round_trip_alignment_and_cells() {
     assert_eq!(table::parse(&md).unwrap(), t);
     assert_eq!(table::parse(&md).unwrap().to_markdown("\n", true), md);
     assert!(
-        md.starts_with("| Ad     | Not |\n| :----- | --: |\n| Çiğdem |   2 |"),
+        md.starts_with("| Ad     |  Not |\n| :----- | ---: |\n| Çiğdem |    2 |"),
         "{md}"
     );
     // CRLF keeps CRLF; compact form.
     let c = t.to_markdown("\r\n", false);
-    assert!(c.contains("| Ad | Not |\r\n| :-- | --: |\r\n"), "{c}");
+    assert!(c.contains("| Ad | Not |\r\n| :--- | ---: |\r\n"), "{c}");
     // Grid ranges: content of an empty cell is where typing goes.
     let g = table::grid("| a |  |\n|---|---|\n|| x |").unwrap();
     assert_eq!(g.content(0, 1), Some(6..6));

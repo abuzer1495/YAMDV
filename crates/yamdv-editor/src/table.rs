@@ -265,7 +265,14 @@ impl Table {
     /// width aware) and aligns the padding with the column.
     pub fn to_markdown(&self, eol: &str, pretty: bool) -> String {
         let n = self.cols();
-        let mut w = vec![3usize; n];
+        // A column is at least as wide as its delimiter cell (`---`, `:---`, `:---:`).
+        let mut w: Vec<usize> = (0..n)
+            .map(|c| match self.aligns.get(c) {
+                Some(Align::Center) => 5,
+                Some(Align::Left | Align::Right) => 4,
+                _ => 3,
+            })
+            .collect();
         if pretty {
             for row in &self.rows {
                 for (c, cell) in row.iter().enumerate().take(n) {
