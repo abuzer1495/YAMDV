@@ -16,3 +16,4 @@ Order: §1.1 F-25 → F-26 → F-27 → F-28 → §2 P-46 + regex ADR → §3 it
 - CHECKPOINT 2026-10-23 20:56 task tests: edit-plus.yds green under Wine (v2e-live-select verb: Wine DirectWrite has no hit test, click-text unusable locally); goldens v2e-toolbar-light.png, v2e-replace-dark.png. Next: paste-recovery.yds.
 - CHECKPOINT 2026-10-23 20:59 paste-recovery.yds green (Ctrl+V/Shift+Ins now rich paste; !contains op; v2e-banner verb). Next: full driver regression, TRACEABILITY, gates.
 - CHECKPOINT 2026-10-23 21:01 R-EDIT-07 missing keys Ctrl+T, Ctrl+Shift+K added; TRACEABILITY via tools/trace_set.py docs/plans/v2e_trace.tsv. Next: driver regression review, gates M0/M1/T4/T7, exe delta.
+- CHECKPOINT 2026-10-23 21:03 T7 check (F3, autosave off, after journal write) in paste-recovery: 10 ms/2 s under Wine. Issues: FUT-45=#43, FUT-12=#17, FUT-15=#18. Wine-only driver failures (hit test, PDF, CPU) noted. Next: exe delta + regex share, PR.

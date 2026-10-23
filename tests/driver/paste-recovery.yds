@@ -36,6 +36,10 @@ type "Z"
 sleep 2600
 assert dirty == 1
 assert journal == 1
+# T7 in F3, autosave off, after the journal write: no timer keeps running (< 60 ms / 2 s)
+ui cpu-mark
+sleep 2000
+assert cpu_delta_ms < 60
 ui v2e-kill
 open pr.tmp.md
 wait-idle
