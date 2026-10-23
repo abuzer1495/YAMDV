@@ -1,6 +1,7 @@
-//! Sidebar (B.5 minus FUT-02/03/33; prompt 005 §3.3): tabs Contents · History · Favorites,
-//! TOC with title flattening, scroll spy, per-node collapse; grouped history; favorites;
-//! edge chevron, `Ctrl+\`, drag-resize 180–480 px, left or right.
+//! Sidebar (B.5; prompts 005 §3.3 and 014 §3): tabs Contents · History · Favorites · Files
+//! (FUT-33), TOC with title flattening, scroll spy, per-node collapse; grouped history;
+//! favorites with drag / Alt+↑↓ reorder (FUT-03); edge chevron, `Ctrl+\`, drag-resize
+//! 180–480 px, docked or floating (FUT-02), left or right.
 
 use super::*;
 use yamdv_core::state::Group;

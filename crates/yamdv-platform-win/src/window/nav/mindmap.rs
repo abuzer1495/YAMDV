@@ -54,7 +54,7 @@ impl Win {
         Rect::new(0.0, TOOL_H, self.cw, (self.ch - TOOL_H).max(1.0))
     }
 
-    pub(super) fn mind_open(&mut self, sh: &Shared) {
+    pub(in crate::window) fn mind_open(&mut self, sh: &Shared) {
         let t0 = Instant::now();
         let (src, path) = match &self.view {
             View::Doc(d) => (d.content.source().to_string(), d.path.clone()),

@@ -1033,6 +1033,20 @@ impl Win {
                     });
                     let _ = InvalidateRect(Some(self.hwnd), Some(&rc), false);
                 }
+                // A floating sidebar card lies inside the blitted rect (FUT-02): repaint its
+                // column (plus the shadow) so the card stays put.
+                if let Some(sh) = &sh
+                    && sh.side_float
+                    && let Some(sr) = self.side_rect(sh)
+                {
+                    let rc = self.crc(RECT {
+                        left: px(sr.x - 16.0),
+                        top: 0,
+                        right: px(sr.x + sr.w + 16.0),
+                        bottom: ch_px,
+                    });
+                    let _ = InvalidateRect(Some(self.hwnd), Some(&rc), false);
+                }
                 // Fixed overlays inside the blitted rect: repaint where they were and are.
                 let ady = dy.abs();
                 if self.find.is_some() {

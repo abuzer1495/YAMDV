@@ -513,6 +513,13 @@ mod cmd {
     pub const SETTINGS_MENU: u32 = 153;
     /// ⋯ / `Alt` / `F10`: the full menu under the ⋯ button.
     pub const MORE_MENU: u32 = 154;
+    // V2-D navigation (prompt 014 §3).
+    /// Appearance ▸ Sidebar position ▸ ✓ Floating (FUT-02).
+    pub const OUTLINE_FLOAT: u32 = 160;
+    /// ⋯ ▸ Go to heading… `Ctrl+Shift+O` (FUT-08).
+    pub const GO_HEADING: u32 = 161;
+    /// Export ▸ View as mind map `Ctrl+Shift+M` (FUT-37).
+    pub const MIND_MAP: u32 = 162;
 }
 pub(super) use cmd::*;
 
@@ -708,9 +715,18 @@ pub(super) fn build(lang: Lang, c: &MenuCtx) -> Model {
         check(get("sidebar.visible") == "true"),
     );
     let op = b.sub(ap, Msg::MOutlinePos);
-    let right = get("sidebar.position").starts_with("right");
+    let pos = get("sidebar.position");
+    let right = pos.starts_with("right");
     b.msg(op, OUTLINE_LEFT, Msg::MLeft, "", radio(!right));
     b.msg(op, OUTLINE_RIGHT, Msg::MRight, "", radio(right));
+    b.sep(op);
+    b.msg(
+        op,
+        OUTLINE_FLOAT,
+        Msg::MFloating,
+        "",
+        check(pos.ends_with("floating")),
+    );
     b.msg(
         ap,
         SINGLE_NL,
@@ -806,6 +822,9 @@ pub(super) fn build(lang: Lang, c: &MenuCtx) -> Model {
         b.msg(x, EXPORT_HTML, Msg::MExportHtml, "", 0);
         b.msg(x, EXPORT_PDF, Msg::MExportPdf, &keys("export_pdf"), 0);
         b.msg(x, PRINT, Msg::MPrint, &keys("print"), 0);
+        b.sep(x);
+        b.msg(x, MIND_MAP, Msg::MMindMap, "Ctrl+Shift+M", 0);
+        b.msg(m, GO_HEADING, Msg::MGoToHeading, "Ctrl+Shift+O", 0);
     }
     // V2-B: one "Settings…" item opens the settings panel (FUT-31).
     b.msg(m, SETTINGS_MENU, Msg::MSettingsOpen, &keys("settings"), 0);
@@ -949,12 +968,24 @@ pub(super) fn run_command(hwnd: HWND, id: u32, link: Option<String>) -> Vec<Acti
         COL_NARROW => zoom(hwnd, false, -1),
         COL_RESET => zoom(hwnd, false, 0),
         OUTLINE => toggle("sidebar.visible"),
-        OUTLINE_LEFT => {
-            set("sidebar.position", "left");
+        OUTLINE_LEFT | OUTLINE_RIGHT | OUTLINE_FLOAT => {
+            let cur = get("sidebar.position");
+            let float = cur.ends_with("floating") != (id == OUTLINE_FLOAT);
+            let right = match id {
+                OUTLINE_LEFT => false,
+                OUTLINE_RIGHT => true,
+                _ => cur.starts_with("right"),
+            };
+            let side = if right { "right" } else { "left" };
+            let v = if float {
+                format!("{side}-floating")
+            } else {
+                side.to_string()
+            };
+            set("sidebar.position", &v);
         }
-        OUTLINE_RIGHT => {
-            set("sidebar.position", "right");
-        }
+        GO_HEADING => with_win(hwnd, |w, sh| w.palette_open(sh)),
+        MIND_MAP => with_win(hwnd, |w, sh| w.mind_open(sh)),
         SINGLE_NL => toggle("reading.single_newline_break"),
         CODE_NUMS => toggle("reading.code_line_numbers"),
         CODE_WRAP => toggle("reading.code_wrap"),

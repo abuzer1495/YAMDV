@@ -19,6 +19,11 @@ fn make_tree(root: &std::path::Path) -> std::io::Result<()> {
     ] {
         std::fs::write(root.join(f), t)?;
     }
+    // Developer tooling only: mark the folder hidden (the attribute, not just the dot name).
+    let _ = std::process::Command::new("attrib")
+        .arg("+h")
+        .arg(root.join(".hidden"))
+        .output();
     let link = root.join("junction");
     let target = root.join("sub");
     // Developer tooling only: a directory junction (reparse point) the tree must skip.

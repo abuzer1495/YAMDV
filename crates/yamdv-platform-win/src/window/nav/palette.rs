@@ -59,7 +59,7 @@ impl Win {
         )
     }
 
-    pub(super) fn palette_open(&mut self, _sh: &Shared) {
+    pub(in crate::window) fn palette_open(&mut self, _sh: &Shared) {
         let View::Doc(d) = &self.view else { return };
         let Content::Markdown(doc) = &d.content else {
             return;
