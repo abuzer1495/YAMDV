@@ -151,6 +151,22 @@ impl Win {
                     _ => false,
                 }
             }
+            // Mouse over a grip ("col|row I"): shows it (goldens).
+            "v2f-hover-grip" => {
+                let (k, i) = arg.split_once(' ').unwrap_or((arg, "0"));
+                let i: usize = i.parse().unwrap_or(0);
+                let r = self
+                    .grips(sh)
+                    .into_iter()
+                    .find(|g| g.0 == (k == "col") && g.1 == i)
+                    .map(|g| g.2);
+                r.is_some_and(|r| {
+                    let (x, y) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+                    self.tz_drive_hover(sh, x, y, true);
+                    self.grip_move(sh, x, y);
+                    true
+                })
+            }
             "v2f-tsv-convert" => self.tsv_convert(sh),
             // Click the tool strip button `arg` through the mouse handler.
             "v2f-tool" => {

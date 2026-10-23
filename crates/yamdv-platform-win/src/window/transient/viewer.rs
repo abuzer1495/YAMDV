@@ -105,8 +105,16 @@ impl Win {
         }
     }
 
+    /// The F2 table tool strip carries ⛶ / CSV while a table is being edited (R-TBL-03).
+    fn table_badge_hidden(&self, m: &Media) -> bool {
+        matches!(m.kind, MediaKind::Table(..)) && self.active_table().is_some()
+    }
+
     /// `Some(false)` = ⛶, `Some(true)` = CSV.
     pub(super) fn media_badge_hit(&self, sh: &Shared, m: &Media, x: f32, y: f32) -> Option<bool> {
+        if self.table_badge_hidden(m) {
+            return None;
+        }
         let (open, csv) = self.media_badges(sh, m);
         if open.contains(x, y) {
             Some(false)
@@ -126,7 +134,7 @@ impl Win {
 
     pub(super) fn draw_media_badge(&self, sh: &Shared, b: &Band<'_>) {
         let Some(m) = &self.tz.media else { return };
-        if self.tz.fv.is_some() || self.tz.pop.is_some() {
+        if self.tz.fv.is_some() || self.tz.pop.is_some() || self.table_badge_hidden(m) {
             return;
         }
         let (open, csv) = self.media_badges(sh, m);

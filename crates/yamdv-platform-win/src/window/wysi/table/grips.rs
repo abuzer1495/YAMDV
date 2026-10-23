@@ -53,7 +53,7 @@ impl Win {
     }
 
     /// Every grip: (column grip?, index, rect).
-    fn grips(&self, sh: &Shared) -> Vec<(bool, usize, Rect)> {
+    pub(in crate::window) fn grips(&self, sh: &Shared) -> Vec<(bool, usize, Rect)> {
         let cells = self.table_cells(sh);
         let mut out = Vec::new();
         for &(r, c, rect) in &cells {

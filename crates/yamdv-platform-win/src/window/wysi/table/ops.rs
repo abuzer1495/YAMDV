@@ -287,7 +287,14 @@ impl Win {
             last.0.right() - first.0.x + 8.0,
             TOOL,
         );
-        b.fill(pill, 0x202020, 0.75, 6.0);
+        // Hairline ring so the strip stays visible on dark schemes; opaque body hides the text below.
+        b.fill(
+            Rect::new(pill.x - 1.0, pill.y - 1.0, pill.w + 2.0, pill.h + 2.0),
+            0xffffff,
+            0.22,
+            7.0,
+        );
+        b.fill(pill, 0x202020, 1.0, 6.0);
         let (mx, my) = self.tz_mouse();
         for (i, (r, op)) in tools.iter().enumerate() {
             if op.group_start() && i > 0 {

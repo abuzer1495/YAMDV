@@ -45,3 +45,10 @@ EOL/BOM kept) then Part 2.
 - Done: yamdv_editor::table (grid/parse/serialize pretty EA-width, ops, Turkish natural sort, escape) + tsv (RFC 4180) + tests_table; insert::block goes after the caret's whole block (R-TBL-08).
 - Layout: yamdv_layout::table_edit (active table = grid of reveal paras, HotKind::Cell per cell, SourceBlock.table).
 - Next: platform wysi/table/ (reveal build, live_para by caret, cell hit, keys Tab/Enter/Shift+Enter/arrows, `|`→`\|`, ops + pill tools + Table ▸ menu, grips drag, 10×10 picker on Ctrl+T / Insert ▸ Table…, TSV paste + offer, pretty-align on leave), table-edit.yds, goldens, §4.
+
+## CHECKPOINT 9 (Part 2 items 8–13 implemented)
+- platform wysi/table/{mod,ops,grips,pick,paste}.rs: cell keys, `|`→`\|`, 17 TblOps (tool strip above the active table + Table ▸ submenu + Ctrl+Alt arrows / Ctrl+Shift+Backspace), grips drag with accent indicator, 10×10 picker (Ctrl+T, Insert ▸ Table…), TSV paste in/out of table + "Convert to table", pretty-align on leave (changed tables only).
+- tests/driver/table-edit.yds PASS (untouched table byte-identical, file_changed_blocks == 3).
+- Goldens: shots.yds + SHELL_SHOTS gain top-v2f-reveal-light / top-v2f-table-dark (committed from first CI artifact); ⛶/CSV hover badge hidden on the active F2 table (strip carries them).
+- Wine regressions under check: edit-live-click, edit-live-up, viewers, keyboard-reach (base 11227f9 build compare).
+- Next: base compare → TRACEABILITY/docs → gates/size-map → PR + §4.

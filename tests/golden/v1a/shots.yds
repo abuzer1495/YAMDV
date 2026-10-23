@@ -116,4 +116,20 @@ wait-idle
 ui shot-window v2d-mindmap-light.png
 key esc
 wait-idle
+# V2-F (prompt 016 §4): F2 paragraph with revealed markers (light), F2 table with tools + grips (dark).
+command mode light
+open ../../driver/v2f-golden.md
+wait-idle
+key f2
+ui v2f-caret "8|Some **bold**"
+wait-idle
+ui shot-window v2f-reveal-light.png
+command mode dark
+ui v2f-caret "2|Fruit"
+wait-idle
+ui v2f-hover-grip col 1
+wait-idle
+ui shot-window v2f-table-dark.png
+key f2
+wait-idle
 command mode system
