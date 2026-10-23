@@ -9,3 +9,4 @@ Order: §1.1 F-25 → F-26 → F-27 → F-28 → §2 P-46 + regex ADR → §3 it
 - F-26 wine: watch_threads 2>2 (delta 0, live 14). F-27 done: nav keys are keymap actions (+ V2-E edit actions), scope-aware conflicts, v2d_key uses action_of. Next: F-28 toast links.
 - F-28 done: toast links drawn as B.10.1 links, stops in F6 banner region. Next: P-46 + regex ADR.
 - P-46 + ADR-0019 (regex-lite +59 KB probe; regex minimal +330 KB). Next: task 2 find/replace engine (editor crate), then 3 snippets, 4 line ops, 1 toolbar, 5 paste, 6 journal.
+- Pure: replace/snippets/lines/pairs (editor), paste html2md/assets (core) + XSS paste context done. Next: journal (core), then platform wiring.

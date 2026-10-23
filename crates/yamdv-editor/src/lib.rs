@@ -16,8 +16,8 @@ pub use buffer::{Editor, Motion, normalize_eol};
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_lines;
+#[cfg(test)]
 mod tests_replace;
 #[cfg(test)]
 mod tests_snippets;
-#[cfg(test)]
-mod tests_lines;

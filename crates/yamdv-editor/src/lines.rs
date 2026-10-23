@@ -75,7 +75,11 @@ pub fn move_lines(ed: &mut Editor, up: bool) -> bool {
             .or_else(|| s.strip_suffix('\n'))
             .map_or(s.clone(), str::to_string)
     };
-    let (other, region) = if up { (a - 1, a - 1..=b) } else { (b + 1, a..=b + 1) };
+    let (other, region) = if up {
+        (a - 1, a - 1..=b)
+    } else {
+        (b + 1, a..=b + 1)
+    };
     let r = block(ed, *region.start(), *region.end());
     let tail = ed.slice(r.clone());
     let ends_nl = tail.ends_with('\n');
@@ -87,7 +91,11 @@ pub fn move_lines(ed: &mut Editor, up: bool) -> bool {
     } else {
         format!("{neighbour}{eol}{moving}")
     };
-    let text = if ends_nl { format!("{body}{eol}") } else { body };
+    let text = if ends_nl {
+        format!("{body}{eol}")
+    } else {
+        body
+    };
     let shift: isize = if up {
         -((neighbour.len() + eol.len()).cast_signed())
     } else {

@@ -8,11 +8,54 @@ use crate::buffer::Editor;
 
 /// Code-fence language triggers (`python` + Tab → a python fence).
 pub const LANGS: &[&str] = &[
-    "bash", "sh", "shell", "powershell", "ps1", "bat", "cpp", "csharp", "cs", "java", "kotlin",
-    "go", "rust", "rs", "python", "py", "javascript", "js", "typescript", "ts", "jsx", "tsx",
-    "json", "yaml", "yml", "toml", "ini", "xml", "html", "css", "scss", "sql", "markdown", "md",
-    "diff", "dockerfile", "makefile", "php", "ruby", "swift", "lua", "dart", "scala", "perl",
-    "haskell", "elixir", "graphql", "proto",
+    "bash",
+    "sh",
+    "shell",
+    "powershell",
+    "ps1",
+    "bat",
+    "cpp",
+    "csharp",
+    "cs",
+    "java",
+    "kotlin",
+    "go",
+    "rust",
+    "rs",
+    "python",
+    "py",
+    "javascript",
+    "js",
+    "typescript",
+    "ts",
+    "jsx",
+    "tsx",
+    "json",
+    "yaml",
+    "yml",
+    "toml",
+    "ini",
+    "xml",
+    "html",
+    "css",
+    "scss",
+    "sql",
+    "markdown",
+    "md",
+    "diff",
+    "dockerfile",
+    "makefile",
+    "php",
+    "ruby",
+    "swift",
+    "lua",
+    "dart",
+    "scala",
+    "perl",
+    "haskell",
+    "elixir",
+    "graphql",
+    "proto",
 ];
 
 /// Callout triggers → GitHub alert type (`red` = caution).
@@ -181,7 +224,11 @@ fn trigger(ed: &Editor) -> Option<(Range<usize>, String)> {
         .take_while(|(_, c)| c.is_alphanumeric())
         .last()
         .map(|(i, _)| i)?;
-    if before[..start].chars().next_back().is_some_and(|c| !c.is_whitespace()) {
+    if before[..start]
+        .chars()
+        .next_back()
+        .is_some_and(|c| !c.is_whitespace())
+    {
         return None;
     }
     let after = ed.slice(sel.start..ed.line_end(ed.line_of(sel.start)));
@@ -196,7 +243,10 @@ pub fn try_expand(ed: &mut Editor, now: (&str, &str)) -> Option<Session> {
     let (r, word) = trigger(ed)?;
     let ls = ed.line_start(ed.line_of(r.start));
     let line = ed.slice(ls..r.start);
-    let indent: String = line.chars().take_while(|c| *c == ' ' || *c == '\t').collect();
+    let indent: String = line
+        .chars()
+        .take_while(|c| *c == ' ' || *c == '\t')
+        .collect();
     let x = expand(&word, ed.eol, &indent, now)?;
     let stops: Vec<Range<usize>> = x
         .stops
@@ -222,7 +272,9 @@ impl Session {
         let Some(cur) = self.stops.get(self.cur).cloned() else {
             return false;
         };
-        let cur_end = (cur.end.cast_signed() + delta).max(cur.start.cast_signed()).cast_unsigned();
+        let cur_end = (cur.end.cast_signed() + delta)
+            .max(cur.start.cast_signed())
+            .cast_unsigned();
         let sel = ed.selection();
         if sel.start < cur.start || sel.end > cur_end {
             return false;

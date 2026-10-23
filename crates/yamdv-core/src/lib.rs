@@ -23,6 +23,7 @@ pub mod keymap;
 pub mod link;
 pub mod log;
 pub mod outline;
+pub mod paste;
 pub mod path;
 pub mod progress;
 pub mod reg;

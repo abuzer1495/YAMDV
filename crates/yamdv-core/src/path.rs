@@ -16,9 +16,11 @@ pub enum PathError {
     AlternateStream,
 }
 
+/// DOS device names.
 const RESERVED: [&str; 4] = ["CON", "PRN", "AUX", "NUL"];
 
-fn is_reserved(component: &str) -> bool {
+/// `component` is a DOS device name (`CON`, `nul.txt`, `COM1`, …).
+pub fn is_reserved(component: &str) -> bool {
     let stem = component
         .split('.')
         .next()

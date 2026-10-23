@@ -49,16 +49,45 @@ fn languages_callouts_and_blocks() {
     let mut e = at_end("  python");
     snippets::try_expand(&mut e, NOW);
     assert_eq!(e.text(), "  ```python\n  \n  ```");
-    assert_eq!(expand("red", "\n", "", NOW).unwrap().text, "> [!CAUTION]\n> Text");
-    assert_eq!(expand("note", "\n", "", NOW).unwrap().text, "> [!NOTE]\n> Text");
+    assert_eq!(
+        expand("red", "\n", "", NOW).unwrap().text,
+        "> [!CAUTION]\n> Text"
+    );
+    assert_eq!(
+        expand("note", "\n", "", NOW).unwrap().text,
+        "> [!NOTE]\n> Text"
+    );
     assert_eq!(expand("h3", "\n", "", NOW).unwrap().text, "### Heading");
     assert_eq!(expand("date", "\n", "", NOW).unwrap().text, "2026-10-23");
     assert_eq!(expand("time", "\n", "", NOW).unwrap().text, "20:30");
     assert_eq!(expand("hr", "\r\n", "", NOW).unwrap().text, "---\r\n");
-    assert!(expand("seq", "\r\n", "", NOW).unwrap().text.contains("sequenceDiagram\r\n  A->>B"));
+    assert!(
+        expand("seq", "\r\n", "", NOW)
+            .unwrap()
+            .text
+            .contains("sequenceDiagram\r\n  A->>B")
+    );
     for w in [
-        "table", "code", "link", "img", "line", "quote", "task", "tip", "important", "warning",
-        "caution", "math", "mermaid", "flow", "gantt", "details", "footnote", "h1", "h6", "rust",
+        "table",
+        "code",
+        "link",
+        "img",
+        "line",
+        "quote",
+        "task",
+        "tip",
+        "important",
+        "warning",
+        "caution",
+        "math",
+        "mermaid",
+        "flow",
+        "gantt",
+        "details",
+        "footnote",
+        "h1",
+        "h6",
+        "rust",
     ] {
         assert!(expand(w, "\n", "", NOW).is_some(), "{w}");
     }
