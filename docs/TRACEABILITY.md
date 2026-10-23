@@ -49,7 +49,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-IMG-02 | 003 | partial (003): yamdv_core::image::resolve (tests); not wired to a decoder |
 | R-IMG-03 | 003 | partial (003): display_size/obsidian_size/html_len (tests); not used by layout |
 | R-IMG-04 | 003 | partial (003): probe + LRU (tests); no worker/decode |
-| R-IMG-05 | 003 | deferred (FUT-36) |
+| R-IMG-05 | 003 | implemented (V2-C 013): image viewer, ⛶ badge, zoom at cursor (FUT-36) |
 | R-IMG-06 | 003 | partial (003): P-25 chip for all images; block placeholders + tooltip missing |
 | R-LINK-01 | 003 | implemented (003) |
 | R-LINK-02 | 003 | implemented (003) |
@@ -62,7 +62,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-MAP-02 | 010 | deferred (FUT-37) |
 | R-MATH-01 | 009 | implemented (007): yamdv-math + Cambria Math MATH table (dwrite.rs) |
 | R-MATH-02 | 009 | partial (007): core subset (parse.rs); part deferred: FUT-17 |
-| R-MATH-03 | 009 | implemented (007): error color + message line (tooltip: FUT-40) |
+| R-MATH-03 | 009 | implemented (007): error color + message line; tooltip (V2-C 013, FUT-40) |
 | R-MATH-04 | 009 | implemented (007): copy maps to source with delimiters (detail.rs test) |
 | R-MATH-05 | 009 | implemented (007): centered, HRegion scroll (rich.rs tests) |
 | R-MATH-06 | 009 | implemented (007): theme text color; \color override |
@@ -87,7 +87,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-MD-18 | 002/003 | implemented (003) |
 | R-MD-19 | 002/003 | deferred (FUT-08) |
 | R-MMD-01 | 010 | partial (007): flowchart + sequence (yamdv-mermaid); part deferred: FUT-18 |
-| R-MMD-02 | 010 | partial (007): card B.6.12, fit-to-column; part deferred: FUT-36, FUT-18 |
+| R-MMD-02 | 010 | implemented (007 + V2-C 013): card, fit-to-column, min scale + hscroll (BUG-08), diagram viewer (FUT-36); part deferred: FUT-18 |
 | R-MMD-03 | 010 | partial (007): B.3.6 light/dark palettes; part deferred: FUT-18 (init) |
 | R-MMD-04 | 010 | implemented (007): source card + line/column message; part deferred: FUT-18 |
 | R-MMD-05 | 010 | implemented (007): placeholder + Render anyway (mermaid.yds); part deferred: FUT-18 |
@@ -125,9 +125,9 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-READ-03 | 005 | implemented (005 V1-A) |
 | R-READ-04 | 005 | implemented (005 V1-A) |
 | R-READ-05 | 005 | implemented (005 V1-A) |
-| R-READ-06 | 005 | deferred (FUT-34) |
+| R-READ-06 | 005 | implemented (V2-C 013): heading folding, Alt+click level, find expands (FUT-34) |
 | R-READ-07 | 005 | implemented (011): word-count badge, chrome.rs count + fullscreen-wordcount.yds (FUT-35) |
-| R-READ-08 | 005 | deferred (FUT-06, FUT-36) |
+| R-READ-08 | 005 | implemented (V2-C 013): table/image/diagram viewers (FUT-06, FUT-36) |
 | R-READ-09 | 005 | planned |
 | R-READ-10 | 005 | implemented (005 V1-A) |
 | R-READ-11 | 005 | implemented (005 V1-A) |
@@ -138,14 +138,14 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-REL-04 | 012 | planned |
 | R-REN-01 | 002/003 | implemented (002) |
 | R-REN-02 | 002/003 | implemented (002) |
-| R-REN-03 | 002/003 | implemented (003); part deferred: FUT-41 |
+| R-REN-03 | 002/003 | implemented (003 + V2-C 013): sup/sub/footnote-ref inline objects (FUT-41) |
 | R-REN-04 | 002/003 | partial (003): vector task boxes; toggle in 006 |
 | R-REN-05 | 002/003 | implemented (002) |
 | R-REN-06 | 002/003 | implemented (003) |
-| R-REN-07 | 002/003 | partial (003): tables; hover toolbar/fullscreen in 005; part deferred: FUT-06, FUT-42 |
+| R-REN-07 | 002/003 | implemented (003 + V2-C 013): tables; table viewer + CSV pill (FUT-06); part deferred: FUT-42 |
 | R-REN-08 | 002/003 | implemented (003) |
 | R-REN-09 | 002/003 | implemented (002) |
-| R-REN-10 | 002/003 | partial (003): footnotes; hover tooltip missing; part deferred: FUT-40 |
+| R-REN-10 | 002/003 | implemented (003 + V2-C 013): footnotes; hover preview tooltip (FUT-40) |
 | R-REN-11 | 002/003 | implemented (003) |
 | R-REN-12 | 002/003 | implemented (003) |
 | R-REN-13 | 002/003 | implemented (003): front matter card |
@@ -275,7 +275,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | S-TEST-04 | 012 | partial (001): THREAT_MODEL.md skeleton |
 | S-UI-01 | 004 | planned |
 | S-UI-02 | 004 | planned |
-| S-UI-03 | 004 | deferred (FUT-40) |
+| S-UI-03 | 004 | implemented (V2-C 013): tooltips, anchored popover, banners (FUT-40) |
 | T1 | 013 | measured (003): typical.md, CI |
 | T2 | 013 | planned |
 | T3 | 013 | measured (005): CI measure.ps1, see v1a_REPORT |

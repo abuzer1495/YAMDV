@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Tooltips (V2-C, FUT-40): link titles, `<abbr>` and image titles, footnote previews, the
+  word-count badge, title-bar and viewer buttons; 500 ms delay, also on keyboard focus; a link
+  status pill at the bottom left.
+- Banners (FUT-40/34): edit conflict, deleted file, read-only, decoding, Mark of the Web,
+  elevated, export failure; at most two, newest on top; content keeps its anchor.
+- Anchored Ask popover for external links (FUT-41 / R-LINK-04) with IDN and credential warnings.
+- Fullscreen viewers (FUT-36, FUT-06): images, Mermaid diagrams and tables via a ⛶ badge or a
+  double-click; zoom at the cursor (10–800 %), pan, fit / 1:1, copy (bitmap, PNG, CSV).
+- Heading folding (FUT-34): ▸/▾ on H1–H3, Alt+click folds a level, find expands, session only.
+- Sup/sub and footnote references as inline objects (FUT-41).
+
+### Fixed
+- Wide flowcharts keep ≥ 10 px text and scroll horizontally, also in HTML export (BUG-08).
+
+### Changed
+- The edit conflict and the external-link Ask are no longer modal dialogs.
+
 ## [1.1.0] - 2026-10-22
 
 V2-A window chrome (prompt 011) and V2-B settings panel (prompt 012). Not tagged yet: the
