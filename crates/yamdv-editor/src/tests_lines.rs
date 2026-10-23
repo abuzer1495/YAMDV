@@ -86,3 +86,25 @@ fn auto_pair_doubles_quotes_wrap_and_code() {
     assert!(pairs::type_char(&mut c, '{', true));
     assert_eq!(c.text(), "{}");
 }
+
+#[test]
+fn clear_format_and_highlight() {
+    use crate::{clear, md};
+    assert_eq!(
+        clear::strip_inline("***a*** ==b== ~~c~~ `d` snake_case _e_"),
+        "a b c d snake_case e"
+    );
+    assert_eq!(clear::strip_line("  - [x] ## t"), "  t");
+    assert_eq!(clear::strip_line("### Title"), "Title");
+    assert_eq!(clear::strip_line("> 1. q"), "q");
+    let mut ed = Editor::new("# **Bold** and *it*\nnext", "\n");
+    ed.set_selection(4, 8);
+    clear::clear_format(&mut ed);
+    assert_eq!(ed.text(), "Bold and *it*\nnext");
+    ed.undo();
+    assert_eq!(ed.text(), "# **Bold** and *it*\nnext");
+    let mut ed = Editor::new("word", "\n");
+    ed.set_selection(0, 4);
+    md::toggle_wrap(&mut ed, md::Wrap::Highlight);
+    assert_eq!(ed.text(), "==word==");
+}

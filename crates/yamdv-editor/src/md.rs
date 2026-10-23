@@ -25,6 +25,8 @@ pub enum Wrap {
     Code,
     /// `~~…~~`.
     Strike,
+    /// `==…==` (highlight, Ctrl+Shift+H).
+    Highlight,
 }
 
 impl Wrap {
@@ -34,6 +36,7 @@ impl Wrap {
             Wrap::Italic => "*",
             Wrap::Code => "`",
             Wrap::Strike => "~~",
+            Wrap::Highlight => "==",
         }
     }
 }

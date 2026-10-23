@@ -4,6 +4,7 @@
 #![forbid(unsafe_code)]
 
 pub mod buffer;
+pub mod clear;
 pub mod history;
 pub mod lines;
 pub mod md;
