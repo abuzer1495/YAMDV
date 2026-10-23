@@ -317,7 +317,7 @@ impl Win {
     }
 
     /// Opens the viewer for media `kind` of block `bi`.
-    fn fv_open(&mut self, sh: &Shared, bi: usize, kind: &MediaKind) {
+    pub(super) fn fv_open(&mut self, sh: &Shared, bi: usize, kind: &MediaKind) {
         self.tz_tip_hide();
         self.tz.pop = None;
         let fv = match kind {

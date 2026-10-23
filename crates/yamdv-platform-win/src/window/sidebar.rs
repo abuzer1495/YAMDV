@@ -6,7 +6,7 @@ use super::*;
 use yamdv_core::state::Group;
 
 const TAB_H: f32 = 40.0;
-const ROW_H: f32 = 28.0;
+pub(super) const ROW_H: f32 = 28.0;
 const CHEV: (f32, f32) = (14.0, 36.0);
 
 /// Per-window sidebar state.
@@ -41,6 +41,13 @@ pub(super) enum RowKind {
     },
     Fav(String),
     Hint(Msg),
+    /// Files tab node (index into the tree).
+    File {
+        node: usize,
+        dir: bool,
+        open: bool,
+        current: bool,
+    },
 }
 
 /// A laid-out row (window DIPs, already scrolled).
@@ -69,7 +76,7 @@ fn tz_offset_min() -> i32 {
     ((l as i64 - t as i64) / 600_000_000) as i32
 }
 
-fn file_name(p: &str) -> String {
+pub(super) fn file_name(p: &str) -> String {
     ypath::file_name(&ypath::display_form(p)).to_string()
 }
 
@@ -91,6 +98,16 @@ impl Win {
             return None;
         }
         let w = self.side_w(sh);
+        if sh.side_float {
+            // FUT-02: a card over the page, 12 px from the edges, 8 px below the title bar.
+            let w = w.min((self.cw - 24.0).max(0.0));
+            let x = if sh.side_right {
+                self.cw - w - 12.0
+            } else {
+                12.0
+            };
+            return Some(Rect::new(x, 8.0, w, (self.ch - 20.0).max(0.0)));
+        }
         let x = if sh.side_right { self.cw - w } else { 0.0 };
         Some(Rect::new(x, 0.0, w, self.ch))
     }
@@ -101,6 +118,8 @@ impl Win {
             return (p.x, p.w);
         }
         match self.side_rect(sh) {
+            // Floating: the page keeps its full width (no reflow).
+            Some(_) if sh.side_float => (0.0, self.cw),
             Some(r) if sh.side_right => (0.0, r.x),
             Some(r) => (r.w, self.cw - r.w),
             None => (0.0, self.cw),
@@ -139,8 +158,42 @@ impl Win {
         n.checked_sub(1)
     }
 
-    fn tab(&self) -> u8 {
-        app::with(|a| a.state.sidebar_tab).unwrap_or(0)
+    /// Tabs shown: Contents always, then History / Favorites / Files per `sidebar.show_*`.
+    pub(super) fn side_tab_list(&self, sh: &Shared) -> Vec<u8> {
+        (0u8..4)
+            .filter(|i| sh.side_tabs.get(usize::from(*i)).copied().unwrap_or(false))
+            .collect()
+    }
+
+    /// Height of the tab row (none when only Contents is shown).
+    pub(super) fn tabs_h(&self, sh: &Shared) -> f32 {
+        if self.side_tab_list(sh).len() > 1 {
+            TAB_H
+        } else {
+            0.0
+        }
+    }
+
+    pub(super) fn tab(&self) -> u8 {
+        let t = app::with(|a| a.state.sidebar_tab).unwrap_or(0);
+        match shared() {
+            Some(sh) if !self.side_tab_list(&sh).contains(&t) => 0,
+            _ => t,
+        }
+    }
+
+    /// Selects tab `t` (Ctrl+Shift+1…4; shows the sidebar when hidden).
+    pub(super) fn side_select_tab(&mut self, sh: &Shared, t: u8) {
+        if !self.side_tab_list(sh).contains(&t) {
+            return;
+        }
+        app::with(|a| a.state.sidebar_tab = t);
+        app::save_state();
+        self.side.scroll = 0.0;
+        if !sh.side_visible {
+            self.actions.push(Action::Command(app::OUTLINE));
+        }
+        self.invalidate();
     }
 
     /// Lays out the rows of the current tab.
@@ -149,18 +202,28 @@ impl Win {
             return Vec::new();
         };
         let mut rows = Vec::new();
-        let tw = sr.w / 3.0;
-        for (i, m) in [Msg::TabContents, Msg::TabHistory, Msg::TabFavorites]
-            .into_iter()
-            .enumerate()
-        {
-            rows.push(Row {
-                rect: Rect::new(sr.x + tw * i as f32, 0.0, tw, TAB_H),
-                kind: RowKind::Tab(i as u8),
-                text: tr(sh.lang, m).to_string(),
-            });
+        let tabs = self.side_tab_list(sh);
+        let th = self.tabs_h(sh);
+        if th > 0.0 {
+            let tw = sr.w / tabs.len() as f32;
+            for (i, t) in tabs.iter().enumerate() {
+                let m = [
+                    Msg::TabContents,
+                    Msg::TabHistory,
+                    Msg::TabFavorites,
+                    Msg::TabFiles,
+                ]
+                .get(usize::from(*t))
+                .copied()
+                .unwrap_or(Msg::TabContents);
+                rows.push(Row {
+                    rect: Rect::new(sr.x + tw * i as f32, sr.y, tw, TAB_H),
+                    kind: RowKind::Tab(*t),
+                    text: tr(sh.lang, m).to_string(),
+                });
+            }
         }
-        let mut y = TAB_H + 8.0 - self.side.scroll;
+        let mut y = sr.y + th + 8.0 - self.side.scroll;
         let mut push = |rows: &mut Vec<Row>, kind: RowKind, text: String, indent: f32| {
             rows.push(Row {
                 rect: Rect::new(sr.x + 8.0 + indent, y, sr.w - 16.0 - indent, ROW_H),
@@ -265,6 +328,11 @@ impl Win {
                     }
                 }
             }
+            3 => {
+                for (kind, text, indent) in self.files_rows(sh) {
+                    push(&mut rows, kind, text, indent);
+                }
+            }
             _ => {
                 let favs = app::with(|a| a.state.favorites.clone()).unwrap_or_default();
                 if favs.is_empty() {
@@ -284,20 +352,49 @@ impl Win {
         let pal = &self.pal;
         let ch = self.chevron(sh);
         if let Some(sr) = self.side_rect(sh) {
-            b.fill(sr, pal.code_bg, 1.0, 0.0);
-            let edge = if sh.side_right {
-                sr.x
+            if sh.side_float {
+                crate::window::transient::card_shadow(b, sr, 12.0, self.dark);
+                b.fill(sr, pal.code_bg, 1.0, 12.0);
+                b.stroke(
+                    sr,
+                    yamdv_core::chrome::tokens(self.dark).chrome_border,
+                    12.0,
+                    1.0,
+                );
+                b.push_clip(Rect::new(sr.x, sr.y + 4.0, sr.w, sr.h - 8.0));
             } else {
-                sr.x + sr.w - 1.0
-            };
-            b.fill(Rect::new(edge, 0.0, 1.0, sr.h), pal.border_subtle, 1.0, 0.0);
+                b.fill(sr, pal.code_bg, 1.0, 0.0);
+                let edge = if sh.side_right {
+                    sr.x
+                } else {
+                    sr.x + sr.w - 1.0
+                };
+                b.fill(Rect::new(edge, 0.0, 1.0, sr.h), pal.border_subtle, 1.0, 0.0);
+            }
             let tab = self.tab();
             let hover = self.side.hover;
-            for r in self.side_rows(sh) {
+            let list_top = sr.y + self.tabs_h(sh);
+            let kfocus = (self.nav.kbd && self.nav.region == nav::Region::Sidebar)
+                .then_some(self.nav.side_focus)
+                .flatten();
+            let drop = self.fav_drop_line(sh);
+            for (ri, r) in self.side_rows(sh).into_iter().enumerate() {
                 let hov = hover.is_some_and(|(x, y)| r.rect.contains(x, y));
                 if let RowKind::Tab(_) = r.kind {
-                } else if r.rect.y < TAB_H || r.rect.y > self.ch {
+                } else if r.rect.y < list_top || r.rect.y > sr.y + sr.h {
                     continue;
+                }
+                if kfocus == Some(ri) {
+                    nav::ring(
+                        b,
+                        Rect::new(
+                            r.rect.x + 2.0,
+                            r.rect.y + 2.0,
+                            r.rect.w - 4.0,
+                            r.rect.h - 4.0,
+                        ),
+                        pal.accent,
+                    );
                 }
                 b.push_clip(r.rect);
                 let ty = |t: &dyn yamdv_layout::shaper::Shaped| {
@@ -432,7 +529,41 @@ impl Win {
                         let t = self.shape_ui(sh, tr(sh.lang, *m), 12.0, 400, pal.text_muted, None);
                         b.text(t.as_ref(), r.rect.x + 6.0, ty(t.as_ref()));
                     }
+                    RowKind::File {
+                        dir, open, current, ..
+                    } => {
+                        if hov {
+                            b.fill(r.rect, pal.text, 0.06, 4.0);
+                        }
+                        if *dir {
+                            let a = self.shape_ui(
+                                sh,
+                                if *open { "\u{25BE}" } else { "\u{25B8}" },
+                                11.0,
+                                400,
+                                pal.text_muted,
+                                None,
+                            );
+                            b.text(a.as_ref(), r.rect.x + 2.0, ty(a.as_ref()));
+                        }
+                        let color = if *current { pal.accent } else { pal.text };
+                        let weight = if *current || *dir { 600 } else { 400 };
+                        let t = self.shape_ui(sh, &r.text, 13.0, weight, color, None);
+                        b.text(t.as_ref(), r.rect.x + 16.0, ty(t.as_ref()));
+                    }
                 }
+                b.pop_clip();
+            }
+            if let Some(y) = drop {
+                // FUT-03: 2 px accent drop line.
+                b.fill(
+                    Rect::new(sr.x + 8.0, y - 1.0, sr.w - 16.0, 2.0),
+                    pal.accent,
+                    1.0,
+                    1.0,
+                );
+            }
+            if sh.side_float {
                 b.pop_clip();
             }
         }
@@ -542,16 +673,18 @@ impl Win {
                     });
                     app::save_state();
                 } else {
-                    self.open_from_side(sh, &path);
+                    // FUT-03: a drag reorders; a click without movement opens on mouse up.
+                    self.fav_press(path, y);
                 }
             }
+            RowKind::File { node, .. } => self.files_click(sh, node),
             RowKind::Hint(_) => {}
         }
         self.invalidate();
         None
     }
 
-    fn open_from_side(&mut self, sh: &Shared, path: &str) {
+    pub(super) fn open_from_side(&mut self, sh: &Shared, path: &str) {
         if std::path::Path::new(&ypath::long_form(path)).is_file() {
             self.open(sh, path, None, false);
         } else {
@@ -561,6 +694,9 @@ impl Win {
 
     /// Mouse move: hover and edge drag. Returns `true` when handled.
     pub(super) fn side_move(&mut self, sh: &Shared, x: f32, y: f32) -> bool {
+        if self.fav_move(y) {
+            return true;
+        }
         if self.side.drag_w.is_some() {
             let w = if sh.side_right { self.cw - x } else { x };
             self.side.drag_w = Some(w.clamp(180.0, 480.0));
@@ -589,6 +725,7 @@ impl Win {
 
     /// Wheel over the sidebar list.
     pub(super) fn side_wheel(&mut self, delta: i16) {
+        self.nav.fav_drag = None;
         self.side.scroll = (self.side.scroll - f32::from(delta) / 120.0 * 3.0 * ROW_H).max(0.0);
         self.invalidate();
     }

@@ -97,7 +97,7 @@ pub(super) struct State {
     anim: Option<FoldAnim>,
     gutter_hover: Option<usize>,
     /// Keyboard focus on a fold toggle (after the links in the Tab order).
-    fold_focus: Option<usize>,
+    pub(in crate::window) fold_focus: Option<usize>,
     last_down: Option<(Instant, f32, f32)>,
     mouse: (f32, f32),
 }
@@ -396,11 +396,13 @@ impl Win {
         }
         self.fv_draw(sh, b);
         self.pop_draw(sh, b);
+        self.nav_draw(sh, b);
     }
 
     /// Client-level overlays (origin 0): banners and the tooltip.
     pub(in crate::window) fn tz_draw_client(&self, sh: &Shared, b: &Band<'_>) {
         self.tz_draw_banners(sh, b);
+        self.nav_draw_client(sh, b);
         self.tz_draw_tip(sh, b);
     }
 
@@ -443,4 +445,52 @@ impl Win {
             pop,
         )
     }
+}
+
+/// V2-D keyboard reach (HARD-04): entry points of the transient UI.
+impl Win {
+    /// The fullscreen viewer is open.
+    pub(in crate::window) fn tz_viewer_open(&self) -> bool {
+        self.tz.fv.is_some()
+    }
+
+    /// Fold toggle of heading block `bi` (content coordinates), when shown.
+    pub(in crate::window) fn tz_toggle_rect(&self, sh: &Shared, bi: usize) -> Option<Rect> {
+        let View::Doc(d) = &self.view else {
+            return None;
+        };
+        let (cx, _) = self.col(sh);
+        let lvl = d.content.heading_level(bi)?;
+        (lvl <= yamdv_layout::fold::MAX_FOLD_LEVEL && cx >= 26.0 && !d.viewer.is_hidden(bi))
+            .then(|| Self::gutter_rect(d, cx, bi))
+            .flatten()
+    }
+
+    /// Opens the fullscreen viewer of a diagram / table hot region (⛶ by keyboard).
+    pub(in crate::window) fn tz_open_hot(&mut self, sh: &Shared, bi: usize, k: &HotKind) -> bool {
+        match MediaKind::of(k) {
+            Some(m) => {
+                self.fv_open(sh, bi, &m);
+                self.tz.fv.is_some()
+            }
+            None => false,
+        }
+    }
+
+    /// Banner buttons in order (client coordinates): (rect, banner, button id).
+    pub(in crate::window) fn tz_banner_stops(&self, sh: &Shared) -> Vec<(Rect, BannerKind, u32)> {
+        let mut out = Vec::new();
+        for (k, r) in self.banner_rects() {
+            let mut b = self.banner_buttons(sh, k, r);
+            // The × closes last.
+            b.sort_by_key(|x| x.1 == 0);
+            out.extend(b.into_iter().map(|(br, id, _)| (br, k, id)));
+        }
+        out
+    }
+}
+
+/// The overlay card shadow (floating sidebar, FUT-02).
+pub(in crate::window) fn card_shadow(b: &Band<'_>, r: Rect, radius: f32, dark: bool) {
+    shadow(b, r, radius, dark);
 }

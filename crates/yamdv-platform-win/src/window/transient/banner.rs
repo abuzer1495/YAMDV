@@ -107,7 +107,12 @@ impl Win {
     }
 
     /// Buttons of banner `k`, right-aligned in `r` (client DIPs); id 0 = ×.
-    fn banner_buttons(&self, sh: &Shared, k: BannerKind, r: Rect) -> Vec<(Rect, u32, String)> {
+    pub(super) fn banner_buttons(
+        &self,
+        sh: &Shared,
+        k: BannerKind,
+        r: Rect,
+    ) -> Vec<(Rect, u32, String)> {
         let list: Vec<(u32, String)> = if k == BannerKind::Conflict {
             [
                 (Msg::Overwrite, edit::BTN_OVERWRITE),
@@ -136,7 +141,7 @@ impl Win {
         out
     }
 
-    fn banner_rects(&self) -> Vec<(BannerKind, Rect)> {
+    pub(super) fn banner_rects(&self) -> Vec<(BannerKind, Rect)> {
         let y0 = self.top - self.tz.banners.height();
         self.tz
             .banners

@@ -15,7 +15,7 @@ fn levels(content: &Content) -> Vec<Option<u8>> {
 
 impl Win {
     /// Toggle box of heading `bi` (content DIPs).
-    fn gutter_rect(d: &DocView, cx: f32, bi: usize) -> Option<Rect> {
+    pub(super) fn gutter_rect(d: &DocView, cx: f32, bi: usize) -> Option<Rect> {
         let bl = d.viewer.layout_of(bi)?;
         let top = (d.viewer.block_top(&d.content, bi) - d.viewer.scroll) as f32;
         let h = bl.height.min(48.0);
@@ -197,49 +197,15 @@ impl Win {
         }
     }
 
-    /// Tab past the last link reaches the toggles; `true` when one took the focus.
-    pub(in crate::window) fn tz_fold_focus_step(&mut self, forward: bool) -> bool {
-        let View::Doc(d) = &self.view else {
-            return false;
-        };
-        let lv = levels(&d.content);
-        let heads: Vec<usize> = (0..lv.len())
-            .filter(|&i| lv[i].is_some() && !d.viewer.is_hidden(i))
-            .collect();
-        let next = match (self.tz.fold_focus, forward) {
-            (None, true) => heads.first().copied(),
-            (None, false) => heads.last().copied(),
-            (Some(c), true) => heads.iter().copied().find(|&h| h > c),
-            (Some(c), false) => heads.iter().copied().rfind(|&h| h < c),
-        };
-        self.tz.fold_focus = next;
-        if let Some(h) = next {
-            self.focus = None;
-            let vh = self.view_h();
-            let (top, s) = match &self.view {
-                View::Doc(d) => (d.viewer.block_top(&d.content, h), d.viewer.scroll),
-                _ => (0.0, 0.0),
-            };
-            if top < s + 8.0 || top > s + vh - 48.0 {
-                self.set_scroll((top - vh / 3.0).max(0.0));
-            }
-        }
-        self.invalidate();
-        next.is_some()
-    }
-
     /// Keys while a toggle has the focus; `true` when consumed.
-    pub(super) fn fold_key(&mut self, _sh: &Shared, vk: u16, ctrl: bool, shift: bool) -> bool {
+    pub(super) fn fold_key(&mut self, sh: &Shared, vk: u16, ctrl: bool, shift: bool) -> bool {
         let Some(h) = self.tz.fold_focus else {
             return false;
         };
         match vk {
             0x09 if !ctrl => {
-                if !self.tz_fold_focus_step(!shift) && !shift {
-                    // Past the last toggle: the Tab cycle starts again at the first link.
-                    self.tz.fold_focus = None;
-                    return false;
-                }
+                // V2-D: toggles are stops of the one document Tab order (HARD-04).
+                self.doc_focus_step(sh, if shift { -1 } else { 1 });
                 true
             }
             0x0D | 0x20 => {

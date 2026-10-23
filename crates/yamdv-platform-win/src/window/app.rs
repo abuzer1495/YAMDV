@@ -309,6 +309,16 @@ pub(super) fn settings_path() -> String {
     with(|a| format!("{}\\settings.ini", a.dir)).unwrap_or_default()
 }
 
+/// Driver: re-reads `state.ini` from disk as a restart would; returns the favorites.
+#[cfg(feature = "dev-tools")]
+pub(super) fn reload_state_favorites() -> Vec<String> {
+    with(|a| {
+        a.state = State::parse(&Ini::parse(&read_small(&format!("{}\\state.ini", a.dir))));
+        a.state.favorites.clone()
+    })
+    .unwrap_or_default()
+}
+
 /// Writes `state.ini` atomically.
 pub(super) fn save_state() {
     if let Some((p, t)) = with(|a| (format!("{}\\state.ini", a.dir), a.state.write())) {
