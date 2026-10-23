@@ -248,6 +248,113 @@ impl Excl {
     }
 }
 
+/// Work cap of the excluded-day walk over all tasks (bounded time for huge durations).
+const EXCLUDE_BUDGET: usize = 1_000_000;
+
+/// Resolves starts / ends in dependency order (`after` / `until` may point forward): an
+/// iterative depth-first walk, O(tasks + references); a cycle or unknown id is an error.
+fn resolve(raw: &mut [Raw], ex: &Excl) -> Result<(), Error> {
+    use std::collections::HashMap;
+    let ids: HashMap<&str, usize> = raw
+        .iter()
+        .enumerate()
+        .filter_map(|(i, r)| r.task.id.as_deref().map(|id| (id, i)))
+        .collect();
+    let bad = |r: &Raw| err("Unknown or circular task reference", r.line, 0);
+    let mut deps: Vec<Vec<usize>> = Vec::with_capacity(raw.len());
+    for (i, r) in raw.iter().enumerate() {
+        let mut d = Vec::new();
+        match &r.start {
+            Start::At(_) => {}
+            Start::Prev if i == 0 => {
+                return Err(err("The first task needs a start date", r.line, 0));
+            }
+            Start::Prev => d.push(i - 1),
+            Start::After(v) => {
+                for id in v {
+                    d.push(*ids.get(id.as_str()).ok_or_else(|| bad(r))?);
+                }
+            }
+        }
+        if let Finish::Until(id) = &r.end {
+            d.push(*ids.get(id.as_str()).ok_or_else(|| bad(r))?);
+        }
+        deps.push(d);
+    }
+    // 0 = new, 1 = on the stack, 2 = done.
+    let mut state = vec![0u8; raw.len()];
+    let mut order = Vec::with_capacity(raw.len());
+    for root in 0..raw.len() {
+        if state.get(root) != Some(&0) {
+            continue;
+        }
+        let mut st = vec![(root, 0usize)];
+        if let Some(s) = state.get_mut(root) {
+            *s = 1;
+        }
+        while let Some(&mut (v, ref mut k)) = st.last_mut() {
+            if let Some(&w) = deps.get(v).and_then(|d| d.get(*k)) {
+                *k += 1;
+                match state.get(w) {
+                    Some(0) => {
+                        if let Some(s) = state.get_mut(w) {
+                            *s = 1;
+                        }
+                        st.push((w, 0));
+                    }
+                    Some(1) => return Err(raw.get(v).map_or_else(|| err("cycle", 0, 0), bad)),
+                    _ => {}
+                }
+            } else {
+                if let Some(s) = state.get_mut(v) {
+                    *s = 2;
+                }
+                order.push(v);
+                st.pop();
+            }
+        }
+    }
+    let mut budget = EXCLUDE_BUDGET;
+    for i in order {
+        let end_of = |k: usize| raw.get(k).map_or(0, |p| p.task.end);
+        let start_of = |k: usize| raw.get(k).map_or(0, |p| p.task.start);
+        let Some(r) = raw.get(i) else { continue };
+        let dl = deps.get(i).map_or(&[][..], Vec::as_slice);
+        let start = match &r.start {
+            Start::At(t) => *t,
+            Start::Prev => end_of(i - 1),
+            Start::After(v) => dl
+                .iter()
+                .take(v.len())
+                .map(|&k| end_of(k))
+                .max()
+                .unwrap_or(0),
+        };
+        let mut end = match &r.end {
+            Finish::At(t) => *t,
+            Finish::For(_) if r.task.milestone => start,
+            Finish::For(d) => start.saturating_add(*d),
+            Finish::Until(_) => dl.last().map_or(start, |&k| start_of(k)),
+        };
+        if !r.task.milestone && (ex.weekends || !ex.days.is_empty() || !ex.dates.is_empty()) {
+            // Excluded days inside the task push its end out (Mermaid's fixTaskDates).
+            let mut d = start.div_euclid(DAY);
+            while d.saturating_mul(DAY) < end && budget > 0 {
+                if ex.hit(d) {
+                    end = end.saturating_add(DAY);
+                }
+                d += 1;
+                budget -= 1;
+            }
+        }
+        if let Some(r) = raw.get_mut(i) {
+            r.task.start = start;
+            r.task.end = end.max(start);
+        }
+    }
+    Ok(())
+}
+
 /// Parses a `gantt` block.
 #[allow(clippy::too_many_lines)]
 pub fn parse(src: &str) -> Result<Gantt, Error> {
@@ -371,77 +478,7 @@ pub fn parse(src: &str) -> Result<Gantt, Error> {
             }
         }
     }
-    // Resolve `after` / `until` (forward references allowed): at most n passes.
-    let n = raw.len();
-    let mut done = vec![false; n];
-    for _ in 0..=n {
-        let mut progress = false;
-        for i in 0..n {
-            if done.get(i) != Some(&false) {
-                continue;
-            }
-            let find = |id: &str| {
-                raw.iter()
-                    .position(|r| r.task.id.as_deref() == Some(id))
-                    .filter(|&k| done.get(k) == Some(&true))
-            };
-            let Some(r) = raw.get(i) else { continue };
-            let start = match &r.start {
-                Start::At(t) => Some(*t),
-                Start::Prev if i == 0 => {
-                    return Err(err("The first task needs a start date", r.line, 0));
-                }
-                Start::Prev => done
-                    .get(i - 1)
-                    .copied()
-                    .unwrap_or(false)
-                    .then(|| raw.get(i - 1).map(|p| p.task.end))
-                    .flatten(),
-                Start::After(ids) => {
-                    let ends: Option<Vec<i64>> = ids
-                        .iter()
-                        .map(|id| find(id).and_then(|k| raw.get(k)).map(|p| p.task.end))
-                        .collect();
-                    ends.and_then(|v| v.into_iter().max())
-                }
-            };
-            let Some(start) = start else { continue };
-            let end = match &r.end {
-                Finish::At(t) => Some(*t),
-                Finish::For(_) if r.task.milestone => Some(start),
-                Finish::For(d) => Some(start + d),
-                Finish::Until(id) => find(id).and_then(|k| raw.get(k)).map(|p| p.task.start),
-            };
-            let Some(mut end) = end else { continue };
-            if !r.task.milestone && (ex.weekends || !ex.days.is_empty() || !ex.dates.is_empty()) {
-                // Excluded days inside the task push its end out (Mermaid's fixTaskDates).
-                let mut d = start.div_euclid(DAY);
-                let mut guard = 0;
-                while d * DAY < end && guard < 100_000 {
-                    if ex.hit(d) {
-                        end += DAY;
-                    }
-                    d += 1;
-                    guard += 1;
-                }
-            }
-            if let Some(r) = raw.get_mut(i) {
-                r.task.start = start;
-                r.task.end = end.max(start);
-            }
-            if let Some(x) = done.get_mut(i) {
-                *x = true;
-            }
-            progress = true;
-        }
-        if !progress {
-            break;
-        }
-    }
-    if let Some(i) = done.iter().position(|d| !d) {
-        let line = raw.get(i).map_or(0, |r| r.line);
-        return Err(err("Unknown or circular task reference", line, 0));
-    }
+    resolve(&mut raw, &ex)?;
     g.tasks = raw.into_iter().map(|r| r.task).collect();
     if g.sections.is_empty() && !g.tasks.is_empty() {
         g.sections.push(String::new());
@@ -451,7 +488,11 @@ pub fn parse(src: &str) -> Result<Gantt, Error> {
         g.tasks.iter().map(|t| t.end).max(),
     ) {
         let (a, b) = (lo.div_euclid(DAY), hi.div_euclid(DAY));
-        g.excluded = (a..=b).filter(|&d| ex.hit(d)).take(400).collect();
+        g.excluded = (a..=b)
+            .take(4000)
+            .filter(|&d| ex.hit(d))
+            .take(400)
+            .collect();
     }
     Ok(g)
 }
@@ -509,7 +550,7 @@ pub fn layout(g: &Gantt, m: &mut dyn Measure, s: f32, now: Option<i64>) -> Drawi
     let text = Ink::Role(Role::Text);
     let (row, bar) = (24.0 * s, 20.0 * s);
     let mut top = 8.0 * s;
-    let total_w = 760.0 * s;
+    let total_w = 600.0 * s;
     if let Some(t) = &g.title {
         let tt = m.text(t, 16.0 * s, total_w, true);
         prims.push(Prim::Text(TextPrim {

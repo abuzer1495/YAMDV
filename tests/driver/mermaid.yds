@@ -1,5 +1,5 @@
 # Mermaid flowchart renders; over the soft limit a placeholder until Render anyway (prompt 007 §3)
-write-file d1.tmp.md "# D\n\n```mermaid\ngraph TD\nA[Start] --> B{Ok?}\nB -->|yes| C[Done]\n```\n\n```mermaid\npie title Pets\n```\n"
+write-file d1.tmp.md "# D\n\n```mermaid\ngraph TD\nA[Start] --> B{Ok?}\nB -->|yes| C[Done]\n```\n\n```mermaid\ntimeline\n  2026 : x\n```\n"
 open d1.tmp.md
 wait-idle
 assert diagrams_cached == 1

@@ -633,6 +633,8 @@ pub(crate) fn layout(f: &Flow, m: &mut dyn Measure, s: f32) -> Drawing {
         };
         edges.push(pts);
     }
+    // Parallel edges between the same two nodes (`A --> B`, `B --> A`) are spread apart.
+    spread_parallel(f, &mut edges, &rects, s);
     // Edge label boxes (center of the middle segment).
     let lab_boxes: Vec<Option<(f32, f32, f32, f32, u32)>> = edges
         .iter()
@@ -963,5 +965,61 @@ pub(crate) fn layout(f: &Flow, m: &mut dyn Measure, s: f32) -> Drawing {
         boxes,
         edges: out_edges,
         complex: false,
+    }
+}
+
+/// Offsets edges that share both end nodes perpendicular to their direction (14 px apart).
+fn spread_parallel(
+    f: &Flow,
+    edges: &mut [Vec<(f32, f32)>],
+    rects: &[(f32, f32, f32, f32)],
+    s: f32,
+) {
+    let mut groups: std::collections::HashMap<(usize, usize), Vec<usize>> =
+        std::collections::HashMap::new();
+    for (i, e) in f.edges.iter().enumerate() {
+        if e.from != e.to && edges.get(i).is_some_and(|p| p.len() >= 2) {
+            groups
+                .entry((e.from.min(e.to), e.from.max(e.to)))
+                .or_default()
+                .push(i);
+        }
+    }
+    for ((a, _), ids) in groups {
+        if ids.len() < 2 {
+            continue;
+        }
+        let m = ids.len() as f32;
+        for (j, &ei) in ids.iter().enumerate() {
+            let Some(pts) = edges.get_mut(ei) else {
+                continue;
+            };
+            let (Some(&p0), Some(&p1)) = (pts.first(), pts.last()) else {
+                continue;
+            };
+            // Canonical direction (lower node index → higher) so opposite edges take opposite sides.
+            let (from, to) = if f.edges.get(ei).is_some_and(|e| e.from == a) {
+                (p0, p1)
+            } else {
+                (p1, p0)
+            };
+            let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+            let len = dx.hypot(dy).max(1e-3);
+            let d = (j as f32 - (m - 1.0) / 2.0) * 14.0 * s;
+            let (ox, oy) = (-dy / len * d, dx / len * d);
+            for p in pts.iter_mut() {
+                p.0 += ox;
+                p.1 += oy;
+            }
+            // End points stay on their node boxes.
+            let Some(e) = f.edges.get(ei) else { continue };
+            let k = pts.len();
+            for (idx, node) in [(0, e.from), (k - 1, e.to)] {
+                if let (Some(p), Some(r)) = (pts.get_mut(idx), rects.get(node)) {
+                    p.0 = p.0.clamp(r.0, r.0 + r.2);
+                    p.1 = p.1.clamp(r.1, r.1 + r.3);
+                }
+            }
+        }
     }
 }
