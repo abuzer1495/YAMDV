@@ -52,3 +52,10 @@ EOL/BOM kept) then Part 2.
 - Goldens: shots.yds + SHELL_SHOTS gain top-v2f-reveal-light / top-v2f-table-dark (committed from first CI artifact); ⛶/CSV hover badge hidden on the active F2 table (strip carries them).
 - Wine regressions under check: edit-live-click, edit-live-up, viewers, keyboard-reach (base 11227f9 build compare).
 - Next: base compare → TRACEABILITY/docs → gates/size-map → PR + §4.
+
+## CHECKPOINT 10 (pre-PR)
+- Wine failures edit-live-click / edit-live-up / viewers / keyboard-reach reproduce on base 11227f9 → pre-existing Wine-only (no DirectWrite hit test, CPU timing, tab walk).
+- TRACEABILITY: 14 rows (R-F2-02/03/05/06/08/09, R-TBL-01…08) via tools/trace_set.py.
+- Size (cross lld build, hardened flags): 3,378,688 B vs phase-v2e 3,244,544 B = +134,144 B (< 150 KB); size map in docs/reports/v2f_sizemap.md.
+- Version 1.3.0 (Cargo.toml + lock; About and version resource use CARGO_PKG_VERSION); CHANGELOG [1.3.0] for V2-E + V2-F.
+- Next: push without [skip ci] → PR (Closes FUT-43/44) → CI run → goldens from artifact (fix push) → merge → phase-v2f → v1.3.0.
