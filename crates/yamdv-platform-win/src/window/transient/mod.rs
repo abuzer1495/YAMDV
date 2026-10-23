@@ -494,3 +494,19 @@ impl Win {
 pub(in crate::window) fn card_shadow(b: &Band<'_>, r: Rect, radius: f32, dark: bool) {
     shadow(b, r, radius, dark);
 }
+
+impl Win {
+    /// Unfolds heading block `h` and every fold hiding it (palette jump, FUT-08).
+    pub(in crate::window) fn tz_unfold(&mut self, h: usize) {
+        let off = match &self.view {
+            View::Doc(d) => d.content.range(h).start,
+            _ => return,
+        };
+        self.tz_reveal_offset(off);
+        if self.tz.folds.is_folded(h) {
+            self.tz_drive_settle();
+            self.tz_fold(h, false);
+            self.tz_drive_settle();
+        }
+    }
+}

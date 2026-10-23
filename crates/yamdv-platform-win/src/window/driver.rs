@@ -260,7 +260,11 @@ fn run(w: &mut Win, sh: &Shared, cmd: &Cmd) -> String {
             None => format!("FAIL command {name}: unknown"),
         },
         Cmd::Type(t) => {
-            if w.settings.is_some() {
+            if w.nav.palette.is_some() {
+                for c in t.chars() {
+                    w.palette_char(sh, c);
+                }
+            } else if w.settings.is_some() {
                 for c in t.chars() {
                     w.panel_char(c);
                 }
