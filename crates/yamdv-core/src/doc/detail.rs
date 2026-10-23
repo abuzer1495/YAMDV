@@ -255,6 +255,8 @@ pub struct Detail {
     pub links: Vec<LinkDest>,
     /// Images in source order (R-IMG-02/03); each produced one [`style::IMAGE`] run.
     pub images: Vec<ImageRef>,
+    /// `<abbr title>` elements: the runs they cover and the title (tooltip, §3.1).
+    pub abbrs: Vec<(Range<u32>, Box<str>)>,
 }
 
 /// P-25 chip label: glyph + thin space + alt text, or the file name when the alt text is
@@ -285,6 +287,8 @@ pub struct ImageRef {
     pub w: Option<u32>,
     /// Requested height in logical px.
     pub h: Option<u32>,
+    /// Title (tooltip, §3.1).
+    pub title: Box<str>,
 }
 
 const NONE: u32 = u32::MAX;
@@ -372,7 +376,9 @@ struct Builder<'s> {
     overflow: usize,
     implicit: Option<u32>,
     style: Vec<u16>,
-    image: Option<(usize, String, String, bool)>,
+    image: Option<(usize, String, String, bool, String)>,
+    /// Open `<abbr>` elements: first run index and title.
+    abbr_open: Vec<(u32, String)>,
     /// Open inline drop-with-content elements (S-HTML-01) split across inline events.
     inline_drop: Vec<String>,
     image_depth: usize,
@@ -475,7 +481,7 @@ impl Builder<'_> {
             return;
         }
         let range = self.abs(r);
-        if let Some((_, alt, _, _)) = self.image.as_mut() {
+        if let Some((_, alt, _, _, _)) = self.image.as_mut() {
             alt.push_str(text);
             return;
         }
@@ -550,7 +556,7 @@ impl Builder<'_> {
 
     /// Records an image reference (R-IMG-02/03) and returns its chip label (P-25):
     /// glyph + alt text, or the file name when the alt text is empty.
-    fn image_ref(&mut self, src: &str, alt: &str, w: &str, h: &str) -> String {
+    fn image_ref(&mut self, src: &str, alt: &str, (w, h): (&str, &str), title: &str) -> String {
         let (src, mut req) = crate::image::obsidian_size(src);
         if let Some(v) = crate::image::html_len(w) {
             req.w = Some(v);
@@ -565,6 +571,7 @@ impl Builder<'_> {
             alt: alt.into(),
             w: px(req.w),
             h: px(req.h),
+            title: title.into(),
         });
         image_label(src, alt)
     }
@@ -641,7 +648,8 @@ impl Builder<'_> {
                 let src = attr(&attrs, "src").unwrap_or("").to_string();
                 let w = attr(&attrs, "width").unwrap_or("").to_string();
                 let h = attr(&attrs, "height").unwrap_or("").to_string();
-                let label = self.image_ref(&src, &alt, &w, &h);
+                let title = attr(&attrs, "title").unwrap_or("").to_string();
+                let label = self.image_ref(&src, &alt, (&w, &h), &title);
                 self.run(RunKind::Text, &(base..base), &label, style::IMAGE);
             }
             Tok::Open { tag, attrs, .. } => {
@@ -653,11 +661,22 @@ impl Builder<'_> {
                     }
                     self.open_link(&href, &title, false);
                 }
+                if tag == "abbr" {
+                    let title = attr(&attrs, "title").unwrap_or("").to_string();
+                    self.abbr_open.push((u(self.d.runs.len()), title));
+                }
                 if let Some(f) = html_style(&tag) {
                     self.html.push((tag, f));
                 }
             }
             Tok::Close(tag) => {
+                if tag == "abbr"
+                    && let Some((first, title)) = self.abbr_open.pop()
+                    && !title.trim().is_empty()
+                {
+                    let end = u(self.d.runs.len());
+                    self.d.abbrs.push((first..end, title.into()));
+                }
                 if let Some(p) = self.html.iter().rposition(|(t, _)| *t == tag) {
                     let links = self.html[p..].iter().filter(|(t, _)| t == "a").count();
                     for _ in 0..links {
@@ -941,6 +960,7 @@ impl Detail {
             implicit: None,
             style: Vec::new(),
             image: None,
+            abbr_open: Vec::new(),
             inline_drop: Vec::new(),
             image_depth: 0,
             skip: 0,
@@ -1060,12 +1080,18 @@ impl Detail {
                         Tag::Image {
                             dest_url,
                             link_type,
+                            title,
                             ..
                         } => {
                             if b.image.is_none() {
                                 let wiki = matches!(link_type, LinkType::WikiLink { .. });
-                                b.image =
-                                    Some((r.start, String::new(), dest_url.to_string(), wiki));
+                                b.image = Some((
+                                    r.start,
+                                    String::new(),
+                                    dest_url.to_string(),
+                                    wiki,
+                                    title.to_string(),
+                                ));
                             } else {
                                 b.image_depth += 1;
                                 b.style.push(b.style.last().copied().unwrap_or(0));
@@ -1093,14 +1119,14 @@ impl Detail {
                         b.pop();
                     }
                     TagEnd::Image if b.image.is_some() && b.image_depth == 0 => {
-                        if let Some((start, alt, src, wiki)) = b.image.take() {
+                        if let Some((start, alt, src, wiki, title)) = b.image.take() {
                             // Obsidian `![[img.png|300]]`: the size arrives as the link text.
                             let sized =
                                 wiki && crate::image::obsidian_size(&format!("x|{alt}")).0 == "x";
                             let label = if sized {
-                                b.image_ref(&src, "", &alt, "")
+                                b.image_ref(&src, "", (&alt, ""), &title)
                             } else {
-                                b.image_ref(&src, &alt, "", "")
+                                b.image_ref(&src, &alt, ("", ""), &title)
                             };
                             b.run(RunKind::Text, &(start..r.end), &label, style::IMAGE);
                         }
@@ -1338,6 +1364,19 @@ mod tests {
             .map(|i| Detail::build(src, &ix, i, ReadOpts::default()))
             .collect();
         (ix, ds)
+    }
+
+    #[test]
+    fn tooltip_titles_abbr_and_image() {
+        let src = "An <abbr title=\"HyperText\">HTML</abbr> page ![x](a.png \"Cap\")\n";
+        let (_, ds) = tree(src);
+        let d = &ds[0];
+        assert_eq!(d.abbrs.len(), 1);
+        let (runs, title) = &d.abbrs[0];
+        assert_eq!(&**title, "HyperText");
+        let r = &d.runs[runs.start as usize];
+        assert_eq!(r.text(src), "HTML");
+        assert_eq!(&*d.images[0].title, "Cap");
     }
 
     #[test]

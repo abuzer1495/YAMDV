@@ -295,6 +295,20 @@ pub enum HotKind {
         /// URL.
         url: Box<str>,
     },
+    /// A rendered Mermaid card (B.11 ⛶ badge / double-click): code node of the diagram.
+    Diagram {
+        /// Detail node.
+        node: usize,
+    },
+    /// A rendered table (B.11 [⛶][CSV] pill / double-click).
+    Table {
+        /// Detail node.
+        node: usize,
+        /// Rows (header included).
+        rows: u32,
+        /// Columns.
+        cols: u32,
+    },
 }
 
 /// An interactive rectangle in block coordinates.
@@ -594,7 +608,7 @@ pub(crate) fn spans(segs: &[Seg], b: &Style, m: &Metrics, pal: &Palette) -> Vec<
             t.italic = false;
         }
         if f & (st::SUP | st::SUB) != 0 {
-            // R-MD-06: 0.75 em. PARTIAL: no baseline shift until inline objects (§4.1.3).
+            // R-MD-06: 0.75 em; drawn as a shifted inline object by `leaf_aligned` (§3.6).
             t.size = b.size * 0.75;
         }
         if f & (st::UNDERLINE | st::ABBR) != 0 {
@@ -620,6 +634,50 @@ pub(crate) fn spans(segs: &[Seg], b: &Style, m: &Metrics, pal: &Palette) -> Vec<
         });
     }
     out
+}
+
+/// 1 = superscript (and footnote reference), 2 = subscript, 0 = neither.
+fn script_kind(style: u16) -> u8 {
+    if style & (st::SUP | st::FOOTREF) != 0 {
+        1
+    } else if style & st::SUB != 0 {
+        2
+    } else {
+        0
+    }
+}
+
+/// Synthesized superscript / subscript metrics (§3.6).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScriptMetrics {
+    /// Text size.
+    pub size: f32,
+    /// Baseline shift (positive = up).
+    pub shift: f32,
+    /// Inline-object height above the line baseline.
+    pub ascent: f32,
+    /// Inline-object depth below the line baseline.
+    pub descent: f32,
+}
+
+/// Metrics of a superscript (`kind` 1) or subscript (`kind` 2) at body size `em`: 75 % size,
+/// shifted 0.33 em up (superscript) or 0.15 em down (subscript, so it clears the next line).
+pub fn script_metrics(em: f32, kind: u8) -> ScriptMetrics {
+    let size = em * 0.75;
+    let shift = if kind == 2 { -0.15 * em } else { 0.33 * em };
+    let (a, d) = (size * 0.8, size * 0.2);
+    ScriptMetrics {
+        size,
+        shift,
+        ascent: (a + shift).max(0.0),
+        descent: (d - shift).max(0.0),
+    }
+}
+
+/// The shifted box fits a line of `pitch` (baseline at 0.8 × pitch) without changing its
+/// height; `false` means the shift would collide with the neighbouring line.
+pub fn script_fits(pitch: f32, m: &ScriptMetrics) -> bool {
+    m.ascent <= pitch * 0.8 + 0.01 && m.descent <= pitch * 0.2 + 0.01
 }
 
 pub(crate) struct Out {
@@ -739,6 +797,32 @@ pub(crate) fn leaf_aligned(
             Err(_) => s.style.color = ctx.pal.error,
         }
     }
+    // §3.6: superscript, subscript and footnote references are inline objects with a real
+    // baseline shift (synthesized 75 % size); the line pitch stays uniform.
+    let mut scripts: Vec<(usize, Box<dyn Shaped>, f32, f32)> = Vec::new();
+    for (k, seg) in pt.segs.iter().filter(|g| g.style != 0).enumerate() {
+        let kind = script_kind(seg.style);
+        if kind == 0 || seg.style & st::MATH != 0 || seg.u16_len == 0 {
+            continue;
+        }
+        let Some(s) = sp.get(k) else { continue };
+        let sm = script_metrics(style.size, kind);
+        let t = pt.slice16(seg.u16_start, seg.u16_start + seg.u16_len);
+        let small = Style {
+            size: sm.size,
+            ..s.style
+        };
+        let sp_pitch = sm.size * pitch / style.size.max(1.0);
+        let sh = shape_text(ctx, t, small, None, sp_pitch);
+        objects.push(crate::shaper::InlineObject {
+            range: (s.range.start, s.range.end),
+            width: sh.width(),
+            ascent: sm.ascent,
+            descent: sm.descent,
+        });
+        scripts.push((k, sh, sm.shift, sp_pitch));
+    }
+    objects.sort_by_key(|o| o.range.0);
     let rtl = is_rtl(&pt.text);
     let shaped = ctx.shaper.shape(&ParaSpec {
         text: &pt.text,
@@ -856,6 +940,14 @@ pub(crate) fn leaf_aligned(
                 rect: Rect::new(x + r.x, y + r.y, r.w.max(6.0), r.h),
                 kind: HotKind::FootRef { n, ord },
             });
+        }
+    }
+    for (k, sh, shift, sp_pitch) in scripts {
+        let Some(s) = sp.get(k) else { continue };
+        if let Some(r) = shaped.range_rects(s.range.clone()).first() {
+            // Baselines: the line's at 0.8 × pitch, the small paragraph's at 0.8 × its pitch.
+            let top = y + r.y + pitch * 0.8 - shift - sp_pitch * 0.8;
+            out.para(x + r.x, top, sh, None, None);
         }
     }
     for (k, mb) in maths {
@@ -1401,5 +1493,27 @@ pub fn layout_with_notes(
         paras: out.paras,
         regions: out.regions,
         hot: out.hot,
+    }
+}
+
+#[cfg(test)]
+mod script_tests {
+    use super::*;
+
+    #[test]
+    fn sup_sub_metrics_keep_line_height() {
+        let up = script_metrics(16.0, 1);
+        assert_eq!(up.size, 12.0);
+        assert!((up.shift - 5.28).abs() < 1e-4);
+        let down = script_metrics(16.0, 2);
+        assert!(down.shift < 0.0 && down.descent > up.descent);
+        // Body pitch 1.6 em: both fit without changing the line height.
+        assert!(script_fits(16.0 * 1.6, &up));
+        assert!(script_fits(16.0 * 1.6, &down));
+        // A tight pitch collides.
+        assert!(!script_fits(16.0, &up));
+        assert_eq!(script_kind(st::FOOTREF), 1);
+        assert_eq!(script_kind(st::SUB), 2);
+        assert_eq!(script_kind(st::STRONG), 0);
     }
 }

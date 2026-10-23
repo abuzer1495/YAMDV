@@ -2228,7 +2228,11 @@ impl Win {
                 self.footnote_jump(sh, FootTarget::Ref(n, k));
                 return true;
             }
-            HotKind::FootNote { .. } | HotKind::Image { .. } | HotKind::ImagePlaceholder { .. } => {
+            HotKind::FootNote { .. }
+            | HotKind::Image { .. }
+            | HotKind::ImagePlaceholder { .. }
+            | HotKind::Diagram { .. }
+            | HotKind::Table { .. } => {
                 return false;
             }
             HotKind::CopyUrl { url } => {

@@ -229,10 +229,15 @@ pub(crate) fn block(
         let hot = (!laid.drawing.complex).then_some(hash);
         return placeholder(ctx, &msg, hot, x, y, w, out);
     }
-    emit(ctx, &laid, x, y, w, out)
+    emit(ctx, &laid, (node, x, y, w), out)
 }
 
-fn emit(ctx: &mut Ctx<'_>, laid: &Laid, x: f32, y: f32, w: f32, out: &mut Out) -> f32 {
+fn emit(
+    ctx: &mut Ctx<'_>,
+    laid: &Laid,
+    (node, x, y, w): (usize, f32, f32, f32),
+    out: &mut Out,
+) -> f32 {
     let dr = &laid.drawing;
     let h = dr.h + 2.0 * PAD;
     let card = Rect::new(x, y, w, h);
@@ -305,6 +310,10 @@ fn emit(ctx: &mut Ctx<'_>, laid: &Laid, x: f32, y: f32, w: f32, out: &mut Out) -
         rect: card,
         color: border,
         radius: 8.0,
+    });
+    out.hot.push(crate::block::Hot {
+        rect: card,
+        kind: crate::block::HotKind::Diagram { node },
     });
     h
 }

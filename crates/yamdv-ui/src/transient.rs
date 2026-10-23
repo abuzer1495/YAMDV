@@ -136,7 +136,12 @@ impl Banners {
         if y < 0.0 {
             return None;
         }
-        self.visible().get((y / BANNER_H) as usize).copied()
+        if y < 0.0 {
+            return None;
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let i = (y / BANNER_H) as usize;
+        self.visible().get(i).copied()
     }
 }
 
@@ -261,7 +266,9 @@ impl ZoomView {
 
     /// Zoom in whole percent (toolbar label).
     pub fn percent(&self) -> u32 {
-        (self.scale * 100.0).round() as u32
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let p = (self.scale * 100.0).round().max(0.0) as u32;
+        p
     }
 }
 

@@ -67,7 +67,7 @@ impl Folds {
     /// Alt+click: folds (or, when all are folded, unfolds) every heading of `level`.
     pub fn toggle_level(&mut self, levels: &[Option<u8>], level: u8) {
         let all: Vec<usize> = (0..levels.len())
-            .filter(|&i| levels[i] == Some(level) && !fold_range(levels, i).is_empty())
+            .filter(|&i| levels.get(i) == Some(&Some(level)) && !fold_range(levels, i).is_empty())
             .collect();
         if all.iter().all(|i| self.folded.contains(i)) {
             self.folded.retain(|i| !all.contains(i));
