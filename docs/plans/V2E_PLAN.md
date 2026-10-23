@@ -4,3 +4,5 @@ Order: §1.1 F-25 → F-26 → F-27 → F-28 → §2 P-46 + regex ADR → §3 it
 
 ## CHECKPOINT
 - 20:13 F-25: chore(release): v1.2.0 = 2534afb on main (tree = f99904c; f99904c vs aaac914 changes docs only: v2d_REPORT, V2D_PLAN). Tags v1.2.0 + phase-v2d moved to 2534afb and pushed; tag runs 39993219747 (v1.2.0), 39993219341 (phase-v2d), main 39993213895. F-25 line added to A-9 (PROCESS_AMENDMENTS, spec-patch). Prompt stored. Next: wait for draft, then F-26.
+- 20:17 F-26 code pushed (watch.rs; probe nav-watch-threads in files-favorites). Next: wine check, then F-27.
+- F-26 wine: watch_threads 2>2 (delta 0, live 14). F-27 done: nav keys are keymap actions (+ V2-E edit actions), scope-aware conflicts, v2d_key uses action_of. Next: F-28 toast links.

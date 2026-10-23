@@ -175,27 +175,33 @@ impl Win {
         if self.tz_viewer_open() || self.find.is_some() {
             return false;
         }
-        if ctrl && shift && !alt {
-            match vk {
-                0x31..=0x34 => {
-                    self.side_select_tab(sh, (vk - 0x31) as u8);
-                    return true;
-                }
-                0x4F => {
-                    self.palette_open(sh);
-                    return true;
-                }
-                0x4D => {
-                    self.mind_open(sh);
-                    return true;
-                }
-                _ => {}
+        // F-27: these are keymap actions (rebindable, in the presets), looked up by chord.
+        let c = yamdv_core::keymap::Chord {
+            ctrl,
+            shift,
+            alt,
+            vk,
+        };
+        let act = app::keymap().action_of(c, self.edit_mode().is_some());
+        match act.unwrap_or("") {
+            "sidebar_outline" => return self.side_select_tab_key(sh, 0),
+            "sidebar_history" => return self.side_select_tab_key(sh, 1),
+            "sidebar_favorites" => return self.side_select_tab_key(sh, 2),
+            "sidebar_files" => return self.side_select_tab_key(sh, 3),
+            "heading_palette" => {
+                self.palette_open(sh);
+                return true;
             }
-        }
-        if vk == 0x75 && !ctrl && !alt {
-            self.nav_kbd(true);
-            self.region_step(sh, if shift { -1 } else { 1 });
-            return true;
+            "mind_map" => {
+                self.mind_open(sh);
+                return true;
+            }
+            "next_region" | "prev_region" => {
+                self.nav_kbd(true);
+                self.region_step(sh, if act == Some("prev_region") { -1 } else { 1 });
+                return true;
+            }
+            _ => {}
         }
         match self.nav.region {
             Region::Sidebar => self.side_key(sh, vk, ctrl, shift, alt),
@@ -203,6 +209,11 @@ impl Win {
             Region::Banners => self.banner_key(sh, vk, shift),
             Region::Document => self.doc_key(sh, vk, ctrl, shift, alt),
         }
+    }
+
+    fn side_select_tab_key(&mut self, sh: &Shared, t: u8) -> bool {
+        self.side_select_tab(sh, t);
+        true
     }
 
     /// Draws the V2-D overlays (content origin).
