@@ -227,7 +227,6 @@ Sections: **General · Appearance · Typography & Layout · Sidebar · Reading �
 | `reading.code_wrap` | bool | `false` | |
 | `reading.front_matter` | enum | `collapsed` | `collapsed`, `expanded`, `hidden` |
 | `reading.render_math` / `render_mermaid` / `render_html` / `emoji_shortcodes` | bool | `true` | |
-| `reading.animate_gifs` | bool | `false` | plays visible GIFs; never with reduced motion or an inactive window (T7) |
 | `reading.animate_gifs` | bool | `false` | |
 | `reading.smooth_scrolling` | bool | `true` | |
 | `reading.scrollbar_autohide` | bool | `true` | |

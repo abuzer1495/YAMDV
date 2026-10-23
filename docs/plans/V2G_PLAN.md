@@ -22,7 +22,7 @@ Order: §1.1 F-31 → F-32 → §2 ADR-0021 (before SVG code), ADR-0022, P-48, I
 ## CHECKPOINT 4 (§3.4 GIF, §3.5 ICO/WebP, §3.6 lexers done)
 - §3.4: yamdv-core image/gif.rs (disposal, timing, Player), platform images/gif.rs (WIC frames at display size), visible-only one-shot TIMER_GIF=23, viewer TIMER_FVGIF=24, setting reading.animate_gifs (default off).
 - §3.5: yamdv-core image/ico.rs (directory, pick, PNG/BGRA/BMP+mask payloads), WebP → "WebP codec not installed" (ADR-0022); ACG rows ico-png/ico-bmp/webp-lossy/lossless/alpha (webp = placeholder rows). Commit 3fc4815.
-- §3.6: new lexers Console, Jsx, Tsx (jsx.rs element stack in State::ext), Html (`<script>` JS / `<style>` CSS embedded; vue → Html); LESS `@x` variables. Table docs/CODE_LANGUAGES.md (42 lexers). FUT-01 marked done.
+- §3.6: new lexers Console, Jsx, Tsx (jsx.rs element stack in State::ext), Html (`<script>` JS / `<style>` CSS embedded; vue → Html); LESS `@x` variables. Table docs/CODE_LANGUAGES.md (42 lexers). (FUT-01 row edit reverted at CHECKPOINT 7: FUTURE.md is frozen by spec-check; the issue closes it.)
 - Next: §3.7 F2 image resize, then drivers content-engines / image-resize, goldens v2g-a/b/c, gates, PR.
 
 ## CHECKPOINT 5 (§3.7 F2 image resize done)
@@ -36,3 +36,8 @@ Order: §1.1 F-31 → F-32 → §2 ADR-0021 (before SVG code), ADR-0022, P-48, I
 - v2g-golden-c used `\newcommand{\R}` (builtin → error) → `\RR`.
 - shots.yds + SHELL_SHOTS: top-v2g-a-light, top-v2g-b-dark, top-v2g-c-light (commit from first CI artifact; Wine has no math font).
 - Next: size-map shares, gates (M0/M1, T4, T5, T7, size; M3, PWS 5 GIFs), TRACEABILITY, PR.
+
+## CHECKPOINT 7 (traceability, spec-check)
+- TRACEABILITY via tools/trace_set.py: R-MATH-02/07, R-MMD-01/03/06/08(partial: no today marker)/09/10, R-IMG-01, R-CODE-01, R-F2-11 (IDEA-05 #86), R-F2-12.
+- Reverted direct edits to FUTURE.md (FUT-01) and UI_SPEC.md (duplicate reading.animate_gifs row; spec already has it) → spec-check green.
+- Next: size maps (running), PR.
