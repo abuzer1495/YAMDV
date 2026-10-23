@@ -595,6 +595,7 @@ impl Win {
             });
             d.viewer.invalidate_block(bi);
         }
+        self.sel = None;
         self.live_reveal();
         self.prepare_now(sh);
         self.live_scroll_to_caret(sh);
@@ -643,6 +644,27 @@ impl Win {
         }
         self.invalidate();
         sp
+    }
+
+    /// Source offset under client (x, y) in the rendered document.
+    pub(super) fn doc_hit(&self, sh: &Shared, x: f32, y: f32) -> Option<usize> {
+        let (cx, _) = self.col(sh);
+        let View::Doc(d) = &self.view else {
+            return None;
+        };
+        let pos = d
+            .viewer
+            .hit(&d.content, x - cx, f64::from(y) + d.viewer.scroll)?
+            .source as usize;
+        // Offsets after an edited active block shift by the pending edit.
+        let e = d.edit.as_deref()?;
+        Some(match e.active {
+            Some(a) if pos >= a.start + a.old_len => {
+                let delta = e.ed.len() as i64 - d.content.source().len() as i64;
+                (pos as i64 + delta).max(0) as usize
+            }
+            _ => pos,
+        })
     }
 
     /// F2 click at client (x, y) outside the active block: leave it and enter the clicked one
@@ -957,7 +979,13 @@ impl Win {
                 return;
             }
             Some(false) => {
-                self.edit_leave_block(sh);
+                let s = self.edit().map(|e| (e.ed.anchor(), e.ed.caret()));
+                match s {
+                    Some((a, c)) if a != c => self.xsel_set(sh, a, c),
+                    _ => {
+                        self.edit_leave_block(sh);
+                    }
+                }
                 return;
             }
             Some(true) => {}
@@ -1029,6 +1057,9 @@ impl Win {
     }
 
     pub(super) fn edit_char(&mut self, sh: &Shared, unit: u16) {
+        if unit >= 0x20 && unit != 0x7F {
+            self.xsel_input(sh);
+        }
         let Some(e) = self.edit_mut() else { return };
         let s = if (0xD800..0xDC00).contains(&unit) {
             e.surrogate = Some(unit);
@@ -1126,7 +1157,11 @@ impl Win {
                 };
                 let rel = target_y - oy;
                 if rel < 0.0 || rel > p.shaped.height() {
-                    if !extend {
+                    if extend {
+                        if let Some(r) = self.active_range() {
+                            self.xsel_extend(sh, if dy < 0.0 { r.start } else { r.end });
+                        }
+                    } else {
                         self.live_adjacent(sh, dy < 0.0, Some(goal));
                     }
                     return;
@@ -1454,6 +1489,7 @@ impl Win {
             return;
         };
         self.with_ed(sh, |ed| ed.paste(&t));
+        self.f2_paste_split(sh);
     }
 
     /// Context-menu commands of the edit modes.
@@ -2060,6 +2096,11 @@ impl Win {
             return true;
         }
         self.count_clicks(x, y);
+        if shift && let Some(pos) = self.doc_hit(sh, x, y) {
+            self.xsel_extend(sh, pos);
+            self.set_drag(Drag::Preview, y);
+            return true;
+        }
         self.live_click(sh, x, y);
         self.edit_title();
         true
@@ -2095,10 +2136,21 @@ impl Win {
             }
             Drag::Preview => {
                 let pos = match self.edit_mode() {
-                    Some(Mode::Live) => self.live_para(sh).map(|(ox, oy, p)| {
-                        let idx = p.shaped.hit(x - ox, y - oy);
-                        p.map.as_ref().map_or(0, |m| m.to_source(idx)) as usize
-                    }),
+                    Some(Mode::Live) => {
+                        let inside = self.live_para(sh).and_then(|(ox, oy, p)| {
+                            (y >= oy - 8.0 && y <= oy + p.shaped.height() + 8.0).then(|| {
+                                let idx = p.shaped.hit(x - ox, y - oy);
+                                p.map.as_ref().map_or(0, |m| m.to_source(idx)) as usize
+                            })
+                        });
+                        if inside.is_none()
+                            && let Some(pos) = self.doc_hit(sh, x, y)
+                        {
+                            self.xsel_extend(sh, pos);
+                            return true;
+                        }
+                        inside
+                    }
                     _ => {
                         let (cx, _) = self.col(sh);
                         let View::Doc(d) = &self.view else {
@@ -2338,7 +2390,11 @@ impl Win {
                 }
                 None
             }
-            WM_CHAR if self.find.is_none() && self.dialog.is_none() && self.typing() => {
+            WM_CHAR
+                if self.find.is_none()
+                    && self.dialog.is_none()
+                    && (self.typing() || self.xsel().is_some()) =>
+            {
                 self.edit_char(sh, wp.0 as u16);
                 Some(LRESULT(0))
             }

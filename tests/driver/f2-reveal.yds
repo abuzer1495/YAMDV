@@ -83,3 +83,43 @@ assert buffer contains "plain [word](x.md) here"
 key ctrl+z
 wait-idle
 assert buffer contains "plain word here"
+
+# item 5: cross-block selection, MD+HTML+plain clipboard, multi-block paste
+write-file r5.tmp.md "# Title\n\nFirst **bold** para.\n\nSecond para here.\n\nThird.\n"
+open r5.tmp.md
+wait-idle
+key f2
+ui v2f-caret "6|First"
+key shift+down
+key shift+down
+wait-idle
+assert xsel == "**bold** para.\n\nSecond para here."
+key ctrl+c
+wait-idle
+assert clip_md == "**bold** para.\n\nSecond para here."
+assert clip_text contains "bold para."
+assert clip_html == 1
+key delete
+wait-idle
+assert buffer contains "First \n\nThird."
+assert xsel == ""
+key ctrl+z
+wait-idle
+assert buffer contains "First **bold** para.\n\nSecond para here.\n\nThird."
+ui v2f-caret "6|Third."
+key ctrl+v
+wait-idle
+assert buffer contains "Third.**bold** para.\n\nSecond para here.\n"
+assert doc_blocks == 5
+key ctrl+a
+wait-idle
+assert xsel contains "# Title"
+type "X"
+wait-idle
+assert buffer == "X"
+key ctrl+z
+wait-idle
+assert buffer == ""
+key ctrl+z
+wait-idle
+assert buffer contains "# Title\n\nFirst"

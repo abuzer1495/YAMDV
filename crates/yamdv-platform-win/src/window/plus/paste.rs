@@ -132,6 +132,14 @@ impl Win {
         if !self.typing() {
             return;
         }
+        // Markdown put on the clipboard by YAMDV itself (F2 cross-block copy) wins.
+        if let Some(md) = sys::clip_bytes(self.hwnd, sys::md_format(), yp::MAX_HTML) {
+            let md = String::from_utf8_lossy(&md);
+            let md = md.trim_end_matches('\0');
+            self.with_ed(sh, |ed| ed.paste(md));
+            self.f2_paste_split(sh);
+            return;
+        }
         let html = sys::html_format();
         if let Some(raw) = sys::clip_bytes(self.hwnd, html, yp::MAX_HTML + 4096) {
             let raw = String::from_utf8_lossy(&raw).into_owned();
@@ -140,6 +148,7 @@ impl Win {
                 && !md.trim().is_empty()
             {
                 self.with_ed(sh, |ed| ed.paste(&md));
+                self.f2_paste_split(sh);
                 return;
             }
         } else if sys::paste_text(self.hwnd).is_none()

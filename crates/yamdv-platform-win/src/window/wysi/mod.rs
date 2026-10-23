@@ -11,6 +11,7 @@ mod lang;
 mod linkpop;
 mod reveal;
 mod typing;
+mod xsel;
 
 pub(super) use reveal::RevealCache;
 
@@ -33,7 +34,13 @@ pub(super) struct Wysi {
 impl Win {
     /// Key hook (before the V2-E hooks): `Some` when consumed.
     pub(super) fn v2f_key(&mut self, sh: &Shared, c: Chord) -> Option<Option<Action>> {
-        if self.dialog.is_some() || self.settings.is_some() || !self.typing() {
+        if self.dialog.is_some() || self.settings.is_some() {
+            return None;
+        }
+        if let Some(r) = self.xsel_key(sh, c) {
+            return Some(r);
+        }
+        if !self.typing() {
             return None;
         }
         if self.wysi.link.is_some() {

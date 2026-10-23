@@ -81,6 +81,18 @@ pub fn copy_text(hwnd: HWND, text: &str) -> bool {
 
 /// Copies plain text and, when given, a `CF_HTML` document (§4.9, R-REN-16).
 pub fn copy_text_html(hwnd: HWND, text: &str, cf_html: Option<&str>) -> bool {
+    copy_clip(hwnd, text, cf_html, None)
+}
+
+/// Registered id of the `text/markdown` clipboard format (UTF-8, NUL-terminated).
+pub fn md_format() -> u32 {
+    use windows::Win32::System::DataExchange::RegisterClipboardFormatW;
+    // SAFETY: constant, NUL-terminated format name.
+    unsafe { RegisterClipboardFormatW(windows::core::w!("text/markdown")) }
+}
+
+/// Copies plain text plus optional `CF_HTML` and `text/markdown` (prompt 016 §3 item 5).
+pub fn copy_clip(hwnd: HWND, text: &str, cf_html: Option<&str>, md: Option<&str>) -> bool {
     use windows::Win32::System::DataExchange::RegisterClipboardFormatW;
     let w: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
     let bytes = w.len() * 2;
@@ -104,9 +116,17 @@ pub fn copy_text_html(hwnd: HWND, text: &str, cf_html: Option<&str>) -> bool {
                 let _ = GlobalFree(Some(HGLOBAL(h.0)));
                 return None;
             }
-            if let Some(html) = cf_html {
-                let fmt = RegisterClipboardFormatW(windows::core::w!("HTML Format"));
-                let bytes = html.as_bytes();
+            let extra = [
+                cf_html.map(|h| {
+                    (
+                        RegisterClipboardFormatW(windows::core::w!("HTML Format")),
+                        h,
+                    )
+                }),
+                md.map(|m| (md_format(), m)),
+            ];
+            for (fmt, s) in extra.into_iter().flatten() {
+                let bytes = s.as_bytes();
                 if fmt != 0
                     && let Ok(h) = GlobalAlloc(GMEM_MOVEABLE, bytes.len() + 1)
                 {
