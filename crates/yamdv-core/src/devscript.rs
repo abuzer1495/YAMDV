@@ -202,7 +202,10 @@ pub fn parse_line(line: &str) -> Result<Option<Cmd>, String> {
             let (f, t) = rest.split_once(' ').ok_or_else(bad)?;
             Cmd::WriteFile(
                 f.to_string(),
-                unquote(t).replace("\\n", "\n").replace("\\r", "\r"),
+                unquote(t)
+                    .replace("\\n", "\n")
+                    .replace("\\r", "\r")
+                    .replace("\\ufeff", "\u{feff}"),
             )
         }
         "open" if !rest.is_empty() => Cmd::Open(unquote(rest)),

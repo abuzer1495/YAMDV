@@ -948,6 +948,7 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         }
         None => (0, -1.0, 0, 0, String::new(), 0, (0.0, 0)),
     };
+    let (fchg, fbom, fcrlf) = w.v2f_file_probe();
     let (preview, file) = match &w.view {
         View::Doc(d) if !d.virt => (
             esc_text(d.content.source()),
@@ -1067,6 +1068,9 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
                 _ => 0.0,
             }),
         ),
+        ("file_changed_blocks".into(), V::N(fchg)),
+        ("file_bom".into(), V::N(fbom)),
+        ("file_crlf".into(), V::N(fcrlf)),
         (
             "xsel".into(),
             V::S(w.xsel().map_or(String::new(), |r| {

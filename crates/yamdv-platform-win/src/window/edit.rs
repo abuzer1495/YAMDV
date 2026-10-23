@@ -954,7 +954,14 @@ impl Win {
             let a = e.active?;
             let new = e.ed.text();
             let (o, n) = (d.content.source().as_bytes(), new.as_bytes());
-            let p = o.iter().zip(n).take_while(|(x, y)| x == y).count();
+            // The diff is ambiguous at the block end (an inserted line break can match the one
+            // after the block): prefer the alignment that keeps the edit inside the block.
+            let p = o
+                .iter()
+                .zip(n)
+                .take_while(|(x, y)| x == y)
+                .count()
+                .min(a.start + a.old_len);
             let max_s = o.len().min(n.len()) - p;
             let s = o
                 .iter()

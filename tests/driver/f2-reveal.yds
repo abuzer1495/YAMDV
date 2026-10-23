@@ -157,3 +157,35 @@ key ctrl+z
 key ctrl+z
 wait-idle
 assert buffer == "Intro text.\n\n- [ ] task one\n- [x] task two\n"
+
+# item 7: data safety (block hashes, BOM, CRLF) and ---/$$ transforms
+write-file r7.tmp.md "\ufeff# Title\r\n\r\nAlpha *one*  \r\ntwo.\r\n\r\n| a | b |\r\n|---|:-:|\r\n| 1 | 2 |\r\n\r\n\r\nBeta para.\r\n\r\n* list\r\n* more\r\n"
+open r7.tmp.md
+wait-idle
+key f2
+ui v2f-hash-mark
+ui v2f-caret "4|Beta"
+type " new"
+key ctrl+s
+wait-idle
+assert file_changed_blocks == 1
+assert file_bom == 1
+assert file_crlf == 1
+assert file contains "Beta new para."
+ui v2f-caret "6|* more"
+key return
+key return
+key return
+type "---"
+key return
+wait-idle
+assert buffer contains "* more\r\n\r\n---\r\n\r\n"
+type "$$"
+key return
+wait-idle
+assert buffer contains "---\r\n\r\n$$\r\n\r\n$$"
+key ctrl+s
+wait-idle
+# edited Beta + new rule + the two $$ lines (blank-line chunks): every other block is byte-identical
+assert file_changed_blocks == 4
+assert file_crlf == 1

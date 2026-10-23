@@ -184,6 +184,9 @@ function T5Once([string]$name, [string]$doc, [int]$a) {
 }
 T5 't5-split' "$ed/t5-large.md"
 T5 't5-live' "$ed/typical.md"
+# V2-F (prompt 016 §3 item 7): F2 typing on the 1 MB document.
+Copy-Item -Force $large "$ed/t5-live-large.md"
+T5 't5-live-large' "$ed/t5-live-large.md"
 # T10 (prompt 008 §6): headless --export-pdf of large-1mb.md through "Microsoft Print to PDF",
 # time and page count (reported, no budget); skipped with a note when the printer is missing.
 $pdfPrinter = Get-CimInstance Win32_Printer -Filter "Name='Microsoft Print to PDF'" -ErrorAction SilentlyContinue

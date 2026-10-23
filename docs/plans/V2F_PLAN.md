@@ -34,3 +34,9 @@ Checkbox click in the active block toggles (transform::task_toggle_at); context 
 (13 items incl. Callout ▸ 5) via yamdv_editor::insert (+tests). Table ▸ submenu comes with the
 table commands of item 9 (Part 2). Next: item 7 data safety (byte-identical untouched blocks,
 EOL/BOM kept) then Part 2.
+
+## CHECKPOINT 7 (item 7 done — Part 1 complete)
+- Data-safety probes: `ui v2f-hash-mark`, `file_changed_blocks` (multiset of blank-line block hashes), `file_bom`, `file_crlf`; f2-reveal covers BOM+CRLF save, `---`/`$$` transforms with CRLF.
+- Fixed F2 diff alignment at a block end (an inserted line break matched the following EOL, so Enter at block end left the block).
+- T5 F2 on large-1mb.md: tests/perf/t5-live-large.yds + measure.ps1 (Wine: 85 ms on 1 MB vs 90 ms on typical — no size dependence; CI gives real numbers).
+- Next: Part 2 items 8–13 (table model in yamdv-editor with pure tests first).
