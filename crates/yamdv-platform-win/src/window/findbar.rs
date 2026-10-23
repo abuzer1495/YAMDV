@@ -102,6 +102,10 @@ impl Win {
         {
             return;
         }
+        // R-READ-06: a hit inside a folded section unfolds it first.
+        if let Some(m) = cur {
+            self.tz_reveal_offset(m.start);
+        }
         let target = {
             let (View::Doc(d), Some(f)) = (&self.view, &self.find) else {
                 return;

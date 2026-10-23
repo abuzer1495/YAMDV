@@ -583,3 +583,98 @@ pub fn unhex(s: &str) -> Option<Vec<u8>> {
         .map(|i| s.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok()))
         .collect()
 }
+
+/// Whether this process runs elevated (P-42 banner: "Running as administrator is not
+/// recommended"). `false` when the token cannot be queried.
+pub fn is_elevated() -> bool {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    let mut tok = HANDLE::default();
+    // SAFETY: pseudo handle of this process; the token handle is closed below; the out buffer
+    // is a TOKEN_ELEVATION on the stack with its exact size.
+    unsafe {
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut tok).is_err() {
+            return false;
+        }
+        let mut e = TOKEN_ELEVATION::default();
+        let mut len = 0u32;
+        let ok = GetTokenInformation(
+            tok,
+            TokenElevation,
+            Some((&raw mut e).cast()),
+            size_of::<TOKEN_ELEVATION>() as u32,
+            &mut len,
+        )
+        .is_ok();
+        let _ = CloseHandle(tok);
+        ok && e.TokenIsElevated != 0
+    }
+}
+
+/// Puts an image on the clipboard (B.11 viewer copy): `CF_DIB` from top-down premultiplied
+/// BGRA pixels (made opaque) and, when given, the registered `PNG` format.
+pub fn copy_image(hwnd: HWND, w: u32, h: u32, bgra: &[u8], png: Option<&[u8]>) -> bool {
+    use windows::Win32::System::DataExchange::RegisterClipboardFormatW;
+    let (wu, hu) = (w as usize, h as usize);
+    if w == 0 || h == 0 || bgra.len() < wu * hu * 4 {
+        return false;
+    }
+    // BITMAPINFOHEADER (40 bytes), bottom-up rows, 32 bpp, BI_RGB.
+    let mut dib = Vec::with_capacity(40 + wu * hu * 4);
+    let push32 = |v: &mut Vec<u8>, x: u32| v.extend_from_slice(&x.to_le_bytes());
+    push32(&mut dib, 40);
+    push32(&mut dib, w);
+    push32(&mut dib, h);
+    dib.extend_from_slice(&1u16.to_le_bytes());
+    dib.extend_from_slice(&32u16.to_le_bytes());
+    push32(&mut dib, 0);
+    push32(&mut dib, (wu * hu * 4) as u32);
+    for _ in 0..4 {
+        push32(&mut dib, 0);
+    }
+    for row in (0..hu).rev() {
+        for p in bgra[row * wu * 4..(row + 1) * wu * 4].chunks_exact(4) {
+            dib.extend_from_slice(&[p[0], p[1], p[2], 255]);
+        }
+    }
+    let put = |fmt: u32, bytes: &[u8]| -> bool {
+        // SAFETY: the global block is `bytes.len()` long; ownership passes to the clipboard on
+        // success and is freed here otherwise.
+        unsafe {
+            let Ok(g) = GlobalAlloc(GMEM_MOVEABLE, bytes.len()) else {
+                return false;
+            };
+            let p = GlobalLock(g);
+            if p.is_null() {
+                let _ = GlobalFree(Some(g));
+                return false;
+            }
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), p.cast::<u8>(), bytes.len());
+            let _ = GlobalUnlock(g);
+            if SetClipboardData(fmt, Some(HANDLE(g.0))).is_err() {
+                let _ = GlobalFree(Some(HGLOBAL(g.0)));
+                return false;
+            }
+            true
+        }
+    };
+    // SAFETY: standard clipboard open/empty/close sequence on our window.
+    unsafe {
+        if OpenClipboard(Some(hwnd)).is_err() {
+            return false;
+        }
+        let _ = EmptyClipboard();
+    }
+    let ok = put(u32::from(windows::Win32::System::Ole::CF_DIB.0), &dib);
+    if let Some(png) = png {
+        // SAFETY: registers (or looks up) a named clipboard format.
+        let fmt = unsafe { RegisterClipboardFormatW(windows::core::w!("PNG")) };
+        if fmt != 0 {
+            let _ = put(fmt, png);
+        }
+    }
+    // SAFETY: matches OpenClipboard.
+    let _ = unsafe { CloseClipboard() };
+    ok
+}

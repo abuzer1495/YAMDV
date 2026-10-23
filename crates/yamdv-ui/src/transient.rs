@@ -136,9 +136,6 @@ impl Banners {
         if y < 0.0 {
             return None;
         }
-        if y < 0.0 {
-            return None;
-        }
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let i = (y / BANNER_H) as usize;
         self.visible().get(i).copied()

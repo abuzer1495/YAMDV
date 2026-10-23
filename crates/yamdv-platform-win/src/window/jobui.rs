@@ -87,7 +87,7 @@ pub(super) fn start(owner: HWND, kind: JobKind, text: &str, out: Option<String>)
     let Some(w) = crate::job::spawn(owner, kind, text, out) else {
         return false;
     };
-    app::with_win(owner, |win, _| win.banner = None);
+    app::with_win(owner, |win, sh| win.tz_export_banner(sh, None));
     JOB.with(|j| *j.borrow_mut() = Some(w));
     taskbar(|tb| {
         // SAFETY: valid hwnd.
@@ -171,7 +171,7 @@ pub(super) fn exited() {
         let _ = unsafe { PostMessageW(Some(owner), 0x0010, WPARAM(0), LPARAM(0)) };
         return;
     }
-    app::with_win(owner, |win, _| {
+    app::with_win(owner, |win, sh| {
         let print = kind == JobKind::Print;
         match code {
             Some(EXIT_OK) => {
@@ -197,11 +197,12 @@ pub(super) fn exited() {
             }),
             _ => {
                 // Error banner (B.10.5): the reason, dismissible.
-                win.banner = Some(match (print, code) {
+                let m = match (print, code) {
                     (_, Some(crate::job::EXIT_NO_PRINTER)) => Msg::PdfPrinterMissing,
                     (true, _) => Msg::PrintFailed,
                     (false, _) => Msg::ExportFailed,
-                });
+                };
+                win.tz_export_banner(sh, Some(m));
             }
         }
         win.invalidate();
@@ -359,46 +360,13 @@ impl Win {
         true
     }
 
-    /// Draws the error banner (B.10.5) at the top of the document area.
-    pub(super) fn draw_banner(&self, sh: &Shared, b: &Band<'_>) {
-        let Some(m) = self.banner else { return };
-        let pal = &self.pal;
-        let r = Rect::new(0.0, 0.0, self.cw, 36.0);
-        b.fill(r, pal.bg, 1.0, 0.0);
-        b.fill(r, pal.error, 0.14, 0.0);
-        b.fill(Rect::new(0.0, 35.0, self.cw, 1.0), pal.error, 0.5, 0.0);
-        let t = self.shape_ui(
-            sh,
-            &format!("⚠  {}", tr(sh.lang, m)),
-            13.0,
-            400,
-            pal.text,
-            Some((self.cw - 72.0).max(80.0)),
-        );
-        b.text(t.as_ref(), 16.0, ((36.0 - t.height()) / 2.0).round());
-        let x = self.shape_ui(sh, "×", 16.0, 400, pal.text, None);
-        b.text(
-            x.as_ref(),
-            self.cw - 28.0,
-            ((36.0 - x.height()) / 2.0).round(),
-        );
-    }
-
-    /// Click on the banner: × dismisses; `true` when consumed.
-    pub(super) fn banner_click(&mut self, x: f32, y: f32) -> bool {
-        if self.banner.is_none() || !(0.0..36.0).contains(&y) {
-            return false;
-        }
-        if x >= self.cw - 40.0 {
-            self.banner = None;
-            let hwnd = self.hwnd;
-            taskbar(|tb| {
-                // SAFETY: valid hwnd.
-                let _ = unsafe { tb.SetProgressState(hwnd, TBPF_NOPROGRESS) };
-            });
-            self.invalidate();
-        }
-        true
+    /// The export-failure banner was dismissed: clear the taskbar error state.
+    pub(super) fn export_banner_dismissed(&self) {
+        let hwnd = self.hwnd;
+        taskbar(|tb| {
+            // SAFETY: valid hwnd.
+            let _ = unsafe { tb.SetProgressState(hwnd, TBPF_NOPROGRESS) };
+        });
     }
 
     /// Click on the completion toast's [Open] / [Show in folder]; `true` when consumed.

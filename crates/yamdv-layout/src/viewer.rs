@@ -423,7 +423,10 @@ pub struct Viewer {
     pub plain: PlainOpts,
     /// Folded blocks (R-READ-06); empty when nothing is folded.
     hidden: Vec<bool>,
-    /// Height factor of the hidden blocks (fold animation).
+    /// Hidden blocks that are animating (folding or unfolding): their height factor is
+    /// `squash`; the other hidden blocks have 0.
+    moving: Vec<bool>,
+    /// Height factor of the moving hidden blocks (fold animation).
     squash: f64,
 }
 
@@ -577,6 +580,7 @@ impl Viewer {
             source_block: None,
             plain: PlainOpts::default(),
             hidden: Vec::new(),
+            moving: Vec::new(),
             squash: 0.0,
         };
         v.reestimate(content);
@@ -594,20 +598,23 @@ impl Viewer {
         if self.hidden.len() == n {
             for (i, v) in h.iter().enumerate() {
                 if self.hidden.get(i).copied().unwrap_or(false) {
-                    self.heights.set(i, v * self.squash);
+                    self.heights.set(i, v * self.factor(i));
                 }
             }
         } else {
             self.hidden.clear();
+            self.moving.clear();
         }
     }
 
     /// Height factor of block `i` (R-READ-06 folding): 1, or the fold animation factor.
     fn factor(&self, i: usize) -> f64 {
-        if self.hidden.get(i).copied().unwrap_or(false) {
+        if !self.hidden.get(i).copied().unwrap_or(false) {
+            1.0
+        } else if self.moving.get(i).copied().unwrap_or(false) {
             self.squash
         } else {
-            1.0
+            0.0
         }
     }
 
@@ -616,21 +623,32 @@ impl Viewer {
         self.hidden.get(i).copied().unwrap_or(false)
     }
 
-    /// Hides the blocks marked in `hidden` (folded headings, R-READ-06); `squash` scales their
-    /// heights (0 = folded, between 0 and 1 while the 120 ms animation runs). Layout heights
-    /// are kept, so unfolding restores exact positions. The caller keeps the heading on screen.
-    pub fn set_hidden(&mut self, content: &Content, hidden: Vec<bool>, squash: f64) {
+    /// Hides the blocks marked in `hidden` (folded headings, R-READ-06). Hidden blocks also
+    /// marked in `moving` get the height factor `squash` (between 0 and 1 while the 120 ms
+    /// fold animation runs), the others 0. Layout heights are kept, so unfolding restores
+    /// exact positions. The caller keeps the heading on screen.
+    pub fn set_hidden(&mut self, content: &Content, hidden: Vec<bool>, moving: Vec<bool>, squash: f64) {
         let n = self.heights.len();
         let hidden = if hidden.iter().any(|&h| h) && hidden.len() == n {
             hidden
         } else {
             Vec::new()
         };
+        let moving = if hidden.is_empty() || moving.len() != n {
+            Vec::new()
+        } else {
+            moving
+        };
         let squash = squash.clamp(0.0, 1.0);
         for i in 0..n {
             let was = self.factor(i);
-            let now_hidden = hidden.get(i).copied().unwrap_or(false);
-            let now = if now_hidden { squash } else { 1.0 };
+            let now = if !hidden.get(i).copied().unwrap_or(false) {
+                1.0
+            } else if moving.get(i).copied().unwrap_or(false) {
+                squash
+            } else {
+                0.0
+            };
             if (was - now).abs() < f64::EPSILON {
                 continue;
             }
@@ -646,6 +664,7 @@ impl Viewer {
             self.heights.set(i, full * now);
         }
         self.hidden = hidden;
+        self.moving = moving;
         self.squash = squash;
     }
 
@@ -904,6 +923,7 @@ impl Viewer {
         self.measured = meas;
         // Folds are session state of the unchanged document (the caller clears them).
         self.hidden.clear();
+        self.moving.clear();
         let start = r.start;
         self.layouts.retain(|e| e.0 < start);
         if sp.refs_changed {
@@ -1098,12 +1118,12 @@ mod tests {
         let levels: Vec<Option<u8>> = (0..c.len()).map(|i| c.heading_level(i)).collect();
         let mut f = crate::fold::Folds::default();
         assert!(f.toggle(&levels, 0));
-        v.set_hidden(&c, f.hidden(&levels), 0.0);
+        v.set_hidden(&c, f.hidden(&levels), Vec::new(), 0.0);
         v.prepare(&mut c, &mut env, view_h);
         assert!(v.total_height() < full - 50.0);
         assert!(v.is_hidden(1) && !v.is_hidden(5));
         assert!(v.visible(&c, view_h).iter().all(|e| e.0 == 0 || e.0 >= 5));
-        v.set_hidden(&c, Vec::new(), 1.0);
+        v.set_hidden(&c, Vec::new(), Vec::new(), 1.0);
         v.prepare(&mut c, &mut env, view_h);
         assert!((v.total_height() - full).abs() < 0.5);
     }

@@ -71,6 +71,7 @@ mod jobui;
 mod popup;
 mod setpanel;
 mod sidebar;
+mod transient;
 mod welcome;
 use windows::Win32::UI::WindowsAndMessaging::{
     MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, QS_ALLINPUT,
@@ -386,8 +387,8 @@ struct Win {
     done_file: Option<String>,
     /// Where the toast was drawn (hit-testing its buttons).
     toast_rect: std::cell::Cell<Option<Rect>>,
-    /// Error banner after a failed export (B.10.5, BUG-11).
-    banner: Option<Msg>,
+    /// Banners, tooltips, the Ask popover, fullscreen viewers and folds (prompt 013).
+    tz: transient::State,
     /// The export progress card has the keyboard focus (`Esc` cancels).
     job_focus: bool,
     /// Navigation history (path, scroll) and position (R-LINK-02).
@@ -1521,7 +1522,6 @@ impl Win {
             self.draw_side(sh, b);
         }
         self.draw_find(sh, b);
-        self.draw_banner(sh, b);
         self.draw_job(sh, b);
         self.draw_settings(sh, b);
         self.toast_rect.set(None);
@@ -1781,7 +1781,7 @@ impl Win {
             return;
         }
         if self.dialog.is_none()
-            && (self.job_click(x, y) || self.toast_click(x, y) || self.banner_click(x, y))
+            && (self.job_click(x, y) || self.toast_click(x, y))
         {
             return;
         }
@@ -2619,6 +2619,13 @@ pub(crate) fn draw_doc(
         if !b.visible(y, bl.height.max(1.0)) {
             continue;
         }
+        // R-READ-06: a block that is folding away draws inside its shrinking slot.
+        let clip = viewer.is_hidden(bi);
+        if clip {
+            let (top, h) = viewer.slot(bi);
+            let t = (top - viewer.scroll) as f32;
+            b.push_clip(Rect::new(-10_000.0, t, 20_000.0, h as f32));
+        }
         draw_block(
             b,
             bl,
@@ -2629,6 +2636,9 @@ pub(crate) fn draw_doc(
             images,
             marks,
         );
+        if clip {
+            b.pop_clip();
+        }
     }
 }
 
@@ -3751,7 +3761,7 @@ fn create_window(sh: &Shared, path: Option<&str>) -> Option<HWND> {
         toast_arg: String::new(),
         done_file: None,
         toast_rect: std::cell::Cell::new(None),
-        banner: None,
+        tz: transient::State::default(),
         job_focus: false,
         history: Vec::new(),
         hist_pos: 0,
