@@ -41,3 +41,7 @@ Order: §1.1 F-31 → F-32 → §2 ADR-0021 (before SVG code), ADR-0022, P-48, I
 - TRACEABILITY via tools/trace_set.py: R-MATH-02/07, R-MMD-01/03/06/08(partial: no today marker)/09/10, R-IMG-01, R-CODE-01, R-F2-11 (IDEA-05 #86), R-F2-12.
 - Reverted direct edits to FUTURE.md (FUT-01) and UI_SPEC.md (duplicate reading.animate_gifs row; spec already has it) → spec-check green.
 - Next: size maps (running), PR.
+
+## CHECKPOINT 8 (size budget)
+- Size map was +266,240 B (over +250 KB). Fix: release `opt-level = "z"` for mermaid/svg/math/highlight/export packages → 3,626,496 B, **+244,736 B**. Shares in docs/reports/v2g_sizemap.md. gate.sh GATE-OK.
+- Next: open PR (no [skip ci]), one CI run, fix push with v2g goldens from the artifact, gates (watch T4 with z-level engines), merge, tag phase-v2g, report.
