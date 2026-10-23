@@ -337,6 +337,7 @@ const IMAGE_MIMES: &[&str] = &[
     "image/x-icon",
     "image/vnd.microsoft.icon",
     "image/tiff",
+    "image/svg+xml",
 ];
 
 /// Decodes `data:image/…;base64,…` within S-RES-04.
@@ -346,9 +347,6 @@ pub fn data_uri(src: &str) -> Result<Vec<u8>, Placeholder> {
     let meta = meta.to_ascii_lowercase();
     let mut parts = meta.split(';');
     let mime = parts.next().unwrap_or("").trim();
-    if mime == "image/svg+xml" {
-        return Err(Placeholder::Unsupported);
-    }
     if !IMAGE_MIMES.contains(&mime) {
         return Err(Placeholder::Invalid);
     }
@@ -950,7 +948,7 @@ mod tests {
         );
         assert_eq!(
             data_uri("data:image/svg+xml;base64,PHN2Zz4="),
-            Err(Placeholder::Unsupported)
+            Ok(b"<svg>".to_vec())
         );
         assert_eq!(data_uri("data:image/png,raw"), Err(Placeholder::Invalid));
         assert_eq!(

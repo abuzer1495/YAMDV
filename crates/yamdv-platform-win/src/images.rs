@@ -32,6 +32,9 @@ use windows::core::HSTRING;
 use yamdv_core::image::{self, DriveKind, Fs, Placeholder, Source};
 use yamdv_layout::img::{ImageHost, ImgState};
 
+mod svg;
+pub use svg::set_text_color;
+
 /// Window message posted when a decode finished (`wParam` = generation).
 pub const WM_IMAGE_DONE: u32 = WM_APP + 0x31;
 /// Worker stack size (E.10).
@@ -192,12 +195,17 @@ pub struct Bitmap {
     pub h: u32,
     /// `w * h * 4` bytes.
     pub px: Vec<u8>,
+    /// SVG only: the `currentColor` it was rendered with (re-rendered when the theme changes).
+    pub svg_color: Option<u32>,
 }
 
 /// WIC decode of `src` scaled (high-quality cubic) to `w × h` device pixels.
 pub fn decode(f: &IWICImagingFactory, src: &Source, w: u32, h: u32) -> Result<Bitmap, Placeholder> {
     let w = w.clamp(1, image::MAX_DIM);
     let h = h.clamp(1, image::MAX_DIM);
+    if let Some(b) = svg_bytes(src)? {
+        return svg::decode(&b, w, h);
+    }
     // SAFETY: COM initialized on this thread; all objects released by Drop; the buffer size is
     // `w*h*4` and the stride `w*4`.
     unsafe {
@@ -239,7 +247,29 @@ pub fn decode(f: &IWICImagingFactory, src: &Source, w: u32, h: u32) -> Result<Bi
         let mut px = vec![0u8; (w as usize) * (h as usize) * 4];
         cv.CopyPixels(std::ptr::null(), w * 4, &mut px)
             .map_err(|_| Placeholder::Unsupported)?;
-        Ok(Bitmap { w, h, px })
+        Ok(Bitmap {
+            w,
+            h,
+            px,
+            svg_color: None,
+        })
+    }
+}
+
+/// The whole SVG document behind `src` (≤ 10 MB, S-RES-07), or `None` when it is not SVG.
+fn svg_bytes(src: &Source) -> Result<Option<std::borrow::Cow<'_, [u8]>>, Placeholder> {
+    match src {
+        Source::Data(d) => Ok(svg::is_svg(d).then_some(std::borrow::Cow::Borrowed(d.as_slice()))),
+        Source::File(p) => {
+            if !read_head(p, 512).is_some_and(|h| svg::is_svg(&h)) {
+                return Ok(None);
+            }
+            let b = read_head(p, yamdv_svg::xml::MAX_INPUT + 1).ok_or(Placeholder::Missing)?;
+            if b.len() > yamdv_svg::xml::MAX_INPUT {
+                return Err(Placeholder::TooLarge);
+            }
+            Ok(Some(std::borrow::Cow::Owned(b)))
+        }
     }
 }
 
@@ -457,7 +487,9 @@ impl Store {
             if !matches!(e.state, ImgState::Ready { .. }) {
                 return None;
             }
-            let ok = e.bmp.as_ref().is_some_and(|b| b.w == w && b.h == h);
+            let ok = e.bmp.as_ref().is_some_and(|b| {
+                b.w == w && b.h == h && b.svg_color.is_none_or(|c| c == svg::text_color())
+            });
             if !ok && e.pending != Some((w, h)) {
                 e.pending = Some((w, h));
                 e.src.clone()
@@ -551,6 +583,28 @@ impl Store {
         (any, relayout)
     }
 
+    /// SVG: the intrinsic size from the parsed document, scaled into `MAX_DIM`.
+    fn probe_svg(src: &Source) -> ImgState {
+        let bytes = match svg_bytes(src) {
+            Ok(Some(b)) => b,
+            Ok(None) => return ImgState::Fail(Placeholder::Invalid),
+            Err(p) => return ImgState::Fail(p),
+        };
+        match svg::size(&bytes) {
+            Err(p) => ImgState::Fail(p),
+            Ok((w, h)) => {
+                let k = f64::from(image::MAX_DIM) / f64::from(w.max(h));
+                if k < 1.0 {
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let f = |v: u32| ((f64::from(v) * k).round() as u32).max(1);
+                    ImgState::Ready { w: f(w), h: f(h) }
+                } else {
+                    ImgState::Ready { w, h }
+                }
+            }
+        }
+    }
+
     pub(crate) fn probe_source(src: &Source) -> ImgState {
         let head = match src {
             Source::Data(d) => Some(d.get(..d.len().min(65_536)).unwrap_or(&[]).to_vec()),
@@ -561,7 +615,7 @@ impl Store {
         };
         match image::probe(&head) {
             None => ImgState::Fail(Placeholder::Unsupported),
-            Some(p) if p.format == image::Format::Svg => ImgState::Fail(Placeholder::Unsupported),
+            Some(p) if p.format == image::Format::Svg => Self::probe_svg(src),
             Some(p) if !image::within_limits(&p) => ImgState::Fail(Placeholder::TooLarge),
             Some(p) if p.w == 0 || p.h == 0 => ImgState::Pending,
             Some(p) => ImgState::Ready { w: p.w, h: p.h },

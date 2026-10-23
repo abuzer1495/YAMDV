@@ -681,6 +681,7 @@ dependencies = [
  "yamdv-layout",
  "yamdv-math",
  "yamdv-mermaid",
+ "yamdv-svg",
  "yamdv-ui",
 ]
 

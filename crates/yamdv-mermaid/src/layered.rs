@@ -634,7 +634,7 @@ pub(crate) fn layout(f: &Flow, m: &mut dyn Measure, s: f32) -> Drawing {
         edges.push(pts);
     }
     // Parallel edges between the same two nodes (`A --> B`, `B --> A`) are spread apart.
-    spread_parallel(f, &mut edges, &rects, s);
+    let side = spread_parallel(f, &mut edges, &rects, s);
     // Edge label boxes (center of the middle segment).
     let lab_boxes: Vec<Option<(f32, f32, f32, f32, u32)>> = edges
         .iter()
@@ -655,6 +655,12 @@ pub(crate) fn layout(f: &Flow, m: &mut dyn Measure, s: f32) -> Drawing {
                 )
             };
             let (w, h) = (lb.1 + 8.0 * s, lb.2 + 4.0 * s);
+            // A spread parallel edge keeps its label on its own side.
+            let (sx, sy) = side.get(ei).copied().unwrap_or((0.0, 0.0));
+            let mid = (
+                mid.0 + sx * (w / 2.0 + 2.0 * s),
+                mid.1 + sy * (h / 2.0 + 2.0 * s),
+            );
             Some((mid.0 - w / 2.0, mid.1 - h / 2.0, w, h, lb.0))
         })
         .collect();
@@ -968,13 +974,15 @@ pub(crate) fn layout(f: &Flow, m: &mut dyn Measure, s: f32) -> Drawing {
     }
 }
 
-/// Offsets edges that share both end nodes perpendicular to their direction (14 px apart).
+/// Offsets edges that share both end nodes perpendicular to their direction (14 px apart);
+/// returns each edge's side as a unit vector (zero when not spread).
 fn spread_parallel(
     f: &Flow,
     edges: &mut [Vec<(f32, f32)>],
     rects: &[(f32, f32, f32, f32)],
     s: f32,
-) {
+) -> Vec<(f32, f32)> {
+    let mut side = vec![(0.0, 0.0); edges.len()];
     let mut groups: std::collections::HashMap<(usize, usize), Vec<usize>> =
         std::collections::HashMap::new();
     for (i, e) in f.edges.iter().enumerate() {
@@ -1007,6 +1015,11 @@ fn spread_parallel(
             let len = dx.hypot(dy).max(1e-3);
             let d = (j as f32 - (m - 1.0) / 2.0) * 14.0 * s;
             let (ox, oy) = (-dy / len * d, dx / len * d);
+            if let Some(sd) = side.get_mut(ei)
+                && d != 0.0
+            {
+                *sd = (-dy / len * d.signum(), dx / len * d.signum());
+            }
             for p in pts.iter_mut() {
                 p.0 += ox;
                 p.1 += oy;
@@ -1022,4 +1035,5 @@ fn spread_parallel(
             }
         }
     }
+    side
 }

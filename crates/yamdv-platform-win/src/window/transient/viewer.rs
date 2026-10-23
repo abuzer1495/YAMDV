@@ -406,6 +406,34 @@ impl Win {
             5 => return self.fv_copy(sh),
             _ => return self.fv_close(),
         }
+        self.fv_zoomed();
+    }
+
+    /// After a zoom change: an SVG image is rendered again at the zoom scale (ADR-0021; at most
+    /// 16 M px, beyond that it is scaled), then the viewer repaints.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    fn fv_zoomed(&mut self) {
+        let scale = self.scale;
+        if let Some(fv) = &mut self.tz.fv
+            && let FvKind::Image { bmp, src, nat } = &mut fv.kind
+            && bmp.svg_color.is_some()
+        {
+            let z = fv.z.scale * scale;
+            let (mut w, mut h) = (nat.0 as f32 * z, nat.1 as f32 * z);
+            let k = (16.0e6 / (w * h).max(1.0)).sqrt().min(1.0);
+            (w, h) = (w * k, h * k);
+            let (w, h) = ((w.round() as u32).max(1), (h.round() as u32).max(1));
+            if w.abs_diff(bmp.w) * 10 > bmp.w.max(1)
+                && let Some(f) = crate::images::factory()
+                && let Ok(b) = crate::images::decode(&f, src, w, h)
+            {
+                *bmp = b;
+            }
+        }
         self.invalidate();
     }
 
@@ -720,7 +748,7 @@ impl Win {
         }
         if dbl {
             fv.z.toggle();
-            self.invalidate();
+            self.fv_zoomed();
         } else if body.contains(x, y) {
             fv.drag = Some(Drag::Pan(x, y));
         }
@@ -789,7 +817,7 @@ impl Win {
         } else {
             fv.z.wheel(notches, x - body.x, y - body.y);
         }
-        self.invalidate();
+        self.fv_zoomed();
     }
 
     /// Keys: + − zoom, 0 fit, 1 actual size, Ctrl+C copy, Esc closes.
@@ -804,7 +832,7 @@ impl Win {
             0x43 if ctrl => return self.fv_copy(sh),
             _ => return,
         }
-        self.invalidate();
+        self.fv_zoomed();
     }
 
     /// The content area changed size.
@@ -911,7 +939,7 @@ impl Win {
         let before = fv.z.to_content(px, py);
         fv.z.wheel(notches, px, py);
         let after = fv.z.to_content(px, py);
-        self.invalidate();
+        self.fv_zoomed();
         Some((before, after))
     }
 

@@ -1323,6 +1323,8 @@ impl Win {
         if let Some(r) = &self.renderer {
             let me = &*self;
             if let View::Doc(d) = &me.view {
+                // SVG `currentColor` = document text color (ADR-0021).
+                crate::images::set_text_color(me.pal.text);
                 d.images.begin_frame();
             }
             // Paint the vertical spans of the update region, not its bounding box: a scroll step
