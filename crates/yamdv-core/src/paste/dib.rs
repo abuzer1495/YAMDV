@@ -30,7 +30,12 @@ pub fn to_bgra(b: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     let bpp = u16_at(b, 14)?;
     let comp = u32_at(b, 16)?;
     let (wu, hu) = (w.unsigned_abs(), h.unsigned_abs());
-    if w <= 0 || hu == 0 || wu > MAX_SIDE || hu > MAX_SIDE || u64::from(wu) * u64::from(hu) > MAX_PIXELS {
+    if w <= 0
+        || hu == 0
+        || wu > MAX_SIDE
+        || hu > MAX_SIDE
+        || u64::from(wu) * u64::from(hu) > MAX_PIXELS
+    {
         return None;
     }
     let masks = match (comp, bpp) {

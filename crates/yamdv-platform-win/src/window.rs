@@ -3117,10 +3117,9 @@ fn handle(
             Some(LRESULT(0))
         }
         WM_CHAR if w.find.is_some() => {
-            // Ctrl+H arrives as U+0008 too: not a backspace.
-            // SAFETY: GetKeyState has no preconditions.
-            let ctrl = unsafe { GetKeyState(i32::from(VK_CONTROL.0)) } < 0;
-            if let Some(c) = char::from_u32(wp.0 as u32).filter(|c| !(ctrl && *c == '\u{8}')) {
+            // Backspace is handled on WM_KEYDOWN (`findrep_key`, so it never reaches the editor);
+            // Ctrl+H arrives as U+0008 too.
+            if let Some(c) = char::from_u32(wp.0 as u32).filter(|c| *c != '\u{8}') {
                 w.find_char(sh, c);
             }
             Some(LRESULT(0))

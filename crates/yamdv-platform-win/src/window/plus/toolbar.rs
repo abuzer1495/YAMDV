@@ -95,7 +95,10 @@ impl Win {
         let sel = self.edit()?.ed.selection();
         let (ox, oy, p) = self.live_para(sh)?;
         let map = p.map.as_ref()?;
-        let at = |pos: usize| p.shaped.caret(map.from_source(u32::try_from(pos).unwrap_or(0)));
+        let at = |pos: usize| {
+            p.shaped
+                .caret(map.from_source(u32::try_from(pos).unwrap_or(0)))
+        };
         let (a, b) = (at(sel.start), at(sel.end));
         let (top, bottom) = (oy + a.y.min(b.y), oy + (a.y + a.h).max(b.y + b.h));
         let w = width();
@@ -104,7 +107,9 @@ impl Win {
         } else {
             ox + a.x
         };
-        let x = (cx - w / 2.0).clamp(8.0, (self.cw - w - 8.0).max(8.0)).round();
+        let x = (cx - w / 2.0)
+            .clamp(8.0, (self.cw - w - 8.0).max(8.0))
+            .round();
         let above = top - GAP - H;
         let y = if above >= 4.0 { above } else { bottom + GAP };
         Some(Rect::new(x, y.round(), w, H))
@@ -112,7 +117,9 @@ impl Win {
 
     /// Mouse down: runs a button. True when the press was on the toolbar.
     pub(in crate::window) fn toolbar_down(&mut self, sh: &Shared, x: f32, y: f32) -> bool {
-        let Some(bar) = self.toolbar_rect(sh) else { return false };
+        let Some(bar) = self.toolbar_rect(sh) else {
+            return false;
+        };
         if !bar.contains(x, y) {
             return false;
         }
@@ -144,7 +151,9 @@ impl Win {
     /// Driver: clicks the button whose tooltip starts with `name` (e.g. "Bold").
     #[cfg(feature = "dev-tools")]
     pub(in crate::window) fn toolbar_press(&mut self, sh: &Shared, name: &str) -> bool {
-        let Some(bar) = self.toolbar_rect(sh) else { return false };
+        let Some(bar) = self.toolbar_rect(sh) else {
+            return false;
+        };
         for (i, r) in buttons(bar) {
             if let Some(Some((_, _, _, m))) = ITEMS.get(i)
                 && tr(Lang::En, *m).starts_with(name)
@@ -157,16 +166,28 @@ impl Win {
 
     /// Paints the toolbar (content origin).
     pub(in crate::window) fn toolbar_draw(&self, sh: &Shared, b: &Band<'_>) {
-        let Some(bar) = self.toolbar_rect(sh) else { return };
+        let Some(bar) = self.toolbar_rect(sh) else {
+            return;
+        };
         let pal = &self.pal;
         let tok = yamdv_core::chrome::tokens(self.dark);
-        b.fill(Rect::new(bar.x, bar.y + 2.0, bar.w, bar.h), 0x000000, 0.14, 9.0);
+        b.fill(
+            Rect::new(bar.x, bar.y + 2.0, bar.w, bar.h),
+            0x000000,
+            0.14,
+            9.0,
+        );
         b.fill(bar, tok.menu_bg, 1.0, 8.0);
         b.stroke(bar, tok.chrome_border, 8.0, 1.0);
         let mut x = bar.x + PAD;
         for (i, it) in ITEMS.iter().enumerate() {
             let Some((_, label, weight, _)) = it else {
-                b.fill(Rect::new(x + 4.0, bar.y + 8.0, 1.0, H - 16.0), tok.chrome_border, 1.0, 0.0);
+                b.fill(
+                    Rect::new(x + 4.0, bar.y + 8.0, 1.0, H - 16.0),
+                    tok.chrome_border,
+                    1.0,
+                    0.0,
+                );
                 x += SEP;
                 continue;
             };

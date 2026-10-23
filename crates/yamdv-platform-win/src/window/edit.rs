@@ -556,7 +556,7 @@ impl Win {
     // ---- F2 block ------------------------------------------------------------------------
 
     /// Activates block `bi` with the caret at `caret` (clamped into the block).
-    fn enter_block(&mut self, sh: &Shared, bi: usize, caret: usize) {
+    pub(super) fn enter_block(&mut self, sh: &Shared, bi: usize, caret: usize) {
         {
             let View::Doc(d) = &mut self.view else { return };
             let Some(e) = d.edit.as_deref_mut() else {
@@ -610,7 +610,10 @@ impl Win {
 
     /// Leaves the F2 block: the document catches up with the buffer (only the edited blocks
     /// re-parse; untouched blocks are never re-serialized). Returns the splice.
-    pub(super) fn edit_leave_block(&mut self, _sh: &Shared) -> Option<yamdv_core::doc::index::Splice> {
+    pub(super) fn edit_leave_block(
+        &mut self,
+        _sh: &Shared,
+    ) -> Option<yamdv_core::doc::index::Splice> {
         let vh = self.view_h();
         let View::Doc(d) = &mut self.view else {
             return None;
@@ -672,7 +675,10 @@ impl Win {
     }
 
     /// The active block's laid paragraph and its client origin.
-    pub(super) fn live_para(&self, sh: &Shared) -> Option<(f32, f32, &yamdv_layout::block::LaidPara)> {
+    pub(super) fn live_para(
+        &self,
+        sh: &Shared,
+    ) -> Option<(f32, f32, &yamdv_layout::block::LaidPara)> {
         let View::Doc(d) = &self.view else {
             return None;
         };
@@ -1946,7 +1952,10 @@ impl Win {
         };
         if self.dialog.is_some()
             || (mode == Mode::Live && self.over_side(sh, x, y))
-            || (self.find.is_some() && findbar::bar_rects(self.cw, self.find_tall()).0.contains(x, y))
+            || (self.find.is_some()
+                && findbar::bar_rects(self.cw, self.find_tall())
+                    .0
+                    .contains(x, y))
         {
             return false;
         }

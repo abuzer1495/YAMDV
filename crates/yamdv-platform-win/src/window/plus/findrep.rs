@@ -36,7 +36,26 @@ impl Win {
     /// Keys while the bar is open (before the bar's own Esc / Enter handling).
     pub(super) fn findrep_key(&mut self, sh: &Shared, c: Chord) -> Option<Option<Action>> {
         let f = self.find.as_mut()?;
-        if !f.replace || c.alt {
+        // Alt+C / Alt+W / Alt+R: case, whole word, regex (keyboard reach of the option chips).
+        if c.alt && !c.ctrl {
+            let which = match c.vk {
+                0x43 => 0,
+                0x57 => 1,
+                0x52 => 2,
+                _ => return None,
+            };
+            self.find_toggle(sh, which);
+            self.invalidate();
+            return Some(None);
+        }
+        // Backspace / Delete edit the bar's field, never the document behind it.
+        if !c.ctrl && (c.vk == 0x08 || c.vk == 0x2E) {
+            if c.vk == 0x08 {
+                self.find_char(sh, '\u{8}');
+            }
+            return Some(None);
+        }
+        if !f.replace {
             return None;
         }
         if c.vk == VK_TAB.0 && !c.ctrl {
@@ -83,7 +102,9 @@ impl Win {
 
     /// [Replace].
     pub(super) fn replace_one(&mut self, sh: &Shared) {
-        let Some((q, with)) = self.find_query() else { return };
+        let Some((q, with)) = self.find_query() else {
+            return;
+        };
         if !self.replace_prep(sh) {
             return;
         }
@@ -106,7 +127,9 @@ impl Win {
 
     /// [Replace all]: one undo step.
     pub(super) fn replace_all_now(&mut self, sh: &Shared) {
-        let Some((q, with)) = self.find_query() else { return };
+        let Some((q, with)) = self.find_query() else {
+            return;
+        };
         if !self.replace_prep(sh) {
             return;
         }
@@ -124,7 +147,9 @@ impl Win {
 
     /// Clicks on the bar; true when inside it.
     pub(in crate::window) fn find_click(&mut self, sh: &Shared, x: f32, y: f32) -> bool {
-        let Some(f) = &mut self.find else { return false };
+        let Some(f) = &mut self.find else {
+            return false;
+        };
         let r = rects(self.cw, f.replace);
         if !r.bar.contains(x, y) {
             return false;

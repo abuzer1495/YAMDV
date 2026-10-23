@@ -6,6 +6,8 @@ use super::*;
 use yamdv_core::keymap::Chord;
 use yamdv_editor::{clear, lines, md, pairs, snippets};
 
+#[cfg(feature = "dev-tools")]
+mod drive;
 mod findrep;
 mod paste;
 mod recovery;

@@ -45,8 +45,20 @@ pub(super) struct Rects {
 /// Full geometry; `tall` = replace row shown.
 pub(super) fn rects(cw: f32, tall: bool) -> Rects {
     let w = 440.0f32.min(cw - 32.0).max(260.0);
-    let bar = Rect::new((cw - w - 16.0).round(), 12.0, w, if tall { 76.0 } else { 40.0 });
-    let btn = |i: f32| Rect::new(bar.x + bar.w - 8.0 - 32.0 * i - 2.0 * (i - 1.0), bar.y + 6.0, 32.0, 28.0);
+    let bar = Rect::new(
+        (cw - w - 16.0).round(),
+        12.0,
+        w,
+        if tall { 76.0 } else { 40.0 },
+    );
+    let btn = |i: f32| {
+        Rect::new(
+            bar.x + bar.w - 8.0 - 32.0 * i - 2.0 * (i - 1.0),
+            bar.y + 6.0,
+            32.0,
+            28.0,
+        )
+    };
     let row = bar.y + 42.0;
     let all = Rect::new(bar.x + bar.w - 8.0 - 104.0, row, 104.0, 28.0);
     let one = Rect::new(all.x - 6.0 - 80.0, row, 80.0, 28.0);
@@ -101,7 +113,11 @@ impl Win {
         let src = buf.as_ref().map_or(d.content.source(), |b| b.0.as_str());
         f.err = None;
         f.matches = if f.regex || f.whole {
-            match yamdv_editor::replace::find_all(src, &f.query(), yamdv_editor::replace::REGEX_GUARD) {
+            match yamdv_editor::replace::find_all(
+                src,
+                &f.query(),
+                yamdv_editor::replace::REGEX_GUARD,
+            ) {
                 Ok(v) => v,
                 Err(e) => {
                     f.err = Some(match e {
@@ -240,11 +256,24 @@ impl Win {
         let st = self.shape_ui(sh, &t, 14.0, 400, c, None);
         b.push_clip(Rect::new(r.x, r.y - 6.0, r.w.max(1.0), r.h + 12.0));
         // Long queries scroll so the end (and the caret) stays visible.
-        let off = if text.is_empty() { 0.0 } else { (st.width() + 2.0 - r.w).max(0.0) };
-        b.text(st.as_ref(), r.x - off, (r.y + (r.h - st.height()) / 2.0).round());
+        let off = if text.is_empty() {
+            0.0
+        } else {
+            (st.width() + 2.0 - r.w).max(0.0)
+        };
+        b.text(
+            st.as_ref(),
+            r.x - off,
+            (r.y + (r.h - st.height()) / 2.0).round(),
+        );
         if focus {
             let cx = r.x - off + if text.is_empty() { 0.0 } else { st.width() } + 1.0;
-            b.fill(Rect::new(cx.min(r.x + r.w - 1.0), r.y + 4.0, 1.0, r.h - 8.0), pal.text, 1.0, 0.0);
+            b.fill(
+                Rect::new(cx.min(r.x + r.w - 1.0), r.y + 4.0, 1.0, r.h - 8.0),
+                pal.text,
+                1.0,
+                0.0,
+            );
         }
         b.pop_clip();
     }
@@ -282,14 +311,36 @@ impl Win {
         } else {
             format!("{}/{}", f.cur.map_or(0, |c| c + 1), f.matches.len())
         };
-        let cc = if f.err.is_some() { pal.error } else { pal.text_muted };
+        let cc = if f.err.is_some() {
+            pal.error
+        } else {
+            pal.text_muted
+        };
         let ct = self.shape_ui(sh, &count, 12.0, 400, cc, Some(140.0));
         let cx = r.regex.x - 8.0 - ct.width();
         let qx = r.bar.x + 28.0;
         let q = Rect::new(qx, r.bar.y + 8.0, (cx - qx - 8.0).max(40.0), 24.0);
-        self.find_field(sh, b, q, &f.query, Msg::FindPlaceholder, f.field == 0 || !f.replace);
-        b.text(ct.as_ref(), cx, (r.bar.y + (40.0 - ct.height()) / 2.0).round());
-        self.find_btn(sh, b, r.toggle, if f.replace { "\u{25BE}" } else { "\u{25B8}" }, false, false);
+        self.find_field(
+            sh,
+            b,
+            q,
+            &f.query,
+            Msg::FindPlaceholder,
+            f.field == 0 || !f.replace,
+        );
+        b.text(
+            ct.as_ref(),
+            cx,
+            (r.bar.y + (40.0 - ct.height()) / 2.0).round(),
+        );
+        self.find_btn(
+            sh,
+            b,
+            r.toggle,
+            if f.replace { "\u{25BE}" } else { "\u{25B8}" },
+            false,
+            false,
+        );
         self.find_btn(sh, b, r.regex, tr(sh.lang, Msg::FindRegex), f.regex, false);
         self.find_btn(sh, b, r.whole, tr(sh.lang, Msg::FindWhole), f.whole, false);
         self.find_btn(sh, b, r.case, tr(sh.lang, Msg::FindCase), f.case, false);

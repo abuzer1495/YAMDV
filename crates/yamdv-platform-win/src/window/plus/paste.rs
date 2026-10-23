@@ -25,7 +25,9 @@ struct Target {
 }
 
 fn final_str(p: &Path) -> Option<String> {
-    std::fs::canonicalize(p).ok().map(|f| f.to_string_lossy().into_owned())
+    std::fs::canonicalize(p)
+        .ok()
+        .map(|f| f.to_string_lossy().into_owned())
 }
 
 /// Creates (or reuses) `rel` under `root` one component at a time, refusing any step whose
@@ -54,7 +56,10 @@ fn save_new(t: &Target, name: &dyn Fn(u32) -> Option<String>, src: Src<'_>) -> O
     for n in 0..TRIES {
         let nm = name(n)?;
         let p = dir.join(&nm);
-        let f = std::fs::OpenOptions::new().write(true).create_new(true).open(&p);
+        let f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&p);
         let mut f = match f {
             Ok(f) => f,
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,

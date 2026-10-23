@@ -108,7 +108,11 @@ impl Win {
             BannerKind::Elevated => Msg::BannerElevated,
             BannerKind::ExportFailed => self.tz.export_msg.unwrap_or(Msg::BannerExportFailed),
             BannerKind::Recovery => {
-                return format!("{} {}", tr(sh.lang, Msg::RecoverBanner), self.journal_name());
+                return format!(
+                    "{} {}",
+                    tr(sh.lang, Msg::RecoverBanner),
+                    self.journal_name()
+                );
             }
         };
         tr(sh.lang, m).to_string()

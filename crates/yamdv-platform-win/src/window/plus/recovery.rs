@@ -76,7 +76,12 @@ fn send(job: Job) {
 
 fn mono_ms() -> u64 {
     static T0: OnceLock<std::time::Instant> = OnceLock::new();
-    u64::try_from(T0.get_or_init(std::time::Instant::now).elapsed().as_millis()).unwrap_or(0)
+    u64::try_from(
+        T0.get_or_init(std::time::Instant::now)
+            .elapsed()
+            .as_millis(),
+    )
+    .unwrap_or(0)
 }
 
 impl Win {
@@ -101,8 +106,7 @@ impl Win {
             self.journal_clear();
             return;
         }
-        if self.journal_doc().is_none() || !yj::wanted(autosave, self.plus.journal.save_failed)
-        {
+        if self.journal_doc().is_none() || !yj::wanted(autosave, self.plus.journal.save_failed) {
             return;
         }
         let now = mono_ms();
@@ -112,7 +116,9 @@ impl Win {
 
     fn journal_arm(&self, now: u64) {
         if let Some(due) = self.plus.journal.sched.due() {
-            let ms = u32::try_from(due.saturating_sub(now)).unwrap_or(u32::MAX).max(1);
+            let ms = u32::try_from(due.saturating_sub(now))
+                .unwrap_or(u32::MAX)
+                .max(1);
             // SAFETY: valid hwnd; one-shot timer killed in `journal_tick`.
             unsafe { SetTimer(Some(self.hwnd), TIMER_JOURNAL, ms, None) };
         }
@@ -211,9 +217,13 @@ impl Win {
 
     /// File name shown in the recovery banner.
     pub(in crate::window) fn journal_name(&self) -> String {
-        self.plus.journal.offer.as_ref().map_or_else(String::new, |(_, h, _)| {
-            ypath::file_name(&ypath::display_form(&h.path)).to_string()
-        })
+        self.plus
+            .journal
+            .offer
+            .as_ref()
+            .map_or_else(String::new, |(_, h, _)| {
+                ypath::file_name(&ypath::display_form(&h.path)).to_string()
+            })
     }
 
     /// [Restore] / [Discard] of the recovery banner.
@@ -241,7 +251,9 @@ impl Win {
         self.plus.journal.file = Some(p);
         let long = ypath::long_form(&h.path);
         let now = sys::stat(&long).map_or(0, |(i, _)| edit::ticks(i.mtime));
-        let hash = std::fs::read(&long).ok().map(|b| yamdv_core::encode::hash(&b));
+        let hash = std::fs::read(&long)
+            .ok()
+            .map(|b| yamdv_core::encode::hash(&b));
         if yj::base_changed(&h, now, hash) {
             self.tz_banner(sh, BannerKind::Conflict, true);
         }
