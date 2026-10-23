@@ -58,8 +58,8 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-LINK-05 | 003 | implemented (003) |
 | R-LINK-06 | 003 | implemented (003) |
 | R-LINK-07 | 003 | planned |
-| R-MAP-01 | 010 | deferred (FUT-37) |
-| R-MAP-02 | 010 | deferred (FUT-37) |
+| R-MAP-01 | 010 | implemented (V2-D 014): mind map viewer, right/balanced, accent hues (FUT-37); mindmap layout tests |
+| R-MAP-02 | 010 | implemented (V2-D 014): wheel zoom, pan, click collapse, double-click jump, Esc, Ctrl+C PNG; driver palette-mindmap-toc |
 | R-MATH-01 | 009 | implemented (007): yamdv-math + Cambria Math MATH table (dwrite.rs) |
 | R-MATH-02 | 009 | partial (007): core subset (parse.rs); part deferred: FUT-17 |
 | R-MATH-03 | 009 | implemented (007): error color + message line; tooltip (V2-C 013, FUT-40) |
@@ -85,7 +85,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-MD-16 | 002/003 | implemented (002) |
 | R-MD-17 | 002/003 | implemented (002) |
 | R-MD-18 | 002/003 | implemented (003) |
-| R-MD-19 | 002/003 | deferred (FUT-08) |
+| R-MD-19 | 002/003 | implemented (V2-D 014): [TOC] / [[_TOC_]] Contents list, HTML/PDF/Print (doc::toc tests, toc_marker_exports_anchored_list) |
 | R-MMD-01 | 010 | partial (007): flowchart + sequence (yamdv-mermaid); part deferred: FUT-18 |
 | R-MMD-02 | 010 | implemented (007 + V2-C 013): card, fit-to-column, min scale + hscroll (BUG-08), diagram viewer (FUT-36); part deferred: FUT-18 |
 | R-MMD-03 | 010 | partial (007): B.3.6 light/dark palettes; part deferred: FUT-18 (init) |
@@ -96,21 +96,21 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-MMD-08 | 010 | deferred (FUT-18) |
 | R-MMD-09 | 010 | deferred (FUT-18) |
 | R-MMD-10 | 010 | deferred (FUT-18) |
-| R-NAV-01 | 004/005 | planned |
-| R-NAV-02 | 004/005 | deferred (FUT-02) |
+| R-NAV-01 | 004/005 | implemented (005 + V2-D 014): Contents/History/Favorites/Files tabs, each hideable; no tab row when all three hidden |
+| R-NAV-02 | 004/005 | implemented (V2-D 014): left/right docked and floating card (FUT-02); driver keyboard-reach, golden v2d-floating-dark |
 | R-NAV-03 | 004/005 | planned |
 | R-NAV-04 | 004/005 | planned |
 | R-NAV-05 | 004/005 | planned |
 | R-NAV-06 | 004/005 | planned |
 | R-NAV-07 | 004/005 | planned |
 | R-NAV-08 | 004/005 | planned |
-| R-NAV-09 | 004/005 | deferred (FUT-03) |
-| R-NAV-10 | 004/005 | deferred (FUT-33) |
-| R-NAV-11 | 004/005 | planned |
+| R-NAV-09 | 004/005 | implemented (V2-D 014): favorites drag reorder + Alt+Up/Down (FUT-03); favs::reorder test, driver files-favorites |
+| R-NAV-10 | 004/005 | implemented (V2-D 014): lazy Files tree, worker listing, skip rules, watched (FUT-33); core files tests, driver files-favorites |
+| R-NAV-11 | 004/005 | implemented (V2-D 014): arrows/Enter/Home/End in sidebar rows, Ctrl+Shift+1..4 tabs |
 | R-OPEN-01 | 002/005 | planned |
 | R-OPEN-02 | 002/005 | implemented (002) (same-process windows; forwarding 005) |
 | R-OPEN-03 | 002/005 | implemented (002) |
-| R-OPEN-04 | 002/005 | implemented (002) (no edit-mode insert / folder→Files tab) |
+| R-OPEN-04 | 002/005 | implemented (002 + V2-D 014): a dropped folder opens the Files tab rooted at it (no edit-mode insert) |
 | R-OPEN-05 | 002/005 | planned |
 | R-OPEN-06 | 002/005 | implemented (002) (no Reopen-with-encoding menu); part deferred: FUT-09 |
 | R-OPEN-07 | 002/005 | implemented (002) |
@@ -131,7 +131,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-READ-09 | 005 | planned |
 | R-READ-10 | 005 | implemented (005 V1-A) |
 | R-READ-11 | 005 | implemented (005 V1-A) |
-| R-READ-12 | 005 | deferred (FUT-08) |
+| R-READ-12 | 005 | implemented (V2-D 014): heading palette Ctrl+Shift+O (FUT-08); palette filter tests, driver palette-mindmap-toc |
 | R-REL-01 | 012 | planned |
 | R-REL-02 | 012 | planned |
 | R-REL-03 | 012 | planned |
@@ -212,7 +212,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | S-FILE-05 | 002/005 | planned |
 | S-FILE-06 | 002/005 | planned |
 | S-FILE-07 | 002/005 | implemented (002) |
-| S-FILE-08 | 002/005 | planned |
+| S-FILE-08 | 002/005 | implemented (V2-D 014): document folder, config folder, expanded Files folders (non-recursive, at most 32) |
 | S-FILE-09 | 002/005 | planned |
 | S-FILE-10 | 002/005 | implemented (006 V1-B): encode.rs keeps EOL/BOM/encoding; byte-identity test |
 | S-HTML-01 | 003 | implemented (003): allowlist sanitizer, XSS suite |
@@ -286,7 +286,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | T8 | 013 | planned |
 | T9 | 013 | planned |
 | T10 | 013 | planned |
-| R-A11Y-01 | 012 | planned |
+| R-A11Y-01 | 012 | implemented (V2-D 014): Tab order over all interactive parts, 2 px ring after keyboard use, F6 regions (HARD-04); focus::order tests, driver keyboard-reach; UIA/HC with FUT-47 |
 | R-A11Y-02 | 012 | partial (002): reduced motion for scrolling |
 | R-A11Y-03 | 012 | deferred (FUT-47) |
 | R-A11Y-04 | 012 | implemented (002) |
