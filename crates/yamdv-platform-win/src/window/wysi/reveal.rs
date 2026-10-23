@@ -1,8 +1,13 @@
-//! Inline reveal of the F2 active block (prompt 016 §3 item 1).
+//! Inline reveal of the F2 active block (prompt 016 §3 item 1) and the block-level source with
+//! its live math / Mermaid preview (item 2).
 
 use super::*;
-use yamdv_core::doc::index::{BlockKind, Index};
+use yamdv_core::doc::fence::{self, FenceKind};
 use yamdv_core::doc::reveal::{self as rv, Analysis};
+use yamdv_layout::reveal::{Preview, PreviewKind};
+
+/// Mermaid preview debounce (prompt 016 §3 item 2).
+const MERMAID_MS: u32 = 150;
 
 /// Per-buffer-version analysis of the active block.
 #[derive(Debug, Default)]
@@ -10,8 +15,8 @@ pub(in crate::window) struct RevealCache {
     version: u64,
     start: usize,
     analysis: Option<Analysis>,
-    /// Block-level reveal of a code / math / diagram block: monospace source.
-    code: bool,
+    /// Fenced (code / math / diagram) block: monospace source.
+    fence: Option<fence::Fence>,
 }
 
 impl Win {
@@ -21,6 +26,7 @@ impl Win {
         let Some(r) = self.active_range() else {
             return false;
         };
+        let hwnd = self.hwnd;
         let View::Doc(d) = &mut self.view else {
             return false;
         };
@@ -39,19 +45,16 @@ impl Win {
             .is_some_and(|c| c.version == e.ed.version && c.start == r.start);
         if !fresh {
             let analysis = rv::analyze(&text, opts);
-            let code = analysis.is_none() && {
-                let idx = Index::build(&text, opts);
-                idx.blocks.len() == 1
-                    && idx
-                        .blocks
-                        .first()
-                        .is_some_and(|b| matches!(b.kind, BlockKind::Code | BlockKind::Math))
+            let fence = if analysis.is_none() {
+                fence::parse(&text)
+            } else {
+                None
             };
             e.reveal = Some(RevealCache {
                 version: e.ed.version,
                 start: r.start,
                 analysis,
-                code,
+                fence,
             });
         }
         let Some(c) = e.reveal.as_ref() else {
@@ -65,19 +68,83 @@ impl Win {
                 para: rv::build(an, &text, &set),
                 heading: an.heading,
                 quote: an.quote,
+                image: an.image.clone(),
             }
         });
-        let code = c.code || e.opts.code_font;
+        let code = c.fence.is_some() || e.opts.code_font;
+        let want = c.fence.as_ref().and_then(|f| {
+            let body = text.get(f.body.clone()).unwrap_or("").to_string();
+            match f.kind {
+                FenceKind::Math => Some(Preview {
+                    kind: PreviewKind::Math,
+                    text: body,
+                }),
+                FenceKind::Mermaid => Some(Preview {
+                    kind: PreviewKind::Mermaid,
+                    text: body,
+                }),
+                FenceKind::Code => None,
+            }
+        });
         let Some(sb) = d.viewer.source_block.as_mut() else {
             return false;
         };
-        if sb.reveal == reveal && sb.code_font == code {
+        let mut preview = sb.preview.clone();
+        match want {
+            Some(p) if p.kind == PreviewKind::Mermaid => {
+                let shown = preview
+                    .as_ref()
+                    .is_some_and(|q| q.kind == PreviewKind::Mermaid);
+                if preview.as_ref() != Some(&p) && yamdv_mermaid::parse(&p.text).is_ok() {
+                    if shown {
+                        // Debounced; the last good diagram stays meanwhile.
+                        self.wysi.pending = Some(p);
+                        // SAFETY: valid hwnd.
+                        unsafe { SetTimer(Some(hwnd), super::TIMER_F2_PREVIEW, MERMAID_MS, None) };
+                    } else {
+                        preview = Some(p);
+                    }
+                }
+            }
+            other => preview = other,
+        }
+        if sb.reveal == reveal && sb.code_font == code && sb.preview == preview {
             return false;
         }
         sb.reveal = reveal;
         sb.code_font = code;
+        sb.preview = preview;
         d.viewer.invalidate_block(a.block);
         true
+    }
+
+    /// `TIMER_F2_PREVIEW`: applies the pending (debounced) Mermaid preview.
+    pub(in crate::window) fn f2_preview_tick(&mut self, sh: &Shared) {
+        // SAFETY: valid hwnd.
+        let _ = unsafe { KillTimer(Some(self.hwnd), super::TIMER_F2_PREVIEW) };
+        let Some(p) = self.wysi.pending.take() else {
+            return;
+        };
+        let View::Doc(d) = &mut self.view else { return };
+        let Some(sb) = d.viewer.source_block.as_mut() else {
+            return;
+        };
+        if sb.preview.as_ref().is_some_and(|q| q.kind == p.kind) {
+            sb.preview = Some(p);
+            let b = sb.block;
+            d.viewer.invalidate_block(b);
+            self.prepare_now(sh);
+            self.invalidate();
+        }
+    }
+
+    /// Fence of the active block (block-level source), with the block start.
+    pub(in crate::window) fn active_fence(&self) -> Option<(usize, fence::Fence)> {
+        let e = self.edit()?;
+        let c = e.reveal.as_ref()?;
+        (c.version == e.ed.version)
+            .then(|| c.fence.clone().map(|f| (c.start, f)))
+            .flatten()
     }
 
     /// Source text of the markers revealed in the active block (dev-tools probe `revealed`).
@@ -92,6 +159,24 @@ impl Win {
                 .map(|r| r.para.shown.clone())
                 .unwrap_or_default(),
             _ => Vec::new(),
+        }
+    }
+
+    /// Kind of the live preview under the active block (`math`, `mermaid` or empty).
+    #[cfg(feature = "dev-tools")]
+    pub(in crate::window) fn preview_kind(&self) -> &'static str {
+        match &self.view {
+            View::Doc(d) => match d
+                .viewer
+                .source_block
+                .as_ref()
+                .and_then(|s| s.preview.as_ref())
+            {
+                Some(p) if p.kind == PreviewKind::Math => "math",
+                Some(_) => "mermaid",
+                None => "",
+            },
+            _ => "",
         }
     }
 }

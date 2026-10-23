@@ -17,3 +17,21 @@ assert revealed == "** **"
 key ctrl+end
 wait-idle
 assert revealed == "[ ](u)"
+write-file r2.tmp.md "```ru\nfn a() {}\n```\n\n$$\na+b\n$$\n\n```mermaid\ngraph TD\nA-->B\n```\n"
+open r2.tmp.md
+wait-idle
+key f2
+ui v2f-caret "5|```ru"
+wait-idle
+assert lang_items contains "ruby"
+key down
+key return
+wait-idle
+assert buffer contains "```ruby\nfn"
+assert lang_items == ""
+ui v2f-caret "3|$$"
+wait-idle
+assert f2_preview == "math"
+ui v2f-caret "11|```mermaid"
+wait-idle
+assert f2_preview == "mermaid"

@@ -429,6 +429,7 @@ struct Win {
     nav: nav::Nav,
     /// V2-E editing extras (prompt 015).
     plus: plus::Plus,
+    wysi: wysi::Wysi,
     /// CSV of the table under the last context-menu click (R-EXP-04).
     ctx_table: Option<String>,
     /// Content offset below the client top: the title bar height, 0 in fullscreen (B.4).
@@ -1549,6 +1550,7 @@ impl Win {
         }
         self.draw_find(sh, b);
         self.toolbar_draw(sh, b);
+        self.v2f_draw(sh, b);
         self.draw_job(sh, b);
         self.draw_settings(sh, b);
         self.toast_rect.set(None);
@@ -1689,6 +1691,9 @@ impl Win {
             alt,
             vk,
         };
+        if let Some(r) = self.v2f_key(sh, c) {
+            return Some(r);
+        }
         if let Some(r) = self.v2e_key(sh, c) {
             return Some(r);
         }
@@ -1821,6 +1826,9 @@ impl Win {
             return;
         }
         if self.dialog.is_none() && self.toolbar_down(sh, x, y) {
+            return;
+        }
+        if self.v2f_down(sh, x, y) {
             return;
         }
         if self.dialog.is_none() && matches!(self.view, View::Empty { note: None }) {
@@ -3802,6 +3810,7 @@ fn create_window(sh: &Shared, path: Option<&str>) -> Option<HWND> {
         side: sidebar::Side::default(),
         nav: nav::Nav::default(),
         plus: plus::Plus::default(),
+        wysi: wysi::Wysi::default(),
         ctx_table: None,
         top: yamdv_core::chrome::BAR_H,
         fs: false,

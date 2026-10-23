@@ -12,6 +12,7 @@ impl Win {
                 let (spec, needle) = arg.split_once('|').unwrap_or(("0", arg));
                 let (a, b) = spec.split_once('-').unwrap_or((spec, spec));
                 let (a, b) = (a.parse().unwrap_or(0usize), b.parse().unwrap_or(0usize));
+                let _ = self.edit_leave_block(sh);
                 let at = match &self.view {
                     View::Doc(d) => d
                         .content

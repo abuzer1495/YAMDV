@@ -23,3 +23,8 @@ pub mod viewer;
 pub mod warm;
 
 pub use geom::Rect;
+
+/// Every syntax-highlighter language name and alias (F2 language picker).
+pub fn highlight_names() -> &'static [&'static str] {
+    yamdv_highlight::ALL_NAMES
+}

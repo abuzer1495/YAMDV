@@ -9,3 +9,9 @@ CHECKPOINT 2 — item 1 wired: Palette.marker, yamdv-layout/src/reveal.rs (revea
 SourceBlock.reveal, window/wysi/{reveal,drive}.rs (live_reveal on enter/edit/caret move; `revealed`
 probe; `ui v2f-caret "k|needle"`). tests/driver/f2-reveal.yds started (passes under Wine).
 Next: item 2 block constructs (code lang picker, math/mermaid popover), then item 3 transforms.
+
+CHECKPOINT 3 — item 2 done: core doc/fence.rs (fence parse + language suggest, tested); layout
+reveal::source_block (fence markers + live highlight, math/Mermaid preview card, sole image under
+its source line); platform wysi/{lang,reveal}.rs (picker ↑↓ Enter/Tab Esc, 150 ms Mermaid
+debounce keeping the last good diagram, TIMER_F2_PREVIEW=32); probes `f2_preview`, `lang_items`.
+Next: item 3 typing transforms (pure in yamdv-editor), then items 4–7.

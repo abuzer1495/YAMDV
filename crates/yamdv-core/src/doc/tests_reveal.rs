@@ -124,3 +124,11 @@ fn block_level_kinds_are_not_inline() {
     }
     assert!(analyze("", ReadOpts::default()).is_some());
 }
+
+#[test]
+fn sole_image_paragraph() {
+    let o = ReadOpts::default();
+    let a = analyze("![cat](c.png)", o).unwrap();
+    assert_eq!(a.image.as_ref().map(|i| &*i.src), Some("c.png"));
+    assert!(analyze("see ![cat](c.png)", o).unwrap().image.is_none());
+}

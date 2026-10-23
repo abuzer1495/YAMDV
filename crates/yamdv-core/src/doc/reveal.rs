@@ -89,6 +89,8 @@ pub struct Analysis {
     pub heading: u8,
     /// Block quote / callout.
     pub quote: bool,
+    /// The paragraph is a sole image: shown under its source line (prompt 016 §3 item 2).
+    pub image: Option<super::detail::ImageRef>,
 }
 
 /// The block kinds that use inline reveal; everything else keeps block-level reveal (P-47).
@@ -171,7 +173,19 @@ pub fn analyze(text: &str, opts: ReadOpts) -> Option<Analysis> {
         return None;
     }
     let d = Detail::build(text, &idx, 0, opts);
-    Some(from_detail(text, &d))
+    let mut a = from_detail(text, &d);
+    let sole = d.images.len() == 1
+        && d.runs.iter().all(|r| {
+            r.style & style::IMAGE != 0
+                || r.owned
+                    .as_deref()
+                    .or_else(|| text.get(r.range.start as usize..r.range.end as usize))
+                    .is_none_or(|t| t.trim().is_empty())
+        });
+    if sole && a.heading == 0 && !a.quote {
+        a.image = d.images.first().cloned();
+    }
+    Some(a)
 }
 
 fn from_detail(text: &str, d: &Detail) -> Analysis {

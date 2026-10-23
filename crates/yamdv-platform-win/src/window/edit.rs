@@ -591,6 +591,7 @@ impl Win {
                 text: src.get(start..end).unwrap_or("").to_string(),
                 code_font: e.opts.code_font,
                 reveal: None,
+                preview: None,
             });
             d.viewer.invalidate_block(bi);
         }
@@ -2171,6 +2172,7 @@ impl Win {
                 }
             }
             plus::TIMER_JOURNAL => self.journal_tick(),
+            super::wysi::TIMER_F2_PREVIEW => self.f2_preview_tick(sh),
             TIMER_PREVIEW => {
                 self.kill(TIMER_PREVIEW);
                 self.sync_preview(sh);
