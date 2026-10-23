@@ -1021,6 +1021,9 @@ impl Win {
         if let Some(e) = self.edit_mut() {
             e.typed_at = Some(Instant::now());
         }
+        if self.f2_type(sh, s) {
+            return;
+        }
         let t = now_ms();
         self.with_ed(sh, |ed| ed.type_text(s, t));
     }
@@ -1374,6 +1377,7 @@ impl Win {
             0x2D if shift && !ctrl => self.paste_rich(sh),
             0x2D if ctrl => self.edit_copy(),
             v if v == VK_RETURN.0 && ctrl => self.with_ed(sh, md::toggle_task),
+            v if v == VK_RETURN.0 && !shift => self.f2_enter(sh),
             v if v == VK_RETURN.0 => self.with_ed(sh, md::enter),
             v if v == VK_TAB.0 && !ctrl => {
                 let unit = self.edit().map_or("  ", |e| e.opts.indent);

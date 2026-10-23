@@ -35,3 +35,24 @@ assert f2_preview == "math"
 ui v2f-caret "11|```mermaid"
 wait-idle
 assert f2_preview == "mermaid"
+write-file r3.tmp.md "start\n\nHead\n\n```rust\n\n| a | b |\n"
+open r3.tmp.md
+wait-idle
+key f2
+ui v2f-caret "0|Head"
+type "#"
+type " "
+wait-idle
+assert buffer contains "start\n\n# Head"
+assert revealed == "# "
+key ctrl+z
+wait-idle
+assert buffer contains "\# Head"
+ui v2f-caret "7|```rust"
+key return
+wait-idle
+assert buffer contains "```rust\n\n```"
+ui v2f-caret "9|| a | b |"
+key return
+wait-idle
+assert buffer contains "| a | b |\n| --- | --- |\n|  |  |"

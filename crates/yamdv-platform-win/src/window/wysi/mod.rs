@@ -9,6 +9,7 @@ use yamdv_core::keymap::Chord;
 mod drive;
 mod lang;
 mod reveal;
+mod typing;
 
 pub(super) use reveal::RevealCache;
 

@@ -15,3 +15,9 @@ reveal::source_block (fence markers + live highlight, math/Mermaid preview card,
 its source line); platform wysi/{lang,reveal}.rs (picker ↑↓ Enter/Tab Esc, 150 ms Mermaid
 debounce keeping the last good diagram, TIMER_F2_PREVIEW=32); probes `f2_preview`, `lang_items`.
 Next: item 3 typing transforms (pure in yamdv-editor), then items 4–7.
+
+CHECKPOINT 4 — item 3 done: yamdv-editor transform.rs (space: # … ######, - * +, 1. 1), >, [ ]/[x]
+in items — two sealed steps so Ctrl+Z leaves the escaped literal; enter: ```/```lang/~~~/$$ open
+blocks, --- rule, pipe header → delimiter + empty row) + tests_transform.rs; wired via
+wysi/typing.rs (f2_type, f2_enter; off inside a fence body). Next: item 4 links (Ctrl+click
+follows, Ctrl+K popover), item 5 cross-block selection, 6 checkbox/context menu, 7 data safety.
