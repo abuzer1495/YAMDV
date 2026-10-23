@@ -264,6 +264,38 @@ pub fn try_expand(ed: &mut Editor, now: (&str, &str)) -> Option<Session> {
     (s.stops.len() > 1).then_some(s)
 }
 
+/// Inserts snippet `word` at the caret on a line of its own (R-EDIT-07: `Ctrl+T` → `table`,
+/// `Ctrl+Shift+K` → `code`; a selection becomes the code block's body). One undo step.
+pub fn insert(ed: &mut Editor, word: &str, now: (&str, &str)) -> Option<Session> {
+    let sel = ed.selection();
+    let ls = ed.line_start(ed.line_of(sel.start));
+    let eol = ed.eol;
+    let lead = if ed.slice(ls..sel.start).trim().is_empty() {
+        ""
+    } else {
+        eol
+    };
+    if word == "code" && !sel.is_empty() {
+        let body = ed.slice(sel.clone());
+        let open = sel.start + lead.len() + 3;
+        ed.replace_select(sel, &format!("{lead}```{eol}{body}{eol}```"), (open, open));
+        ed.seal();
+        return None;
+    }
+    let x = expand(word, eol, "", now)?;
+    let off = sel.start + lead.len();
+    let stops: Vec<Range<usize>> = x.stops.iter().map(|s| off + s.start..off + s.end).collect();
+    let first = stops.first()?.clone();
+    ed.replace_select(sel, &format!("{lead}{}", x.text), (first.start, first.end));
+    ed.seal();
+    let s = Session {
+        stops,
+        cur: 0,
+        len_at: ed.len(),
+    };
+    (s.stops.len() > 1).then_some(s)
+}
+
 impl Session {
     /// Tab inside the session: selects the next placeholder. `false` = the session ended (the
     /// caret left the current placeholder, or the last one was reached).

@@ -110,6 +110,17 @@ impl Win {
                 });
             }
             "paste_plain" => self.paste_plain(sh),
+            "code_block" | "insert_table" => {
+                let word = if act == Some("code_block") {
+                    "code"
+                } else {
+                    "table"
+                };
+                let (d, t) = local_now();
+                let mut sess = None;
+                self.with_ed(sh, |ed| sess = snippets::insert(ed, word, (&d, &t)));
+                self.plus.snip = sess;
+            }
             "highlight" => self.with_ed(sh, |ed| md::toggle_wrap(ed, md::Wrap::Highlight)),
             _ => return None,
         }

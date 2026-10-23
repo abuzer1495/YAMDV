@@ -109,3 +109,19 @@ fn link_placeholders_and_leaving() {
     e.move_to(0, false);
     assert!(!away.next(&mut e));
 }
+
+#[test]
+fn insert_table_and_code_block() {
+    let mut ed = Editor::new("text", "\n");
+    ed.set_selection(4, 4);
+    let s = snippets::insert(&mut ed, "table", ("2026-01-01", "10:00"));
+    assert!(ed.text().starts_with("text\n| "));
+    assert!(s.is_some());
+    let mut ed = Editor::new("a = 1", "\n");
+    ed.set_selection(0, 5);
+    assert!(snippets::insert(&mut ed, "code", ("", "")).is_none());
+    assert_eq!(ed.text(), "```\na = 1\n```");
+    assert_eq!(ed.selection(), 3..3);
+    ed.undo();
+    assert_eq!(ed.text(), "a = 1");
+}

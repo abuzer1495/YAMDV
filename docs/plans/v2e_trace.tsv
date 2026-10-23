@@ -1,0 +1,9 @@
+# V2-E (prompt 015) TRACEABILITY rows, applied by tools/trace_set.py
+R-EDIT-05	implemented (V2-E 015): CF_HTML → Markdown via the S-HTML allowlist, Ctrl+Shift+V plain (FUT-15); paste::tests html_to_markdown_cases, xss.rs; driver paste-recovery
+R-EDIT-06	implemented (V2-E 015): Tab snippets with placeholders (FUT-45); tests_snippets; driver edit-plus
+R-EDIT-07	implemented (V2-E 015): Ctrl+Shift+D, Ctrl+L, Alt+↑/↓, Ctrl+T, Ctrl+Shift+K, auto-pair (FUT-12); tests_lines (line ops + auto-pair); driver edit-plus
+R-EDIT-08	implemented (V2-E 015): bitmap → WIC PNG asset, file drop copy, S-FILE-05 sandbox (FUT-45); paste::tests assets + junction; driver paste-recovery
+R-EDIT-10	implemented (V2-E 015): Ctrl+H, Replace all = one undo, case/word/Turkish folding, regex-lite with 100 ms guard (ADR-0019); tests_replace; driver edit-plus
+R-EDIT-13	implemented (V2-E 015): recovery journal, banner Restore/Discard (FUT-45); journal tests; driver paste-recovery
+R-F2-04	implemented (V2-E 015): F2 format toolbar, editing.format_toolbar (FUT-45); driver edit-plus, golden v2e-toolbar-light
+R-F3-07	implemented (V2-E 015): find/replace in the editor pane, matches mirrored in the preview (FUT-45); driver edit-plus, golden v2e-replace-dark

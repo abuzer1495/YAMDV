@@ -24,15 +24,15 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-EDIT-02 | 006 | implemented (006 V1-B): autosave 800 ms/mode exit/deactivate/close, Ctrl+S, S-FILE-03 write, title ● |
 | R-EDIT-03 | 006 | implemented (006 V1-B): Stamp check + in-window dialog |
 | R-EDIT-04 | 006 | implemented (006 V1-B): yamdv-editor history, proptest |
-| R-EDIT-05 | 006 | deferred (FUT-15) |
-| R-EDIT-06 | 006 | deferred (FUT-45) |
-| R-EDIT-07 | 006 | deferred (FUT-12) |
-| R-EDIT-08 | 006 | deferred (FUT-45) |
+| R-EDIT-05 | 006 | implemented (V2-E 015): CF_HTML → Markdown via the S-HTML allowlist, Ctrl+Shift+V plain (FUT-15); paste::tests html_to_markdown_cases, xss.rs; driver paste-recovery |
+| R-EDIT-06 | 006 | implemented (V2-E 015): Tab snippets with placeholders (FUT-45); tests_snippets; driver edit-plus |
+| R-EDIT-07 | 006 | implemented (V2-E 015): Ctrl+Shift+D, Ctrl+L, Alt+↑/↓, Ctrl+T, Ctrl+Shift+K, auto-pair (FUT-12); tests_lines (line ops + auto-pair); driver edit-plus |
+| R-EDIT-08 | 006 | implemented (V2-E 015): bitmap → WIC PNG asset, file drop copy, S-FILE-05 sandbox (FUT-45); paste::tests assets + junction; driver paste-recovery |
 | R-EDIT-09 | 006 | partial (006 V1-B): IMM composition + candidate at caret, AltGr guard; not verified on a real IME |
-| R-EDIT-10 | 006 | deferred (FUT-45) |
+| R-EDIT-10 | 006 | implemented (V2-E 015): Ctrl+H, Replace all = one undo, case/word/Turkish folding, regex-lite with 100 ms guard (ADR-0019); tests_replace; driver edit-plus |
 | R-EDIT-11 | 006 | implemented (006 V1-B) |
 | R-EDIT-12 | 006 | implemented (006 V1-B): read-only / lossy / plain dialogs |
-| R-EDIT-13 | 006 | deferred (FUT-45) |
+| R-EDIT-13 | 006 | implemented (V2-E 015): recovery journal, banner Restore/Discard (FUT-45); journal tests; driver paste-recovery |
 | R-EDIT-14 | 006 | implemented (006 V1-B) |
 | R-EXP-01 | 011 | partial (008 V1-D): PDF via the print path (print.rs, CI v1d-checks); native writer deferred (FUT-39) |
 | R-EXP-02 | 011 | implemented (008 V1-D): static HTML, math/diagrams as PNG data URIs (html::document, r_exp_02_static_document, driver export-html); scripted parts deferred (FUT-21) |
@@ -293,7 +293,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-F2-01 | 007 | implemented (006 V1-B): block-level model |
 | R-F2-02 | 007 | deferred (FUT-43) |
 | R-F2-03 | 007 | deferred (FUT-43) |
-| R-F2-04 | 007 | deferred (FUT-45) |
+| R-F2-04 | 007 | implemented (V2-E 015): F2 format toolbar, editing.format_toolbar (FUT-45); driver edit-plus, golden v2e-toolbar-light |
 | R-F2-05 | 007 | partial (006 V1-B): Undo/Redo/Cut/Copy/Paste + Format ▸ |
 | R-F2-06 | 007 | planned |
 | R-F2-07 | 007 | implemented (006 V1-B) |
@@ -308,7 +308,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-F3-04 | 006 | implemented (006 V1-B): block-based |
 | R-F3-05 | 006 | partial (006 V1-B): click → caret; preview selection not mirrored |
 | R-F3-06 | 006 | implemented (006 V1-B): opens the F1 help document |
-| R-F3-07 | 006 | deferred (FUT-45) |
+| R-F3-07 | 006 | implemented (V2-E 015): find/replace in the editor pane, matches mirrored in the preview (FUT-45); driver edit-plus, golden v2e-replace-dark |
 | R-I18N-01 | 004 | partial (002): EN/TR strings of 002; part deferred: FUT-29 |
 | R-I18N-02 | 004 | implemented (002) |
 | R-I18N-03 | 004 | planned |
