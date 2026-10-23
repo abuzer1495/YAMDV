@@ -340,4 +340,38 @@ mod tests {
         let p = preview(&long, 300);
         assert!(p.chars().count() <= 300 && p.ends_with('…'));
     }
+
+    #[test]
+    fn dismiss_reveals_the_older_banner_and_hit_rows() {
+        let mut b = Banners::default();
+        b.push(BannerKind::Motw);
+        b.push(BannerKind::ReadOnly);
+        b.push(BannerKind::Deleted);
+        assert_eq!(b.visible(), vec![BannerKind::Deleted, BannerKind::ReadOnly]);
+        assert!(b.dismiss(BannerKind::Deleted));
+        assert_eq!(b.visible(), vec![BannerKind::ReadOnly, BannerKind::Motw]);
+        assert_eq!(b.at(1.0), Some(BannerKind::ReadOnly));
+        assert_eq!(b.at(BANNER_H + 1.0), Some(BannerKind::Motw));
+        assert_eq!(b.at(2.0 * BANNER_H + 1.0), None);
+        assert!(!b.dismiss(BannerKind::Deleted));
+        assert!(BannerKind::Conflict.is_error() && !BannerKind::Motw.is_error());
+    }
+
+    #[test]
+    fn zoom_limits_and_steps() {
+        let mut z = ZoomView::new((400.0, 300.0), (1000.0, 700.0));
+        assert!(z.is_fit() && z.percent() == 100);
+        for _ in 0..100 {
+            z.step(1);
+        }
+        assert!((z.scale - ZOOM_MAX).abs() < 1e-4);
+        for _ in 0..200 {
+            z.step(-1);
+        }
+        assert!((z.scale - ZOOM_MIN).abs() < 1e-4);
+        z.actual();
+        assert_eq!(z.percent(), 100);
+        z.toggle();
+        assert!(z.is_fit());
+    }
 }

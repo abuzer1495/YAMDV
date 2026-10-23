@@ -57,4 +57,34 @@ wait-idle
 ui popup-shot cards-light.png
 ui popup-key esc
 wait-idle
+# V2-C (prompt 013 §4): footnote tooltip + sup/sub, MotW banner + Ask popover, image viewer,
+# wide flowchart at the minimum scale below a folded H2 (BUG-08). Full window, 1000 × 731.
+command mode light
+open ../../driver/v2c.md
+wait-idle
+ui hover-hot-now footref
+wait-idle
+ui shot-window v2c-footnote-light.png
+ui hover-off
+write-file ../../driver/v2c-motw.tmp.md "# Downloaded\n\nSee [the site](https://example.com/x).\n"
+write-file ../../driver/v2c-motw.tmp.md:Zone.Identifier "[ZoneTransfer]\nZoneId=3\n"
+open ../../driver/v2c-motw.tmp.md
+command mode dark
+wait-idle
+click-link "the site"
+wait-idle
+ui shot-window v2c-motw-dark.png
+key esc
+command mode light
+open ../../driver/v2c.md
+wait-idle
+ui dblclick-media image
+wait-idle
+ui shot-window v2c-image-light.png
+ui viewer-key esc
+open ../../driver/v2c-wide.md
+wait-idle
+ui fold Folded notes
+wait-idle
+ui shot-window v2c-wide-light.png
 command mode system

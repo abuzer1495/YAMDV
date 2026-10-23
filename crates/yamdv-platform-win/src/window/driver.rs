@@ -35,6 +35,8 @@ thread_local! {
     /// Pages seen by `ui job-wait` / `ui job-done` polls: (samples, last, monotonic).
     static JOB_SEQ: std::cell::Cell<(u32, u32, bool, u32)> = const { std::cell::Cell::new((0, 0, true, 0)) };
     static CPU_MARK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Document height at `ui height-mark` (V2-C folding).
+    static HEIGHT_MARK: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) };
     /// GDI / USER object counts at `ui mem-mark` (`gdi_delta`, `user_delta`).
     static GUI_MARK: std::cell::Cell<(u32, u32)> = const { std::cell::Cell::new((0, 0)) };
 }
@@ -656,6 +658,10 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
             CPU_MARK.with(|m| m.set(crate::perf::cpu_ms()));
             "ok ui cpu-mark".into()
         }
+        "height-mark" => {
+            HEIGHT_MARK.with(|m| m.set(doc_height(w)));
+            "ok ui height-mark".into()
+        }
         "mem-mark" => {
             MEM_MARK.with(|m| m.set(pws_now()));
             GUI_MARK.with(|m| m.set(gui_now()));
@@ -845,6 +851,13 @@ fn link_text(w: &mut Win, b: usize, l: u32) -> String {
         .collect()
 }
 
+fn doc_height(w: &Win) -> f64 {
+    match &w.view {
+        View::Doc(d) => d.viewer.total_height(),
+        _ => 0.0,
+    }
+}
+
 fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
     use serde_like::V;
     let doc = match &w.view {
@@ -966,12 +979,10 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         ("viewer".into(), V::S(or_none(&tz.2))),
         ("viewer_zoom".into(), V::N(tz.3)),
         ("folds".into(), V::N(tz.4 as f64)),
+        ("doc_height".into(), V::N(doc_height(w))),
         (
-            "doc_height".into(),
-            V::N(match &w.view {
-                View::Doc(d) => d.viewer.total_height(),
-                _ => 0.0,
-            }),
+            "doc_height_delta".into(),
+            V::N(doc_height(w) - HEIGHT_MARK.with(std::cell::Cell::get)),
         ),
         ("job".into(), V::S(job.into())),
         ("job_n".into(), V::N(f64::from(job_n))),

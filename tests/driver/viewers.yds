@@ -1,0 +1,59 @@
+# V2-C fullscreen viewers (prompt 013 §3.4, B.11, FUT-36): image, Mermaid diagram and table.
+resize 1000 700
+command mode light
+open v2c.md
+wait-idle
+# Image: a double-click opens it at fit; the wheel zooms at the cursor and keeps that point.
+ui dblclick-media image
+wait-idle
+assert viewer == image:fit
+ui viewer-wheel 2
+assert viewer == image
+ui viewer-wheel -1
+ui viewer-key +
+assert viewer_zoom > 0
+ui viewer-key 0
+assert viewer == image:fit
+ui viewer-key esc
+assert viewer == none
+# Table: a card titled "Table · R × C".
+ui dblclick-media table
+wait-idle
+assert viewer contains table:
+assert viewer contains 4 × 3
+ui viewer-key esc
+# Mermaid: re-rendered at the viewer scale.
+ui dblclick-media diagram
+wait-idle
+assert viewer contains diagram
+ui viewer-wheel 3
+ui viewer-key esc
+assert viewer == none
+# T7: nothing runs while a viewer is open and idle.
+ui dblclick-media image
+wait-idle
+ui cpu-mark
+sleep 2000
+assert cpu_delta_ms < 60
+ui viewer-key esc
+wait-idle
+# Memory comes back on close: two warm-up passes, then three gated passes within +0.2 MiB each.
+ui dblclick-media diagram
+ui viewer-key esc
+ui dblclick-media image
+ui viewer-key esc
+wait-idle
+ui mem-mark
+ui dblclick-media diagram
+wait-idle
+ui viewer-key esc
+ui dblclick-media image
+wait-idle
+ui viewer-key esc
+ui dblclick-media table
+wait-idle
+ui viewer-key esc
+wait-idle
+sleep 300
+assert pws_delta_kib < 615
+assert gdi_delta <= 0

@@ -1,0 +1,37 @@
+# V2-C tooltips, banners and the anchored Ask popover (prompt 013 §3.1-3.3; FUT-40, FUT-34, FUT-41)
+resize 1000 700
+command mode light
+open v2c.md
+wait-idle
+# A titled link: no tooltip at once, the tooltip after the 500 ms delay.
+ui hover-hot link
+assert tooltip == none
+sleep 650
+wait-idle
+assert tooltip contains Project documentation
+# Scrolling hides it.
+wheel -120
+assert tooltip == none
+# A footnote reference previews the footnote as plain text.
+ui hover-hot footref
+sleep 650
+wait-idle
+assert tooltip contains footnote text that the tooltip previews
+ui hover-off
+assert tooltip == none
+# Mark of the Web (ZoneId=3): banner, and links always ask in an anchored popover.
+write-file v2c-motw.tmp.md "# Downloaded\n\nSee [the site](https://example.com/x).\n"
+write-file v2c-motw.tmp.md:Zone.Identifier "[ZoneTransfer]\nZoneId=3\n"
+open v2c-motw.tmp.md
+wait-idle
+assert banner contains motw
+click-link "the site"
+wait-idle
+assert popover == ask-url
+key Esc
+assert popover == none
+assert launched == 0
+# A damaged UTF-8 file shows the decoding banner.
+open ../corpus/encodings/invalid-utf8.md
+wait-idle
+assert banner == decoding
