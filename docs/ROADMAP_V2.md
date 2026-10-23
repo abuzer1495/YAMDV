@@ -6,8 +6,8 @@ Each phase implements the listed items. Their requirement IDs come back into sco
 
 **Rules:**
 - Bugs the owner reports from real-PC use go first in the next prompt.
-- Since V2-B there is no CI. The owner runs the Windows tests from a test pack (PROCESS A-8).
-- Version tags wait for the owner's OK.
+- From V2-C on, CI runs again (PROCESS A-9). The owner checks each release by hand.
+- Version tags are set when CI is green; releases stay drafts until the owner publishes them.
 
 | Phase | Prompt | Content | Items (issue IDs) | Release |
 |---|---|---|---|---|

@@ -232,7 +232,7 @@ Requirement keywords: **MUST** (v1), **SHOULD** (v1 unless a phase prompt defers
 
 ## A.17 Mermaid (R-MMD)
 - **R-MMD-01 MUST** Native parser + layout + renderer (no JS). Diagram types: **flowchart/graph (MUST), sequenceDiagram (MUST), gantt (MUST), pie (MUST)**, stateDiagram/stateDiagram-v2 (SHOULD), classDiagram (SHOULD), erDiagram (SHOULD), mindmap (SHOULD), timeline, journey, gitGraph, quadrantChart (MAY). Unsupported types → shown as a code block with badge "Diagram type not supported".
-- **R-MMD-02 MUST** Rendered in a card (Appendix B §B.6.12), scaled down to fit the column (never up); hover ⛶ / double-click → fullscreen viewer.
+- **R-MMD-02 MUST** Rendered in a card (Appendix B §B.6.12), scaled down to fit the column (never up), but never below the scale at which diagram text would be smaller than 10 px at 100 % zoom; a wider diagram scrolls horizontally inside its card; hover ⛶ / double-click → fullscreen viewer.
 - **R-MMD-03 MUST** Light and dark palettes (Appendix B §B.3.6); `%%{init: {"theme": "…"}}%%` directive honors `default`, `neutral`, `dark`, `forest`, `base` and a subset of `themeVariables` (primaryColor, primaryTextColor, primaryBorderColor, lineColor, secondaryColor, tertiaryColor, fontSize) (SHOULD).
 - **R-MMD-04 MUST** Syntax errors → card shows the source plus "Mermaid syntax error at line L, column C: <message>".
 - **R-MMD-05 MUST** Limits per `S-PARSE-06`; over limit → placeholder "Diagram too large (N nodes)" with [Render anyway] (still capped by the hard limit).

@@ -1,0 +1,19 @@
+# Spec patches of prompt 013 (Phase V2-C) §2 step 5, extracted verbatim from docs/prompts/013_V2C_TRANSIENT_UI_VIEWERS.md.
+
+=== P-40 docs/SPEC.md REPLACE
+--- old
+Rendered in a card (Appendix B §B.6.12), scaled down to fit the column (never up);
+--- new
+Rendered in a card (Appendix B §B.6.12), scaled down to fit the column (never up), but never below the scale at which diagram text would be smaller than 10 px at 100 % zoom; a wider diagram scrolls horizontally inside its card;
+
+=== P-41 docs/UI_SPEC.md REPLACE
+--- old
+diagram centered and scaled to fit (never upscaled);
+--- new
+diagram centered and scaled to fit (never upscaled), not below the minimum scale of R-MMD-02; a wider diagram scrolls horizontally inside the card (thin overlay scrollbar on hover, `Shift+Wheel`, like code blocks);
+
+=== P-42 docs/UI_SPEC.md REPLACE
+--- old
+Used for: file changed on disk (with unsaved edits), file deleted, read-only, decoding fallback notice, recovery available.
+--- new
+Used for: file changed on disk (with unsaved edits), file deleted, read-only, decoding fallback notice, recovery available, Mark-of-the-Web (S-LINK-04), running elevated (S-PROC-06), export failure (R-EXP-07). At most 2 banners show at once (newest on top); the content moves down by their height and keeps its scroll anchor.

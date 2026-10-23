@@ -168,7 +168,7 @@ Margin 16 0; auto layout (shrink-to-content up to the column width; min column 4
 ### B.6.11 Math
 Inline: baseline-aligned, 1.21 em. Display: centered, margin 16 0, no card; overflow scrolls horizontally; `\tag` numbers right-aligned in `text_muted`. Errors in `error` color.
 ### B.6.12 Mermaid card
-Margin 16 0; bg/border per B.3.6; radius 8 (sharp 0); padding 24; diagram centered and scaled to fit (never upscaled); hover ⛶ badge like images.
+Margin 16 0; bg/border per B.3.6; radius 8 (sharp 0); padding 24; diagram centered and scaled to fit (never upscaled), not below the minimum scale of R-MMD-02; a wider diagram scrolls horizontally inside the card (thin overlay scrollbar on hover, `Shift+Wheel`, like code blocks); hover ⛶ badge like images.
 ### B.6.13 Selection and find highlights
 Selection fill `selection`, drawn beneath text, per line box (no gaps between lines). Find: all matches `find_match_bg`, current `find_current_bg`, radius 2.
 
@@ -276,7 +276,7 @@ Bottom-right, 12 px from the bottom and from the scrollbar; height 24, padding 0
 ### B.10.4 Link status tooltip
 Bottom-left, 8 px inset; height 22; max width 60 % of the window; 12 px; `tooltip_bg`/`tooltip_text`; radius 4; middle-ellipsis for long URLs/paths.
 ### B.10.5 Banners
-Top of the document area (under the title bar), full available width, height 36, bg = warning or note callout bg, 13 px text with a leading icon, text buttons right-aligned, × when dismissible. Used for: file changed on disk (with unsaved edits), file deleted, read-only, decoding fallback notice, recovery available.
+Top of the document area (under the title bar), full available width, height 36, bg = warning or note callout bg, 13 px text with a leading icon, text buttons right-aligned, × when dismissible. Used for: file changed on disk (with unsaved edits), file deleted, read-only, decoding fallback notice, recovery available, Mark-of-the-Web (S-LINK-04), running elevated (S-PROC-06), export failure (R-EXP-07). At most 2 banners show at once (newest on top); the content moves down by their height and keeps its scroll anchor.
 ### B.10.6 Popovers and dialogs
 Popover (external link "Ask", link editor, language picker, color picker): width 360, radius 8, `menu_bg`, `shadow`, anchored to its target; URL shown in code font 12 px, wrapped. In-window confirm dialog: width 420, title 15 px 600, body 13 px, buttons right-aligned (primary last), `Enter` = primary, `Esc` = cancel, backdrop `rgba(0,0,0,.25)`. Native dialogs are used only for open/save files and printing. Tooltips: 500 ms delay, 12 px, padding 4 × 8, radius 4.
 ### B.10.7 Export progress card
