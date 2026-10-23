@@ -140,6 +140,11 @@ impl Win {
             self.f2_paste_split(sh);
             return;
         }
+        if let Some(t) = sys::paste_text(self.hwnd)
+            && self.table_paste(sh, &t)
+        {
+            return;
+        }
         let html = sys::html_format();
         if let Some(raw) = sys::clip_bytes(self.hwnd, html, yp::MAX_HTML + 4096) {
             let raw = String::from_utf8_lossy(&raw).into_owned();

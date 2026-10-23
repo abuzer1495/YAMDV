@@ -12,7 +12,10 @@ impl Win {
             return;
         }
         match k {
-            0 => self.with_ed(sh, |ed| insert::block(ed, Block::Table(3, 3))),
+            0 => {
+                self.pick_open();
+                return;
+            }
             1 => self.with_ed(sh, |ed| insert::block(ed, Block::Code)),
             2..=6 => self.with_ed(sh, |ed| insert::block(ed, Block::Callout(k as usize - 2))),
             7 => self.with_ed(sh, |ed| insert::block(ed, Block::Math)),

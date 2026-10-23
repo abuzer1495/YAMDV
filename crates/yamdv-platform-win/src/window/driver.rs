@@ -1071,6 +1071,16 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         ("file_changed_blocks".into(), V::N(fchg)),
         ("file_bom".into(), V::N(fbom)),
         ("file_crlf".into(), V::N(fcrlf)),
+        ("table_cell".into(), V::S(w.table_probe())),
+        (
+            "table_picker".into(),
+            V::S(w.wysi.pick.map(super::wysi::pick_label).unwrap_or_default()),
+        ),
+        (
+            "tsv_offer".into(),
+            V::N(f64::from(u8::from(w.tsv_offered()))),
+        ),
+        ("table_tools".into(), V::N(w.table_tools(sh).len() as f64)),
         (
             "xsel".into(),
             V::S(w.xsel().map_or(String::new(), |r| {

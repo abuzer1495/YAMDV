@@ -17,6 +17,8 @@ pub(in crate::window) struct RevealCache {
     analysis: Option<Analysis>,
     /// Fenced (code / math / diagram) block: monospace source.
     fence: Option<fence::Fence>,
+    /// Table block: cell grid (prompt 016 §3 item 8).
+    grid: Option<yamdv_editor::table::Grid>,
 }
 
 impl Win {
@@ -50,11 +52,17 @@ impl Win {
             } else {
                 None
             };
+            let grid = if analysis.is_none() && fence.is_none() {
+                yamdv_editor::table::grid(&text)
+            } else {
+                None
+            };
             e.reveal = Some(RevealCache {
                 version: e.ed.version,
                 start: r.start,
                 analysis,
                 fence,
+                grid,
             });
         }
         let Some(c) = e.reveal.as_ref() else {
@@ -71,7 +79,11 @@ impl Win {
                 image: an.image.clone(),
             }
         });
-        let code = c.fence.is_some() || e.opts.code_font;
+        let table = c
+            .grid
+            .as_ref()
+            .map(|g| super::table::table_reveal(g, &text, opts, rel(sel.start)..rel(sel.end)));
+        let code = c.fence.is_some() || (e.opts.code_font && table.is_none());
         let want = c.fence.as_ref().and_then(|f| {
             let body = text.get(f.body.clone()).unwrap_or("").to_string();
             match f.kind {
@@ -108,9 +120,11 @@ impl Win {
             }
             other => preview = other,
         }
-        if sb.reveal == reveal && sb.code_font == code && sb.preview == preview {
+        if sb.reveal == reveal && sb.code_font == code && sb.preview == preview && sb.table == table
+        {
             return false;
         }
+        sb.table = table;
         sb.reveal = reveal;
         sb.code_font = code;
         sb.preview = preview;

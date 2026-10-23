@@ -110,15 +110,11 @@ impl Win {
                 });
             }
             "paste_plain" => self.paste_plain(sh),
-            "code_block" | "insert_table" => {
-                let word = if act == Some("code_block") {
-                    "code"
-                } else {
-                    "table"
-                };
+            "insert_table" => self.pick_open(),
+            "code_block" => {
                 let (d, t) = local_now();
                 let mut sess = None;
-                self.with_ed(sh, |ed| sess = snippets::insert(ed, word, (&d, &t)));
+                self.with_ed(sh, |ed| sess = snippets::insert(ed, "code", (&d, &t)));
                 self.plus.snip = sess;
             }
             "insert_image" => self.with_ed(sh, md::image),

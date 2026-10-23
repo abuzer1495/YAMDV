@@ -387,6 +387,11 @@ impl Win {
         }
     }
 
+    /// Last mouse position (client DIPs).
+    pub(in crate::window) fn tz_mouse(&self) -> (f32, f32) {
+        self.tz.mouse
+    }
+
     /// Transient overlays drawn over the document (content DIPs).
     pub(in crate::window) fn tz_draw(&self, sh: &Shared, b: &Band<'_>) {
         self.draw_gutter(sh, b);

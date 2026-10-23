@@ -622,6 +622,7 @@ impl Win {
         &mut self,
         _sh: &Shared,
     ) -> Option<yamdv_core::doc::index::Splice> {
+        self.table_format_on_leave();
         let vh = self.view_h();
         let View::Doc(d) = &mut self.view else {
             return None;
@@ -711,8 +712,24 @@ impl Win {
         let View::Doc(d) = &self.view else {
             return None;
         };
-        let a = d.edit.as_deref()?.active?;
-        let p = d.viewer.layout_of(a.block)?.paras.first()?;
+        let e = d.edit.as_deref()?;
+        let a = e.active?;
+        let paras = &d.viewer.layout_of(a.block)?.paras;
+        // A table has one paragraph per cell: the caret's.
+        let caret = u32::try_from(e.ed.caret()).unwrap_or(0);
+        let p = if paras.len() > 1 {
+            paras
+                .iter()
+                .find(|p| {
+                    p.map.as_ref().is_some_and(|m| {
+                        m.segs.first().is_some_and(|f| f.src.start <= caret)
+                            && m.segs.last().is_some_and(|l| caret <= l.src.end)
+                    })
+                })
+                .or_else(|| paras.first())?
+        } else {
+            paras.first()?
+        };
         let (cx, _) = self.col(sh);
         let top = (d.viewer.block_top(&d.content, a.block) - d.viewer.scroll) as f32;
         Some((cx + p.x, top + p.y, p))
@@ -1060,6 +1077,8 @@ impl Win {
         if self.f2_type(sh, s) {
             return;
         }
+        let fixed = self.table_type_fix(s);
+        let s = fixed.as_deref().unwrap_or(s);
         let t = now_ms();
         self.with_ed(sh, |ed| ed.type_text(s, t));
     }
@@ -1189,7 +1208,7 @@ impl Win {
     }
 
     /// F2: opens the previous (caret on its last line) or next (first line) block.
-    fn live_adjacent(&mut self, sh: &Shared, up: bool, goal: Option<f32>) {
+    pub(super) fn live_adjacent(&mut self, sh: &Shared, up: bool, goal: Option<f32>) {
         let Some(a) = self.edit().and_then(|e| e.active) else {
             return;
         };
@@ -1496,6 +1515,9 @@ impl Win {
         let Some(t) = sys::paste_text(self.hwnd) else {
             return;
         };
+        if self.table_paste(sh, &t) {
+            return;
+        }
         self.with_ed(sh, |ed| ed.paste(&t));
         self.f2_paste_split(sh);
     }
@@ -2090,8 +2112,16 @@ impl Win {
             _ if ctrl => return false,
             _ => {}
         }
+        // Inside the active table: the clicked cell.
+        if let Some(pos) = self.table_hit(sh, x, y) {
+            let n = self.count_clicks(x, y);
+            self.click_select(pos, shift, n);
+            self.set_drag(Drag::Preview, y);
+            self.after_edit(sh, false);
+            return true;
+        }
         // Inside the active block: caret / selection.
-        if let Some((ox, oy, p)) = self.live_para(sh)
+        if let Some((ox, oy, p)) = self.live_para(sh).filter(|_| self.active_table().is_none())
             && y >= oy - 8.0
             && y <= oy + p.shaped.height() + 8.0
         {
@@ -2148,12 +2178,17 @@ impl Win {
             Drag::Preview => {
                 let pos = match self.edit_mode() {
                     Some(Mode::Live) => {
-                        let inside = self.live_para(sh).and_then(|(ox, oy, p)| {
-                            (y >= oy - 8.0 && y <= oy + p.shaped.height() + 8.0).then(|| {
-                                let idx = p.shaped.hit(x - ox, y - oy);
-                                p.map.as_ref().map_or(0, |m| m.to_source(idx)) as usize
+                        let table = self.active_table().is_some();
+                        let inside = if table {
+                            self.table_hit(sh, x, y)
+                        } else {
+                            self.live_para(sh).and_then(|(ox, oy, p)| {
+                                (y >= oy - 8.0 && y <= oy + p.shaped.height() + 8.0).then(|| {
+                                    let idx = p.shaped.hit(x - ox, y - oy);
+                                    p.map.as_ref().map_or(0, |m| m.to_source(idx)) as usize
+                                })
                             })
-                        });
+                        };
                         if inside.is_none()
                             && let Some(pos) = self.doc_hit(sh, x, y)
                         {
@@ -2314,9 +2349,13 @@ impl Win {
             } else {
                 None
             }
-        } else if self
-            .live_para(sh)
-            .is_some_and(|(_, oy, p)| y >= oy && y <= oy + p.shaped.height())
+        } else if self.grip_at(sh, x, y).is_some() {
+            Some(IDC_HAND)
+        } else if self.table_hit(sh, x, y).is_some()
+            || self.active_table().is_none()
+                && self
+                    .live_para(sh)
+                    .is_some_and(|(_, oy, p)| y >= oy && y <= oy + p.shaped.height())
         {
             Some(IDC_IBEAM)
         } else {
@@ -2434,9 +2473,9 @@ impl Win {
                 if y < 0.0 && !self.selecting {
                     return None;
                 }
-                self.edit_mouse_move(sh, x, y).then_some(LRESULT(0))
+                (self.v2f_move(sh, x, y) || self.edit_mouse_move(sh, x, y)).then_some(LRESULT(0))
             }
-            WM_LBUTTONUP => self.edit_mouse_up().then_some(LRESULT(0)),
+            WM_LBUTTONUP => (self.v2f_up(sh) || self.edit_mouse_up()).then_some(LRESULT(0)),
             WM_MOUSEWHEEL if self.edit_mode().is_some() && self.dialog.is_none() => {
                 let delta = i32::from((wp.0 >> 16) as u16 as i16);
                 let pt = POINT {

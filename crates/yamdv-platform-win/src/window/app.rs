@@ -545,6 +545,8 @@ mod cmd {
     // V2-F WYSIWYG (prompt 016 §3 item 6).
     /// Insert ▸ items: table, code, callout ×5, math, mermaid, rule, image, link, footnote.
     pub const INS0: u32 = 170; // + 0..13
+    /// Table ▸ commands (prompt 016 §3 item 9), order of `TblOp::ALL`.
+    pub const TBL0: u32 = 190; // + 0..17
 }
 pub(super) use cmd::*;
 
@@ -658,6 +660,8 @@ pub(super) struct MenuCtx {
     pub edit: u8,
     /// A table is under the cursor (Copy / Export table as CSV, R-EXP-04).
     pub table: bool,
+    /// F2 with a table under the cursor or open (Table ▸).
+    pub in_table: bool,
     /// The window is in F11 fullscreen (R-WIN-06).
     pub fullscreen: bool,
 }
@@ -716,6 +720,23 @@ pub(super) fn build(lang: Lang, c: &MenuCtx) -> Model {
         b.msg(ins, INS0 + 10, Msg::MInsImage, &keys("insert_image"), 0);
         b.msg(ins, INS0 + 11, Msg::MInsLink, &keys("link"), 0);
         b.msg(ins, INS0 + 12, Msg::MInsFootnote, "", 0);
+        if c.edit == 1 && c.in_table {
+            let t = b.sub(m, Msg::MTable);
+            for (i, op) in super::wysi::TblOp::ALL.into_iter().enumerate() {
+                if matches!(i, 4 | 6 | 10 | 12 | 16) {
+                    b.sep(t);
+                }
+                let key = match op {
+                    super::wysi::TblOp::DelRow => "Ctrl+Shift+Backspace",
+                    super::wysi::TblOp::RowUp => "Ctrl+Alt+↑",
+                    super::wysi::TblOp::RowDown => "Ctrl+Alt+↓",
+                    super::wysi::TblOp::ColMoveLeft => "Ctrl+Alt+←",
+                    super::wysi::TblOp::ColMoveRight => "Ctrl+Alt+→",
+                    _ => "",
+                };
+                b.msg(t, TBL0 + i as u32, op.msg(), key, 0);
+            }
+        }
         b.sep(m);
     } else {
         b.msg(m, COPY, Msg::MCopy, &keys("copy"), 0);
@@ -1174,6 +1195,11 @@ pub(super) fn run_command(hwnd: HWND, id: u32, link: Option<String>) -> Vec<Acti
         }
         i if (FMT0..FMT0 + 13).contains(&i) => with_win(hwnd, |w, sh| w.edit_command(sh, id)),
         i if (INS0..INS0 + 13).contains(&i) => with_win(hwnd, |w, sh| w.insert_cmd(sh, i - INS0)),
+        i if (TBL0..TBL0 + 17).contains(&i) => with_win(hwnd, |w, sh| {
+            if let Some(op) = super::wysi::TblOp::ALL.get((i - TBL0) as usize) {
+                w.table_op(sh, *op);
+            }
+        }),
         _ => {}
     }
     out
@@ -1572,6 +1598,7 @@ impl Win {
                 path: Some(d.path.clone()),
                 edit: self.edit_mode_id(),
                 table: self.ctx_table.is_some(),
+                in_table: self.wysi.tbl_at.is_some() || self.active_table().is_some(),
                 fullscreen: self.fs,
             },
             _ => MenuCtx {

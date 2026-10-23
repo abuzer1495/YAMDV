@@ -131,6 +131,37 @@ impl Win {
                     .map(|p| p + k.parse().unwrap_or(0usize));
                 pos.is_some_and(|p| self.f2_task_click(sh, p))
             }
+            // Table command by name (`row-above`, `sort-desc`, …).
+            "v2f-table" => match super::table::TblOp::from_name(arg) {
+                Some(op) => {
+                    self.table_op(sh, op);
+                    true
+                }
+                None => false,
+            },
+            // Grip drag through the mouse handlers: "col|row FROM TO".
+            "v2f-grip" => {
+                let p: Vec<&str> = arg.split_whitespace().collect();
+                match (
+                    p.first(),
+                    p.get(1).and_then(|s| s.parse().ok()),
+                    p.get(2).and_then(|s| s.parse().ok()),
+                ) {
+                    (Some(k), Some(f), Some(t)) => self.grip_drive(sh, *k == "col", f, t),
+                    _ => false,
+                }
+            }
+            "v2f-tsv-convert" => self.tsv_convert(sh),
+            // Click the tool strip button `arg` through the mouse handler.
+            "v2f-tool" => {
+                let r = super::table::TblOp::from_name(arg).and_then(|op| {
+                    self.table_tools(sh)
+                        .into_iter()
+                        .find(|(_, o)| *o == op)
+                        .map(|t| t.0)
+                });
+                r.is_some_and(|r| self.v2f_down(sh, r.x + r.w / 2.0, r.y + r.h / 2.0))
+            }
             "v2f-hash-mark" => {
                 let h = block_hashes(&self.doc_file_bytes());
                 MARK.with(|m| *m.borrow_mut() = h);

@@ -3051,6 +3051,7 @@ fn handle(
         WM_CONTEXTMENU => {
             if lp.0 == -1 {
                 w.ctx_table = None;
+                w.wysi.tbl_at = None;
                 actions.push(w.kbd_menu());
             } else {
                 let (sx, sy) = (
@@ -3065,6 +3066,7 @@ fn handle(
                 }
                 let link = w.link_at(sh, x, y);
                 w.ctx_table = w.table_csv_at(sh, x, y);
+                w.wysi.tbl_at = w.ctx_table.as_ref().and_then(|_| w.doc_hit(sh, x, y));
                 actions.push(Action::ContextMenu(sx, sy, link));
             }
             Some(LRESULT(0))
