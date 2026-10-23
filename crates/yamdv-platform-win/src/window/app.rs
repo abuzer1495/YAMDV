@@ -283,6 +283,28 @@ pub(super) fn config_dir() -> String {
     }
 }
 
+/// Recovery journal folder (prompt 015 §3.6): `%LOCALAPPDATA%\YAMDV\recovery`, or
+/// `recovery` in the portable data folder.
+pub(super) fn recovery_dir() -> String {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_string_lossy().into_owned()))
+        .unwrap_or_default();
+    let portable = std::path::Path::new(&exe_dir)
+        .join("yamdv.portable")
+        .exists();
+    let base = match yamdv_core::settings::resolve_dirs(
+        &exe_dir,
+        portable,
+        &std::env::var("APPDATA").unwrap_or_default(),
+        &std::env::var("LOCALAPPDATA").unwrap_or_default(),
+    ) {
+        yamdv_core::settings::DataDirs::Installed { local, .. } => local,
+        yamdv_core::settings::DataDirs::Portable { dir } => dir,
+    };
+    format!("{base}\\recovery")
+}
+
 /// Loads `settings.ini` and `state.ini`; returns a copy of the settings.
 pub(super) fn init() -> Settings {
     let dir = config_dir();

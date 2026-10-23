@@ -11,7 +11,7 @@ mod paste;
 mod recovery;
 mod toolbar;
 
-pub(super) use recovery::Journal;
+pub(super) use recovery::{BTN_JOURNAL_DISCARD, BTN_RESTORE, Journal, TIMER_JOURNAL};
 
 /// Per-window V2-E state.
 #[derive(Default)]

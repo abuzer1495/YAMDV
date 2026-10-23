@@ -12,3 +12,4 @@ Order: §1.1 F-25 → F-26 → F-27 → F-28 → §2 P-46 + regex ADR → §3 it
 - Pure: replace/snippets/lines/pairs (editor), paste html2md/assets (core) + XSS paste context done. Next: journal (core), then platform wiring.
 - CHECKPOINT: core journal.rs done (format/name/schedule). Next: platform wiring (find bar replace row first).
 - CHECKPOINT 20:42 +03: task 5 paste/drop wired (paste_rich, paste_plain, drop_into_doc, sandboxed asset save); next recovery journal integration.
+- CHECKPOINT 20:46 +03: task 6 recovery journal wired (worker, timer, banner, hooks). Next: driver verbs v2e-*, 2 scripts, 2 goldens.

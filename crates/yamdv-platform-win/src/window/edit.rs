@@ -181,7 +181,7 @@ pub(super) struct Edit {
 }
 
 impl Edit {
-    fn new(text: &str, eol: &'static str) -> Self {
+    pub(super) fn new(text: &str, eol: &'static str) -> Self {
         Self {
             ed: Editor::new(text, eol),
             mode: None,
@@ -879,6 +879,7 @@ impl Win {
             if let Some(f) = &mut self.find {
                 f.dirty = true;
             }
+            self.journal_edited();
             let (autosave, delay) = self
                 .edit()
                 .map_or((false, 0), |e| (e.opts.autosave, e.opts.delay));
@@ -1582,8 +1583,10 @@ impl Win {
         if let Err(e) = crate::shell::save_document(&long, &bytes) {
             crate::log::warn("save", &format!("{e}"));
             self.toast(Msg::SaveFailed);
+            self.journal_save_failed();
             return false;
         }
+        self.journal_clear();
         let mtime = sys::stat(&long).map_or(0, |(i, _)| ticks(i.mtime));
         if let View::Doc(d) = &mut self.view {
             d.facts.stamp = Some(Stamp::of(&bytes, mtime));
@@ -1640,6 +1643,7 @@ impl Win {
                 }
             }
             (Ask::Unsaved, BTN_DISCARD) => {
+                self.journal_clear();
                 if let View::Doc(d) = &mut self.view {
                     d.edit = None;
                 }
@@ -1659,6 +1663,7 @@ impl Win {
 
     /// "Reload (discard mine)": the file's current text replaces the buffer.
     fn edit_discard_reload(&mut self, sh: &Shared) {
+        self.journal_clear();
         let mode = self.edit_mode();
         if let View::Doc(d) = &mut self.view {
             d.edit = None;
@@ -2145,6 +2150,7 @@ impl Win {
                     self.edit_save(sh, false, false);
                 }
             }
+            plus::TIMER_JOURNAL => self.journal_tick(),
             TIMER_PREVIEW => {
                 self.kill(TIMER_PREVIEW);
                 self.sync_preview(sh);
@@ -2236,7 +2242,11 @@ impl Win {
         let (dirty, autosave, ok) = self.edit().map_or((false, false, true), |e| {
             (e.ed.is_dirty(), e.opts.autosave, e.close_ok)
         });
-        if !dirty || ok {
+        if !dirty {
+            self.journal_clear();
+            return None;
+        }
+        if ok {
             return None;
         }
         self.edit_leave_block(sh);

@@ -16,6 +16,7 @@ pub(super) fn name(k: BannerKind) -> &'static str {
         BannerKind::Motw => "motw",
         BannerKind::Elevated => "elevated",
         BannerKind::ExportFailed => "export-failed",
+        BannerKind::Recovery => "recovery",
     }
 }
 
@@ -69,6 +70,7 @@ impl Win {
             BannerKind::ReadOnly,
             BannerKind::Decoding,
             BannerKind::Motw,
+            BannerKind::Recovery,
         ] {
             self.tz.banners.dismiss(k);
         }
@@ -88,6 +90,9 @@ impl Win {
         {
             self.tz.banners.push(BannerKind::Elevated);
         }
+        if self.journal_on_open() {
+            self.tz.banners.push(BannerKind::Recovery);
+        }
         self.tz_relayout(sh);
     }
 
@@ -102,6 +107,9 @@ impl Win {
             BannerKind::Motw => Msg::BannerMotw,
             BannerKind::Elevated => Msg::BannerElevated,
             BannerKind::ExportFailed => self.tz.export_msg.unwrap_or(Msg::BannerExportFailed),
+            BannerKind::Recovery => {
+                return format!("{} {}", tr(sh.lang, Msg::RecoverBanner), self.journal_name());
+            }
         };
         tr(sh.lang, m).to_string()
     }
@@ -118,6 +126,14 @@ impl Win {
                 (Msg::Overwrite, edit::BTN_OVERWRITE),
                 (Msg::ReloadDiscard, edit::BTN_RELOAD_DISCARD),
                 (Msg::SaveMineAs, edit::BTN_SAVE_AS),
+            ]
+            .into_iter()
+            .map(|(m, id)| (id, tr(sh.lang, m).to_string()))
+            .collect()
+        } else if k == BannerKind::Recovery {
+            [
+                (Msg::RecoverRestore, plus::BTN_RESTORE),
+                (Msg::RecoverDiscard, plus::BTN_JOURNAL_DISCARD),
             ]
             .into_iter()
             .map(|(m, id)| (id, tr(sh.lang, m).to_string()))
@@ -218,6 +234,9 @@ impl Win {
         if k == BannerKind::Conflict {
             self.tz_banner(sh, k, false);
             self.edit_dialog(sh, edit::Ask::Conflict, id);
+        } else if k == BannerKind::Recovery {
+            self.tz_banner(sh, k, false);
+            self.journal_button(sh, id);
         } else if id == 0 {
             if k == BannerKind::ExportFailed {
                 self.tz.export_msg = None;
