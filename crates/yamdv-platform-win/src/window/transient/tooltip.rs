@@ -179,7 +179,9 @@ impl Win {
             Some(p) if s.starts_with("[^") => s.get(p + 2..).unwrap_or(""),
             _ => s,
         };
-        Some(yamdv_ui::transient::preview(body, FOOT_PREVIEW))
+        // F-23: the rendered plain text, not the markup.
+        let plain = yamdv_core::doc::plain::plain_text(body);
+        Some(yamdv_ui::transient::preview(&plain, FOOT_PREVIEW))
     }
 
     /// Tooltip text of hot `kind` in block `bi` (link title, footnote, image title).
