@@ -1,0 +1,20 @@
+# Spec patches of prompt 014 (Phase V2-D) §2, extracted verbatim from docs/prompts/014_V2D_NAVIGATION.md.
+
+=== P-43 docs/SECURITY.md REPLACE
+--- old
+File watching covers only the open document's folder (non-recursive) and the config folder; buffer overflow → full reload of the document.
+--- new
+File watching covers only the open document's folder (non-recursive), the config folder, and the folders currently expanded in the Files tab (each non-recursive, at most 32; a collapsed folder stops being watched); buffer overflow → full reload of the document, or a re-list of that folder.
+
+=== P-44 docs/UI_SPEC.md INSERT_AFTER
+--- anchor
+Bottom-center, above the toast stack; width 360, radius 8, `menu_bg`, `shadow`; shown only when a job runs longer than 300 ms. Line 1: 13 px 600 "Exporting PDF…" / "Printing…" / "Exporting HTML…" plus the file name (middle ellipsis). Bar: 4 px, `accent` on a `border` track; indeterminate while preparing (static with reduced motion), determinate after. Line 2: 12 px `text_muted` "Page 37 of 1093 · 3 % · about 3 min left" (HTML counts blocks; the estimate appears after 5 pages or 5 %). [Cancel] right-aligned; `Esc` cancels while the card has focus. Success replaces it with a toast "PDF saved — <name>" with [Open] · [Show in folder]; failure replaces it with an error banner (B.10.5). The taskbar button mirrors the progress (`ITaskbarList3`).
+--- new
+### B.10.8 Heading jump palette
+Top-center, 12 px below the title bar; width 520 (clamped to window − 48), radius 8, `menu_bg`, `shadow`. A single-line input (placeholder "Go to heading…") above a list of at most 12 visible rows (32 px, 13 px text, indent 12 px per level, H1 weight 600, matched characters in `accent`). `↑/↓` move, `Enter` jumps (unfolding a folded section), `Esc` or an outside click closes. Filter: substring and word-start matches with the find bar's case folding (Turkish equivalence).
+
+=== P-45 docs/SHORTCUTS.md INSERT_AFTER
+--- anchor
+| `toggle_sidebar` | `Ctrl+\` | all |
+--- new
+| `focus_next_region` / `focus_prev_region` | `F6` / `Shift+F6` | all |
