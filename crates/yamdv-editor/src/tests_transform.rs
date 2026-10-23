@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::indexing_slicing)]
 
 use crate::Editor;
-use crate::transform::{enter, pipe_cells, space};
+use crate::transform::{enter, pipe_cells, space, task_toggle_at};
 
 fn at_end(t: &str) -> Editor {
     let mut e = Editor::new(t, "\n");
@@ -73,4 +73,13 @@ fn enter_blocks_and_tables() {
     assert!(!ent(&mut e));
     assert_eq!(pipe_cells("a \\| b | c").unwrap(), vec!["a \\| b", "c"]);
     assert!(pipe_cells("no pipes").is_none());
+}
+
+#[test]
+fn task_checkbox_hit() {
+    assert_eq!(task_toggle_at("- [ ] a", 3), Some((3, 'x')));
+    assert_eq!(task_toggle_at("  1. [x] a", 6), Some((6, ' ')));
+    assert_eq!(task_toggle_at("> * [X] a", 4), Some((5, ' ')));
+    assert_eq!(task_toggle_at("- [ ] a", 7), None);
+    assert_eq!(task_toggle_at("[ ] a", 1), None);
 }

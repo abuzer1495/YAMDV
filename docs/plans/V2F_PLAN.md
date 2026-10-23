@@ -26,3 +26,11 @@ CHECKPOINT 5 (item 4 done): Ctrl+K / toolbar Link in F2 opens the link popover (
 Tab fields, Enter = one undo step, Esc); Ctrl+click follows via the viewer path. Pure model
 yamdv_editor::linkedit + test; driver f2-reveal covers edit + new link + undo.
 Next: item 5 cross-block selection + multi-format clipboard, 6 checkbox/context menu, 7 data safety.
+
+CHECKPOINT 6 (items 5–6 done): F2 cross-block selection (wysi/xsel.rs: Shift+click, drag,
+Shift+arrows past the block edge, Ctrl+A → document selection; copy = text/markdown + CF_HTML +
+plain; cut/delete/typing/paste replace as one step); multi-block paste re-splits blocks.
+Checkbox click in the active block toggles (transform::task_toggle_at); context menu Insert ▸
+(13 items incl. Callout ▸ 5) via yamdv_editor::insert (+tests). Table ▸ submenu comes with the
+table commands of item 9 (Part 2). Next: item 7 data safety (byte-identical untouched blocks,
+EOL/BOM kept) then Part 2.

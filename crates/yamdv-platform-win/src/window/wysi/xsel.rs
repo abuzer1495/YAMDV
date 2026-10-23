@@ -19,24 +19,12 @@ impl Win {
 
     /// Block index containing source offset `pos`.
     pub(in crate::window) fn block_of(&self, pos: usize) -> Option<usize> {
-        let View::Doc(d) = &self.view else {
-            return None;
-        };
-        let n = d.content.len();
-        if n == 0 {
-            return None;
-        }
-        let mut lo = 0;
-        let mut hi = n;
-        while lo < hi {
-            let m = (lo + hi) / 2;
-            if (d.content.range(m).end as usize) <= pos {
-                lo = m + 1;
-            } else {
-                hi = m;
+        match &self.view {
+            View::Doc(d) if !d.content.is_empty() => {
+                Some(crate::window::edit::block_of(&d.content, pos))
             }
+            _ => None,
         }
-        Some(lo.min(n - 1))
     }
 
     /// Extends the F2 selection to `pos`, leaving the active block (the document syncs first, so

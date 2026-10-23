@@ -41,4 +41,23 @@ impl Win {
             }
         });
     }
+
+    /// F2 click on a task checkbox inside the active block toggles it (one undo step).
+    pub(in crate::window) fn f2_task_click(&mut self, sh: &Shared, pos: usize) -> bool {
+        let Some(e) = self.edit() else { return false };
+        let l = e.ed.line_of(pos);
+        let ls = e.ed.line_start(l);
+        let line = e.ed.line_text(l);
+        let Some((off, c)) = yamdv_editor::transform::task_toggle_at(&line, pos - ls) else {
+            return false;
+        };
+        let at = ls + off;
+        let caret = e.ed.caret();
+        self.with_ed(sh, |ed| {
+            ed.seal();
+            ed.replace(at..at + 1, &c.to_string(), caret);
+            ed.seal();
+        });
+        true
+    }
 }

@@ -2090,6 +2090,9 @@ impl Win {
             let idx = p.shaped.hit(x - ox, y - oy);
             let pos = p.map.as_ref().map_or(0, |m| m.to_source(idx)) as usize;
             let n = self.count_clicks(x, y);
+            if n == 1 && !shift && self.f2_task_click(sh, pos) {
+                return true;
+            }
             self.click_select(pos, shift, n);
             self.set_drag(Drag::Preview, y);
             self.after_edit(sh, false);

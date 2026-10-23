@@ -7,6 +7,7 @@ use yamdv_core::keymap::Chord;
 
 #[cfg(feature = "dev-tools")]
 mod drive;
+mod insert;
 mod lang;
 mod linkpop;
 mod reveal;

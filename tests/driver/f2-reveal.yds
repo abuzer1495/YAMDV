@@ -123,3 +123,37 @@ assert buffer == ""
 key ctrl+z
 wait-idle
 assert buffer contains "# Title\n\nFirst"
+
+# item 6: checkbox click toggles; Insert ▸ blocks (one undo step each)
+write-file r6.tmp.md "Intro text.\n\n- [ ] task one\n- [x] task two\n"
+open r6.tmp.md
+wait-idle
+key f2
+ui v2f-caret "8|task one"
+ui v2f-task-click "2|- [ ] task one"
+wait-idle
+assert buffer contains "- [x] task one\n- [x] task two"
+key ctrl+z
+wait-idle
+assert buffer contains "- [ ] task one"
+ui v2f-caret "2|Intro"
+command insert code
+wait-idle
+assert buffer contains "Intro text.\n\n```\n\n```\n\n- [ ] task one"
+type "x"
+wait-idle
+assert buffer contains "```\nx\n```"
+assert active_block == 1
+command insert warning
+wait-idle
+assert buffer contains "> [!WARNING]\n> "
+command insert footnote
+wait-idle
+assert buffer contains "[^1]: \n"
+assert buffer contains "> [!WARNING]\n> [^1]"
+key ctrl+z
+key ctrl+z
+key ctrl+z
+key ctrl+z
+wait-idle
+assert buffer == "Intro text.\n\n- [ ] task one\n- [x] task two\n"

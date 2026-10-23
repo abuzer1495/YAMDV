@@ -6,6 +6,7 @@
 pub mod buffer;
 pub mod clear;
 pub mod history;
+pub mod insert;
 pub mod lines;
 pub mod linkedit;
 pub mod md;
@@ -18,6 +19,8 @@ pub use buffer::{Editor, Motion, normalize_eol};
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_insert;
 #[cfg(test)]
 mod tests_lines;
 #[cfg(test)]

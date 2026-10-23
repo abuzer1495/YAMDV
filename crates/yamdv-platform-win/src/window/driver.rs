@@ -703,6 +703,24 @@ fn command_id(name: &str) -> Option<u32> {
     };
     Some(match verb {
         "mode" => app::MODE0 + idx(&["system", "light", "dark"])?,
+        "insert" => {
+            app::INS0
+                + idx(&[
+                    "table",
+                    "code",
+                    "note",
+                    "tip",
+                    "important",
+                    "warning",
+                    "caution",
+                    "math",
+                    "mermaid",
+                    "rule",
+                    "image",
+                    "link",
+                    "footnote",
+                ])?
+        }
         "scheme" => {
             let names: Vec<&str> = app::SCHEMES.iter().map(|s| s.0).collect();
             app::SCHEME0 + idx(&names)?

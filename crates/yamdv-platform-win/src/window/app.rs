@@ -542,6 +542,9 @@ mod cmd {
     pub const GO_HEADING: u32 = 161;
     /// Export ▸ View as mind map `Ctrl+Shift+M` (FUT-37).
     pub const MIND_MAP: u32 = 162;
+    // V2-F WYSIWYG (prompt 016 §3 item 6).
+    /// Insert ▸ items: table, code, callout ×5, math, mermaid, rule, image, link, footnote.
+    pub const INS0: u32 = 170; // + 0..13
 }
 pub(super) use cmd::*;
 
@@ -691,6 +694,28 @@ pub(super) fn build(lang: Lang, c: &MenuCtx) -> Model {
         {
             b.msg(f, FMT0 + i as u32, msg, &keys(key), 0);
         }
+        let ins = b.sub(m, Msg::MInsert);
+        b.msg(ins, INS0, Msg::MInsTable, &keys("insert_table"), 0);
+        b.msg(ins, INS0 + 1, Msg::MInsCode, &keys("code_block"), 0);
+        let co = b.sub(ins, Msg::MInsCallout);
+        for (i, msg) in [
+            Msg::MCalloutNote,
+            Msg::MCalloutTip,
+            Msg::MCalloutImportant,
+            Msg::MCalloutWarning,
+            Msg::MCalloutCaution,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            b.msg(co, INS0 + 2 + i as u32, msg, "", 0);
+        }
+        b.msg(ins, INS0 + 7, Msg::MInsMath, "", 0);
+        b.msg(ins, INS0 + 8, Msg::MInsMermaid, "", 0);
+        b.msg(ins, INS0 + 9, Msg::MInsRule, "", 0);
+        b.msg(ins, INS0 + 10, Msg::MInsImage, &keys("insert_image"), 0);
+        b.msg(ins, INS0 + 11, Msg::MInsLink, &keys("link"), 0);
+        b.msg(ins, INS0 + 12, Msg::MInsFootnote, "", 0);
         b.sep(m);
     } else {
         b.msg(m, COPY, Msg::MCopy, &keys("copy"), 0);
@@ -1148,6 +1173,7 @@ pub(super) fn run_command(hwnd: HWND, id: u32, link: Option<String>) -> Vec<Acti
             with_win(hwnd, |w, sh| w.edit_command(sh, id));
         }
         i if (FMT0..FMT0 + 13).contains(&i) => with_win(hwnd, |w, sh| w.edit_command(sh, id)),
+        i if (INS0..INS0 + 13).contains(&i) => with_win(hwnd, |w, sh| w.insert_cmd(sh, i - INS0)),
         _ => {}
     }
     out

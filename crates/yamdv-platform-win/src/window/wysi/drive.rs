@@ -30,6 +30,15 @@ impl Win {
                     true
                 })
             }
+            // F2: click on the task checkbox at `needle` + k (inside the active block).
+            "v2f-task-click" => {
+                let (k, needle) = arg.split_once('|').unwrap_or(("0", arg));
+                let pos = self
+                    .edit()
+                    .and_then(|e| e.ed.text().find(needle))
+                    .map(|p| p + k.parse().unwrap_or(0usize));
+                pos.is_some_and(|p| self.f2_task_click(sh, p))
+            }
             _ => false,
         };
         if ok {

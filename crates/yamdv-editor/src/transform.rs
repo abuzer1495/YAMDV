@@ -176,3 +176,32 @@ pub fn enter(ed: &mut Editor, scope: Range<usize>) -> bool {
     ed.seal();
     true
 }
+
+/// Task checkbox at `rel` (byte offset in `line`): the offset of the mark character inside
+/// `[ ]` / `[x]` and its toggled value, when `rel` is on the brackets.
+pub fn task_toggle_at(line: &str, rel: usize) -> Option<(usize, char)> {
+    let lead = line.len() - line.trim_start_matches([' ', '\t', '>']).len();
+    let rest = line.get(lead..)?;
+    let m = if rest.starts_with(['-', '*', '+']) {
+        1
+    } else {
+        let d = rest.bytes().take_while(u8::is_ascii_digit).count();
+        if d == 0 || !rest.get(d..)?.starts_with(['.', ')']) {
+            return None;
+        }
+        d + 1
+    };
+    let after = rest.get(m..)?;
+    let sp = after.len() - after.trim_start_matches(' ').len();
+    if sp == 0 {
+        return None;
+    }
+    let b = lead + m + sp;
+    let mark = line.get(b..b + 3)?;
+    let new = match mark {
+        "[ ]" => 'x',
+        "[x]" | "[X]" => ' ',
+        _ => return None,
+    };
+    (b..=b + 3).contains(&rel).then_some((b + 1, new))
+}
