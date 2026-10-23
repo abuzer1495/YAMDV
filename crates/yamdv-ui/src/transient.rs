@@ -84,6 +84,8 @@ pub enum BannerKind {
     Elevated,
     /// An export failed.
     ExportFailed,
+    /// A recovery journal of an earlier session exists (prompt 015 §3.6).
+    Recovery,
 }
 
 impl BannerKind {

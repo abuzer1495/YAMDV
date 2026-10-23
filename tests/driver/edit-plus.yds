@@ -1,0 +1,100 @@
+# V2-E edit-plus (prompt 015 §3.1–3.4): line operations, auto-pair, snippets, replace, F2 toolbar
+write-file ep.tmp.md "alpha\nbeta 12 and 345\nfoo foo"
+write-file tb.tmp.md "# Toolbar\n\nalpha word here\n"
+open tb.tmp.md
+wait-idle
+# F2 format toolbar: Bold → **word**, Esc hides it
+key f2
+wait-idle
+ui v2e-live-select alpha
+wait-idle
+assert toolbar == 1
+snapshot v2e-toolbar-light.png
+ui v2e-tb Bold
+wait-idle
+assert buffer contains "**alpha"
+key esc
+wait-idle
+assert toolbar == 0
+key f2
+wait-idle
+open ep.tmp.md
+wait-idle
+key f3
+wait-idle
+# Line operations: Ctrl+Shift+D, Ctrl+L, Alt+↑
+key ctrl+home
+key ctrl+shift+D
+wait-idle
+assert buffer contains "alpha\nalpha\nbeta"
+key ctrl+L
+wait-idle
+assert sel_len == 6
+key ctrl+end
+key alt+up
+wait-idle
+assert buffer contains "alpha\nfoo foo\nbeta 12 and 345"
+# Auto-pair (off by default)
+ui v2e-set editing.auto_pair=true
+key ctrl+end
+key enter
+type "("
+wait-idle
+assert buffer contains "345\n()"
+ui v2e-set editing.auto_pair=false
+# table2x3 + Tab, then Tab moves to the next cell
+key ctrl+end
+key enter
+key enter
+type "table2x3"
+wait-idle
+key tab
+wait-idle
+assert buffer contains "| Column 1 | Column 2 | Column 3 |"
+assert sel_len == 8
+type "Name"
+wait-idle
+key tab
+wait-idle
+assert sel_len == 8
+key esc
+key ctrl+end
+# Ctrl+H: Replace all foo→bar is one undo step
+key ctrl+H
+wait-idle
+assert find == open
+type "foo"
+key tab
+type "bar"
+wait-idle
+key ctrl+enter
+wait-idle
+assert buffer contains "bar bar"
+key ctrl+Z
+wait-idle
+assert buffer contains "foo foo"
+# Regex \d+ → #
+key tab
+key backspace
+key backspace
+key backspace
+type "\d+"
+wait-idle
+key alt+R
+wait-idle
+assert find_count == 4
+key tab
+key backspace
+key backspace
+key backspace
+type "#"
+command mode dark
+wait-idle
+snapshot v2e-replace-dark.png
+key ctrl+enter
+wait-idle
+assert buffer contains "beta # and #"
+key esc
+wait-idle
+assert find == closed
+command mode light

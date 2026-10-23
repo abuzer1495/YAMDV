@@ -131,7 +131,10 @@ pub(super) fn tick(w: &mut Win, sh: &Shared) {
     }
     let next = SCRIPT.with(|s| s.borrow_mut().as_mut().and_then(|s| s.chars.pop_front()));
     if let Some(c) = next {
-        w.edit_type(sh, &c.to_string());
+        // As WM_CHAR: V2-E auto-pair first (prompt 015 §3.4).
+        if c.is_control() || !w.plus_char(sh, c) {
+            w.edit_type(sh, &c.to_string());
+        }
         return;
     }
     loop {
@@ -681,6 +684,7 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
             "ok ui job-cancel".to_string()
         }
         v if v.starts_with("nav-") => w.nav_ui(sh, v, arg),
+        v if v.starts_with("v2e-") => w.v2e_ui(sh, v, arg),
         _ => format!("FAIL ui {verb}: unknown verb"),
     }
 }
@@ -1101,6 +1105,11 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         ),
         ("disk_scheme".into(), V::S(disk_scheme)),
     ];
+    out.extend(
+        w.v2e_state(sh)
+            .into_iter()
+            .map(|(k, n)| (k.to_string(), V::N(n))),
+    );
     let pws = pws_now();
     let mark = MEM_MARK.with(std::cell::Cell::get);
     out.push(("pws_kib".into(), V::N((pws / 1024) as f64)));

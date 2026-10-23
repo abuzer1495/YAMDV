@@ -69,6 +69,7 @@ mod edit;
 mod findbar;
 mod jobui;
 mod nav;
+mod plus;
 mod popup;
 mod setpanel;
 mod sidebar;
@@ -343,6 +344,8 @@ enum Pending {
     JobClose,
     /// Settings panel confirmation (Reset all, Reset colours, Clear …).
     Panel(&'static str),
+    /// Large files dropped on an edit mode (prompt 015 §3.5).
+    Drop(Vec<String>),
 }
 
 const BTN_CANCEL: u32 = 0;
@@ -352,6 +355,7 @@ const BTN_OPEN: u32 = 3;
 const BTN_REVEAL: u32 = 5;
 const BTN_KEEP: u32 = 40;
 const BTN_REMOVE: u32 = 41;
+const BTN_DROP_COPY: u32 = 42;
 
 #[derive(Default)]
 struct Scrollbar {
@@ -422,6 +426,8 @@ struct Win {
     /// Sidebar state (B.5).
     side: sidebar::Side,
     nav: nav::Nav,
+    /// V2-E editing extras (prompt 015).
+    plus: plus::Plus,
     /// CSV of the table under the last context-menu click (R-EXP-04).
     ctx_table: Option<String>,
     /// Content offset below the client top: the title bar height, 0 in fullscreen (B.4).
@@ -732,6 +738,7 @@ impl Win {
             (_, BTN_CANCEL) => {}
             (Pending::JobClose, jobui::BTN_JOB_CLOSE) => jobui::cancel_and_close(),
             (Pending::Panel(what), setpanel::BTN_PANEL_OK) => self.panel_confirmed(what),
+            (Pending::Drop(files), BTN_DROP_COPY) => self.drop_copy(sh, &files),
             (Pending::Large { path }, BTN_PLAIN) => self.open(sh, &path, Some(true), false),
             (Pending::Large { path }, BTN_RENDER) => self.open(sh, &path, Some(false), false),
             (Pending::Binary { path, plain }, BTN_OPEN) => self.open(sh, &path, Some(plain), true),
@@ -1050,7 +1057,7 @@ impl Win {
                 // Fixed overlays inside the blitted rect: repaint where they were and are.
                 let ady = dy.abs();
                 if self.find.is_some() {
-                    let (bar, _) = findbar::bar_rects(self.cw);
+                    let (bar, _) = findbar::bar_rects(self.cw, self.find_tall());
                     let rc = self.crc(RECT {
                         left: px(bar.x) - 4,
                         top: px(bar.y) - ady - 4,
@@ -1540,6 +1547,7 @@ impl Win {
             self.draw_side(sh, b);
         }
         self.draw_find(sh, b);
+        self.toolbar_draw(sh, b);
         self.draw_job(sh, b);
         self.draw_settings(sh, b);
         self.toast_rect.set(None);
@@ -1569,15 +1577,19 @@ impl Win {
             );
             if self.done_file.is_some() {
                 let (open, reveal) = jobui::toast_buttons(r);
+                // F-28: B.10.1 action links "[Open] · [Show in folder]".
+                let link = jobui::toast_link_color(pal.text);
                 for (rr, m) in [(open, Msg::Open), (reveal, Msg::ShowInFolder)] {
-                    b.stroke(rr, pal.bg, 6.0, 1.0);
-                    let l = self.shape_ui(sh, tr(sh.lang, m), 13.0, 600, pal.bg, None);
-                    b.text(
-                        l.as_ref(),
-                        (rr.x + (rr.w - l.width()) / 2.0).round(),
-                        (rr.y + (rr.h - l.height()) / 2.0).round(),
-                    );
+                    let l = self.shape_ui(sh, tr(sh.lang, m), 13.0, 600, link, None);
+                    let ly = (rr.y + (rr.h - l.height()) / 2.0).round();
+                    b.text(l.as_ref(), (rr.x + (rr.w - l.width()) / 2.0).round(), ly);
                 }
+                let dot = self.shape_ui(sh, "·", 13.0, 400, pal.bg, None);
+                b.text(
+                    dot.as_ref(),
+                    (open.x + open.w + (reveal.x - open.x - open.w - dot.width()) / 2.0).round(),
+                    (open.y + (open.h - dot.height()) / 2.0).round(),
+                );
             }
             self.toast_rect.set(Some(r));
         }
@@ -1676,6 +1688,9 @@ impl Win {
             alt,
             vk,
         };
+        if let Some(r) = self.v2e_key(sh, c) {
+            return Some(r);
+        }
         match app::keymap().translate(c, self.edit_mode().is_some()) {
             yamdv_core::keymap::Translate::Pass => None,
             yamdv_core::keymap::Translate::Swallow => Some(None),
@@ -1804,6 +1819,9 @@ impl Win {
         if self.dialog.is_none() && (self.job_click(x, y) || self.toast_click(x, y)) {
             return;
         }
+        if self.dialog.is_none() && self.toolbar_down(sh, x, y) {
+            return;
+        }
         if self.dialog.is_none() && matches!(self.view, View::Empty { note: None }) {
             if let Some(a) = self.welcome_click(sh, x, y) {
                 self.actions.push(a);
@@ -1816,15 +1834,8 @@ impl Win {
             }
             return;
         }
-        if self.find.is_some() && self.dialog.is_none() {
-            let (bar, case) = findbar::bar_rects(self.cw);
-            if case.contains(x, y) {
-                self.find_toggle_case(sh);
-                return;
-            }
-            if bar.contains(x, y) {
-                return;
-            }
+        if self.find.is_some() && self.dialog.is_none() && self.find_click(sh, x, y) {
+            return;
         }
         if self.dialog.is_some() {
             if let Some(g) = self.geometry(sh)
@@ -1936,6 +1947,9 @@ impl Win {
             self.invalidate();
         }
         if self.dialog.is_none() && self.side_shown() && self.side_move(sh, x, y) {
+            return;
+        }
+        if self.dialog.is_none() && self.toolbar_move(sh, x, y) {
             return;
         }
         if !self.tracking {
@@ -2136,6 +2150,11 @@ impl Win {
             DragFinish(hdrop);
         }
         let mut actions = Vec::new();
+        // Prompt 015 §3.5: files dropped on an edit mode are copied in as links.
+        if !files.is_empty() && self.edit_mode().is_some() {
+            self.drop_into_doc(sh, files);
+            return actions;
+        }
         let mut it = files.into_iter();
         if let Some(first) = it.next() {
             self.open(sh, &first, None, false);
@@ -3098,7 +3117,9 @@ fn handle(
             Some(LRESULT(0))
         }
         WM_CHAR if w.find.is_some() => {
-            if let Some(c) = char::from_u32(wp.0 as u32) {
+            // Backspace is handled on WM_KEYDOWN (`findrep_key`, so it never reaches the editor);
+            // Ctrl+H arrives as U+0008 too.
+            if let Some(c) = char::from_u32(wp.0 as u32).filter(|c| *c != '\u{8}') {
                 w.find_char(sh, c);
             }
             Some(LRESULT(0))
@@ -3779,6 +3800,7 @@ fn create_window(sh: &Shared, path: Option<&str>) -> Option<HWND> {
         settings: None,
         side: sidebar::Side::default(),
         nav: nav::Nav::default(),
+        plus: plus::Plus::default(),
         ctx_table: None,
         top: yamdv_core::chrome::BAR_H,
         fs: false,

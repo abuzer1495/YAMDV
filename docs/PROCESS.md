@@ -220,6 +220,7 @@ A-9 CI is back (owner decision, 2026-10-23). The repository moved to https://git
    - pull_request, never pull_request_target;
    - releases stay drafts.
 8. F-24 (prompt 014): a version or phase tag goes on a squash-merge commit only when its tree equals a PR head with a green CI run (`git diff --quiet <pr-head> <merge>`); otherwise run CI on main first.
+9. F-25 (prompt 015): A version tag always goes on a `chore(release): vX.Y.Z` commit without [skip ci] whose tree equals a green CI head; phase tags may stay on the squash merge.
 ```
 
 **A-10 (Phase V2-D, prompt 014; owner decision 2026-10-23).**

@@ -1,0 +1,60 @@
+# V2-E paste-recovery (prompt 015 §3.5–3.6): web paste, plain paste, image paste, recovery journal
+write-file pr.tmp.md "start\n"
+open pr.tmp.md
+wait-idle
+ui v2e-set editing.autosave=false
+key f3
+wait-idle
+key ctrl+end
+# CF_HTML → Markdown (h2, bold, link, list, table; <script> dropped)
+ui v2e-clip-html "<h2>Title</h2><p><b>bold</b> <a href='https://example.com/'>site</a></p><ul><li>one</li><li>two</li></ul><table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table><script>alert(1)</script>"
+key ctrl+V
+wait-idle
+assert buffer contains "## Title"
+assert buffer contains "**bold**"
+assert buffer contains "[site](https://example.com/)"
+assert buffer contains "- one"
+assert buffer contains "| A | B |"
+assert buffer !contains "alert"
+assert buffer !contains "script"
+# Ctrl+Shift+V pastes plain text
+key ctrl+end
+ui v2e-clip-text "<b>raw</b>"
+key ctrl+shift+V
+wait-idle
+assert buffer contains "<b>raw</b>"
+# Bitmap → assets/<stem>/image-….png + link
+key ctrl+end
+key enter
+ui v2e-clip-bitmap 8x6
+key ctrl+V
+wait-idle
+assert assets == 1
+assert buffer contains "![](assets/pr.tmp/image-"
+# Recovery: autosave off, edit, journal after 2 s, kill, restart, Restore → dirty
+type "Z"
+sleep 2600
+assert dirty == 1
+assert journal == 1
+# T7 in F3, autosave off, after the journal write: no timer keeps running (< 60 ms / 2 s)
+ui cpu-mark
+sleep 2000
+assert cpu_delta_ms < 60
+ui v2e-kill
+open pr.tmp.md
+wait-idle
+assert banner == recovery
+assert journal == 1
+ui v2e-banner restore
+wait-idle
+assert dirty == 1
+assert buffer contains "<b>raw</b>"
+# Discard deletes the journal
+ui v2e-kill
+open pr.tmp.md
+wait-idle
+assert banner == recovery
+ui v2e-banner discard
+wait-idle
+assert journal == 0
+assert banner != recovery

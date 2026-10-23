@@ -204,6 +204,40 @@ fn s_test_02_xss_sanitized_model() {
     }
 }
 
+/// V2-E context (prompt 015 §3.5): pasted clipboard HTML → Markdown never yields active
+/// content, neither in the Markdown links nor after re-rendering it through the CF_HTML writer.
+#[test]
+fn s_test_02_xss_paste_html_to_markdown() {
+    for v in VECTORS {
+        let mut saved = 0;
+        let md = yamdv_core::paste::html2md::convert(v, &mut |_, _| {
+            saved += 1;
+            Some("assets/doc/image-1.png".into())
+        })
+        .unwrap();
+        // Escaped text (`\<script\>`, `\[x\](javascript:…)`) is inert; raw markup is not.
+        assert!(
+            !md.to_ascii_lowercase()
+                .replace("\\<", "")
+                .contains("<script"),
+            "{v:?} -> {md:?}"
+        );
+        let doc = Document::new(md.clone(), ReadOpts::default());
+        let len = u32::try_from(md.len()).unwrap();
+        let out = yamdv_export::html::cf_html(&yamdv_export::html::fragment(&doc, 0..len));
+        assert!(!out.to_ascii_lowercase().contains("<script"), "{v:?}");
+        assert_eq!(forbidden(&tags_only(&out)), None, "vector {v:?}\n{out}");
+        for i in 0..doc.index.blocks.len() {
+            for l in &doc.detail_uncached(i).links {
+                let d = l.dest.to_ascii_lowercase().replace(['\t', '\n', ' '], "");
+                for bad in ["javascript:", "vbscript:", "livescript:", "data:", "file:"] {
+                    assert!(!d.contains(bad), "vector {v:?} -> link {:?}", l.dest);
+                }
+            }
+        }
+    }
+}
+
 /// Fuzz regressions (`tests/regressions/fuzz-*.md`) go through model + CF_HTML.
 #[test]
 fn fuzz_regressions_cf_html_safe() {

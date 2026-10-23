@@ -1,0 +1,7 @@
+# Spec patches of prompt 015 (Phase V2-E) §2, extracted verbatim from docs/prompts/015_V2E_EDITING_PLUS.md.
+
+=== P-46 docs/SPEC.md REPLACE
+--- old
+Find & Replace `Ctrl+H` (replace, replace all — one undo step); case / whole word.
+--- new
+Find & Replace `Ctrl+H` (replace, replace all — one undo step); case / whole word; in read mode `Ctrl+H` first switches to Split Edit (F3), because replacing edits the source.

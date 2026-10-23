@@ -104,6 +104,23 @@ actions! {
     "numbered_list", "Numbered list", "Numaralı liste", ["Ctrl+Shift+7"], Edit;
     "task_list", "Task list", "Görev listesi", ["Ctrl+Shift+9"], Edit;
     "toggle_task", "Toggle task", "Görevi işaretle", ["Ctrl+Enter"], Edit;
+    "code_block", "Code block", "Kod bloğu", ["Ctrl+Shift+K"], Edit;
+    "insert_table", "Insert table", "Tablo ekle", ["Ctrl+T"], Edit;
+    "heading_jump", "Go to heading", "Başlığa git", ["Ctrl+Shift+O"], Global;
+    "mind_map", "Mind map", "Zihin haritası", ["Ctrl+Shift+M"], Global;
+    "sidebar_contents", "Sidebar: Contents", "Kenar çubuğu: İçindekiler", ["Ctrl+Shift+1"], Global;
+    "sidebar_history", "Sidebar: History", "Kenar çubuğu: Geçmiş", ["Ctrl+Shift+2"], Global;
+    "sidebar_favorites", "Sidebar: Favorites", "Kenar çubuğu: Sık kullanılanlar", ["Ctrl+Shift+3"], Global;
+    "sidebar_files", "Sidebar: Files", "Kenar çubuğu: Dosyalar", ["Ctrl+Shift+4"], Global;
+    "focus_next_region", "Next region", "Sonraki bölge", ["F6"], Global;
+    "focus_prev_region", "Previous region", "Önceki bölge", ["Shift+F6"], Global;
+    "replace", "Find and replace", "Bul ve değiştir", ["Ctrl+H"], Global;
+    "highlight", "Highlight", "Vurgula", ["Ctrl+Shift+H"], Edit;
+    "duplicate_line", "Duplicate line", "Satırı çoğalt", ["Ctrl+Shift+D"], Edit;
+    "select_line", "Select line", "Satırı seç", ["Ctrl+L"], Edit;
+    "move_line_up", "Move line up", "Satırı yukarı taşı", ["Alt+Up"], Edit;
+    "move_line_down", "Move line down", "Satırı aşağı taşı", ["Alt+Down"], Edit;
+    "paste_plain", "Paste as plain text", "Düz metin olarak yapıştır", ["Ctrl+Shift+V"], Edit;
 }
 
 /// F.6 `typora` preset: (action id, chords) replacing the defaults.
@@ -148,6 +165,15 @@ const NAMED: &[(&str, u16)] = &[
     ("]", 0xDD),
     ("'", 0xDE),
 ];
+
+/// Two actions compete for a chord only within one scope: an edit action may reuse a global
+/// chord, and wins in edit modes (e.g. `Alt+↑` moves the line in F2/F3, widens the column in read).
+fn same_scope(i: usize, j: usize) -> bool {
+    match (ACTIONS.get(i), ACTIONS.get(j)) {
+        (Some(a), Some(b)) => a.scope == b.scope,
+        _ => true,
+    }
+}
 
 /// Display name of a key (`None` for keys that cannot be bound).
 pub fn key_name(vk: u16) -> Option<String> {
@@ -375,7 +401,24 @@ impl Keymap {
 
     /// The action (other than `except`) that already uses `c`.
     pub fn conflict(&self, c: Chord, except: usize) -> Option<usize> {
-        (0..ACTIONS.len()).find(|&i| i != except && self.binds(i).contains(&c))
+        (0..ACTIONS.len())
+            .find(|&i| i != except && same_scope(i, except) && self.binds(i).contains(&c))
+    }
+
+    /// Id of the action bound to `c` (edit actions first in edit modes), F-27.
+    pub fn action_of(&self, c: Chord, edit: bool) -> Option<&'static str> {
+        let find = |scope: Scope| {
+            ACTIONS
+                .iter()
+                .enumerate()
+                .find(|(i, a)| a.scope == scope && self.binds(*i).contains(&c))
+                .map(|(_, a)| a.id)
+        };
+        if edit {
+            find(Scope::Edit).or_else(|| find(Scope::Global))
+        } else {
+            find(Scope::Global)
+        }
     }
 
     /// Binds action `i` to `chords`; returns the `[shortcuts]` INI value to store, or the index of
@@ -400,7 +443,9 @@ impl Keymap {
         let mut out = Vec::new();
         for i in 0..ACTIONS.len() {
             for c in self.binds(i) {
-                if let Some(j) = (i + 1..ACTIONS.len()).find(|&j| self.binds(j).contains(c)) {
+                if let Some(j) =
+                    (i + 1..ACTIONS.len()).find(|&j| same_scope(i, j) && self.binds(j).contains(c))
+                {
                     out.push((i, j));
                 }
             }
@@ -521,8 +566,8 @@ mod tests {
         );
         assert_eq!(k.shown("open_file"), "Ctrl+O");
         assert_eq!(
-            k.set(open, vec![ch("Ctrl+Shift+O")]).as_deref(),
-            Ok("Ctrl+Shift+O")
+            k.set(open, vec![ch("Ctrl+Shift+J")]).as_deref(),
+            Ok("Ctrl+Shift+J")
         );
         // Edit actions only translate in edit mode.
         assert_eq!(k.translate(ch("Ctrl+B"), false), Translate::Pass);
@@ -538,5 +583,31 @@ mod tests {
             Translate::To(ch("Ctrl+0"))
         );
         assert_eq!(t.translate(ch("Ctrl+/"), false), Translate::To(ch("F3")));
+    }
+
+    #[test]
+    fn f27_nav_keys_are_actions_and_scopes_overlay() {
+        let mut k = Keymap::new("default", [("heading_jump", "Ctrl+Shift+P")]);
+        assert_eq!(k.action_of(ch("Ctrl+Shift+P"), false), Some("heading_jump"));
+        assert_eq!(k.action_of(ch("Ctrl+Shift+O"), false), None);
+        assert_eq!(k.translate(ch("Ctrl+Shift+O"), false), Translate::Swallow);
+        for (id, c) in [
+            ("mind_map", "Ctrl+Shift+M"),
+            ("sidebar_files", "Ctrl+Shift+4"),
+            ("focus_next_region", "F6"),
+            ("focus_prev_region", "Shift+F6"),
+        ] {
+            assert_eq!(k.action_of(ch(c), false), Some(id));
+            assert_eq!(Keymap::new("typora", []).action_of(ch(c), true), Some(id));
+        }
+        // Alt+Up: column in read mode, line move in edit modes; no conflict across scopes.
+        assert_eq!(k.action_of(ch("Alt+Up"), false), Some("column_wider"));
+        assert_eq!(k.action_of(ch("Alt+Up"), true), Some("move_line_up"));
+        assert!(k.conflicts().is_empty());
+        let pal = index("heading_jump").unwrap();
+        assert_eq!(
+            k.set(pal, vec![ch("Ctrl+D")]),
+            Err(index("toggle_favorite").unwrap())
+        );
     }
 }

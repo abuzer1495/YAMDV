@@ -5,20 +5,11 @@
 #![allow(unsafe_code)]
 #![allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
 
-use std::os::windows::io::AsRawHandle;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, HWND, LPARAM, WPARAM};
+use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE};
 use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, ERROR_SUCCESS};
 use windows::Win32::Security::{
     GetLengthSid, GetTokenInformation, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
-use windows::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_LIST_DIRECTORY, FILE_NOTIFY_CHANGE_DIR_NAME,
-    FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE,
-    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, ReadDirectoryChangesW,
-};
-use windows::Win32::System::IO::CancelSynchronousIo;
 use windows::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, KEY_SET_VALUE, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ,
     RegCloseKey, RegCreateKeyExW, RegDeleteKeyValueW, RegDeleteTreeW, RegOpenKeyExW,
@@ -28,7 +19,7 @@ use windows::Win32::System::Threading::{
     CREATE_UNICODE_ENVIRONMENT, CreateMutexW, CreateProcessW, GetCurrentProcess, OpenProcessToken,
     PROCESS_INFORMATION, STARTUPINFOW,
 };
-use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, PostMessageW};
+use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
 use windows::core::{HSTRING, PCWSTR, PWSTR};
 use yamdv_core::cmdline;
 use yamdv_core::reg;
@@ -114,175 +105,8 @@ pub fn forward(paths: &[String], line: u64) -> bool {
     crate::dialog_host::send_copydata(target, &data, 5000)
 }
 
-/// Directory watcher thread for one window (R-READ-01). Dropping it stops the thread.
-pub struct Watcher {
-    stop: Arc<AtomicBool>,
-    thread: Option<std::thread::JoinHandle<()>>,
-}
-
-impl Drop for Watcher {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(t) = self.thread.take() {
-            // A thread that has not reached its blocking read yet cannot be cancelled, so cancel
-            // until it ends (at most ~2 s; after that it is left detached instead of hanging).
-            for _ in 0..1000 {
-                // SAFETY: the thread handle is valid until joined; cancels its blocking read.
-                unsafe {
-                    let _ = CancelSynchronousIo(HANDLE(t.as_raw_handle()));
-                }
-                if t.is_finished() {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(2));
-            }
-            if t.is_finished() {
-                let _ = t.join();
-            }
-        }
-    }
-}
-
-/// Watches the directory of `file`; posts [`WM_APP_FILE_CHANGED`] to `hwnd` on any change that
-/// names the file (atomic-rename saves included).
-pub fn watch(file: &str, hwnd: HWND) -> Option<Watcher> {
-    watch_tagged(file, hwnd, 0)
-}
-
-/// [`watch`] with a tag passed as `wParam` (0 = document, 1 = `custom-theme.ini`).
-pub fn watch_tagged(file: &str, hwnd: HWND, tag: usize) -> Option<Watcher> {
-    let (dir, name) = file.rsplit_once('\\')?;
-    let dir = format!("{dir}\\");
-    let name = name.to_lowercase();
-    let stop = Arc::new(AtomicBool::new(false));
-    let st = stop.clone();
-    let target = hwnd.0 as isize;
-    let thread = std::thread::Builder::new()
-        .name("yamdv-watch".into())
-        .stack_size(64 * 1024)
-        .spawn(move || watch_loop(&dir, &name, target, tag, &st))
-        .ok()?;
-    Some(Watcher {
-        stop,
-        thread: Some(thread),
-    })
-}
-
-/// Watches folder `dir` itself (Files tab, P-43): posts [`WM_APP_FILE_CHANGED`] with `tag` on
-/// any file or folder name change inside it (not recursive).
-pub fn watch_dir(dir: &str, hwnd: HWND, tag: usize) -> Option<Watcher> {
-    let dir = format!("{}\\", dir.trim_end_matches('\\'));
-    let stop = Arc::new(AtomicBool::new(false));
-    let st = stop.clone();
-    let target = hwnd.0 as isize;
-    let thread = std::thread::Builder::new()
-        .name("yamdv-watch".into())
-        .stack_size(64 * 1024)
-        .spawn(move || watch_loop(&dir, "", target, tag, &st))
-        .ok()?;
-    Some(Watcher {
-        stop,
-        thread: Some(thread),
-    })
-}
-
-/// `name` empty = any change in the folder (names of files and sub-folders).
-fn watch_loop(dir: &str, name: &str, hwnd: isize, tag: usize, stop: &AtomicBool) {
-    let d = HSTRING::from(yamdv_core::path::long_form(dir));
-    // SAFETY: valid path; directory handle closed at the end.
-    let Ok(h) = (unsafe {
-        CreateFileW(
-            &d,
-            FILE_LIST_DIRECTORY.0,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            None,
-            OPEN_EXISTING,
-            FILE_FLAG_BACKUP_SEMANTICS,
-            None,
-        )
-    }) else {
-        return;
-    };
-    let mut buf = vec![0u32; 4096];
-    while !stop.load(Ordering::Relaxed) {
-        let mut got = 0u32;
-        // SAFETY: valid handle and DWORD-aligned buffer; synchronous call (cancelled on drop).
-        let ok = unsafe {
-            ReadDirectoryChangesW(
-                h,
-                buf.as_mut_ptr().cast(),
-                (buf.len() * 4) as u32,
-                false,
-                if name.is_empty() {
-                    FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME
-                } else {
-                    FILE_NOTIFY_CHANGE_FILE_NAME
-                        | FILE_NOTIFY_CHANGE_LAST_WRITE
-                        | FILE_NOTIFY_CHANGE_SIZE
-                },
-                Some(&mut got),
-                None,
-                None,
-            )
-        }
-        .is_ok();
-        if !ok || stop.load(Ordering::Relaxed) {
-            break;
-        }
-        // got == 0: buffer overflow, treat as "maybe changed".
-        let hit = got == 0
-            || name.is_empty()
-            || notify_names(&buf, got as usize)
-                .iter()
-                .any(|n| n.to_lowercase() == name);
-        if hit {
-            // SAFETY: posting to a window handle is safe even if it was destroyed meanwhile.
-            unsafe {
-                let _ = PostMessageW(
-                    Some(HWND(std::ptr::without_provenance_mut(hwnd.cast_unsigned()))),
-                    WM_APP_FILE_CHANGED,
-                    WPARAM(tag),
-                    LPARAM(0),
-                );
-            }
-        }
-    }
-    // SAFETY: opened above.
-    let _ = unsafe { CloseHandle(h) };
-}
-
-/// File names in a `FILE_NOTIFY_INFORMATION` chain (bounds-checked).
-fn notify_names(buf: &[u32], len: usize) -> Vec<String> {
-    let bytes: Vec<u8> = buf.iter().flat_map(|w| w.to_le_bytes()).take(len).collect();
-    let mut out = Vec::new();
-    let mut at = 0usize;
-    loop {
-        let rd = |o: usize| {
-            bytes
-                .get(o..o + 4)
-                .and_then(|s| s.try_into().ok())
-                .map(u32::from_le_bytes)
-        };
-        let (Some(next), Some(nlen)) = (rd(at), rd(at + 8)) else {
-            break;
-        };
-        let start = at + 12;
-        if let Some(raw) = bytes.get(start..start + nlen as usize) {
-            let u: Vec<u16> = raw
-                .as_chunks::<2>()
-                .0
-                .iter()
-                .map(|c| u16::from_le_bytes(*c))
-                .collect();
-            out.push(String::from_utf16_lossy(&u));
-        }
-        if next == 0 || out.len() > 1000 {
-            break;
-        }
-        at += next as usize;
-    }
-    out
-}
+/// The directory watcher lives in [`crate::watch`] (one thread for all watches, F-26).
+pub use crate::watch::{Watcher, watch, watch_dir, watch_tagged};
 
 fn env(k: &str) -> String {
     std::env::var(k).unwrap_or_default()

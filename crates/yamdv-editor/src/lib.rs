@@ -4,10 +4,21 @@
 #![forbid(unsafe_code)]
 
 pub mod buffer;
+pub mod clear;
 pub mod history;
+pub mod lines;
 pub mod md;
+pub mod pairs;
+pub mod replace;
+pub mod snippets;
 
 pub use buffer::{Editor, Motion, normalize_eol};
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_lines;
+#[cfg(test)]
+mod tests_replace;
+#[cfg(test)]
+mod tests_snippets;

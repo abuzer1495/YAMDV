@@ -259,7 +259,7 @@ impl Win {
         ];
         let has = |w: &Self, r: Region| match r {
             Region::TitleBar => w.chrome_visible(),
-            Region::Banners => !w.tz_banner_stops(sh).is_empty(),
+            Region::Banners => !w.tz_banner_stops(sh).is_empty() || !w.toast_stops().is_empty(),
             Region::Sidebar => w.side_rect(sh).is_some(),
             Region::Document => true,
         };
@@ -312,7 +312,8 @@ impl Win {
     /// Banner region keys (buttons of all visible banners in order).
     pub(super) fn banner_key(&mut self, sh: &Shared, vk: u16, shift: bool) -> bool {
         let stops = self.tz_banner_stops(sh);
-        let n = stops.len().max(1);
+        let toast = self.toast_stops();
+        let n = (stops.len() + toast.len()).max(1);
         match vk {
             0x09 | 0x27 | 0x25 => {
                 let back = vk == 0x25 || (vk == 0x09 && shift);
@@ -321,12 +322,15 @@ impl Win {
                 true
             }
             0x0D | 0x20 => {
-                if let Some(&(_, k, id)) = stops.get(self.nav.chrome_focus) {
+                let i = self.nav.chrome_focus;
+                if let Some(&(_, k, id)) = stops.get(i) {
                     self.tz_banner_button(sh, k, id);
-                    self.nav.chrome_focus = 0;
-                    if self.tz_banner_stops(sh).is_empty() {
-                        self.nav.region = Region::Document;
-                    }
+                } else if let Some(&(_, open)) = toast.get(i - stops.len()) {
+                    self.toast_activate(open);
+                }
+                self.nav.chrome_focus = 0;
+                if self.tz_banner_stops(sh).is_empty() && self.toast_stops().is_empty() {
+                    self.nav.region = Region::Document;
                 }
                 true
             }
@@ -380,7 +384,9 @@ impl Win {
                 }
             }
             Region::Banners => {
-                if let Some((r, _, _)) = self.tz_banner_stops(sh).get(self.nav.chrome_focus) {
+                let mut rs: Vec<Rect> = self.tz_banner_stops(sh).iter().map(|s| s.0).collect();
+                rs.extend(self.toast_stops().iter().map(|s| s.0));
+                if let Some(r) = rs.get(self.nav.chrome_focus) {
                     ring(b, *r, self.pal.accent);
                 }
             }

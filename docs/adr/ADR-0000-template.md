@@ -13,3 +13,4 @@ Status · Context · Decision · Alternatives considered · Consequences (size/m
 | 0004 | Dependency (xtask only): `object` | accepted |
 | 0005 | Dependency (xtask only): `serde_json` | accepted |
 | 0006 | Dependency: `tiny-skia` | accepted (xtask + spike A; product use decided by ADR-0002) |
+| 0019 | Dependency: `regex-lite` (find & replace regex) | accepted |
