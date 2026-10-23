@@ -207,6 +207,25 @@ impl RichCache {
     }
 }
 
+/// Formulas of a Markdown document that fail to expand or parse (they show in the error
+/// color); font-independent driver probe. Macros are scoped per top-level block.
+pub fn math_errors(doc: &yamdv_core::doc::Document) -> usize {
+    (0..doc.index.blocks.len())
+        .map(|i| {
+            let d = doc.detail_uncached(i);
+            let mut env = yamdv_math::macros::Macros::default();
+            d.runs
+                .iter()
+                .filter(|r| r.style & yamdv_core::doc::detail::style::MATH != 0)
+                .filter(|r| {
+                    let (tex, _) = strip_delims(r.text(&doc.source));
+                    yamdv_math::layout::check(tex, &mut env).is_err()
+                })
+                .count()
+        })
+        .sum()
+}
+
 /// Stable-within-the-process hash of a source string.
 pub fn source_hash(s: &str) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();

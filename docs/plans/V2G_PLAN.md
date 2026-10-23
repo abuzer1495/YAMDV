@@ -30,3 +30,9 @@ Order: §1.1 F-31 → F-32 → §2 ADR-0021 (before SVG code), ADR-0022, P-48, I
 - platform wysi/imgsize.rs: select on click in F2 (hooked first in edit_mouse_down F2 path), 4 accent 8×8 handles, aspect-locked drag with "W px" label, seal/replace/seal (one undo), Esc cancels drag / clears selection; driver verb `v2f-img "needle[@n] dx [esc]"`, dump `img_sel`. tests/driver/image-resize.yds PASS in Wine.
 - Fix: images.rs Entry keeps a second decoded size (`alt`); the same image at two sizes in one doc ping-ponged decodes and starved the UI thread (pre-existing).
 - Next: content-engines driver (fold zz-gif/zz-img), goldens v2g-a/b/c, gates, PR.
+
+## CHECKPOINT 6 (drivers + goldens)
+- tests/driver/content-engines.yds PASS in Wine (diagrams_cached, `ui diagram-copy-png` → clip_img, `math_errors` font-free probe via yamdv_math::layout::check, ICO/WebP/SVG dtd+hostile, GIF off/on/scrolled-out T7); fixtures ce-img.md, ce-gif.md, assets/hostile.svg; zz-* removed.
+- v2g-golden-c used `\newcommand{\R}` (builtin → error) → `\RR`.
+- shots.yds + SHELL_SHOTS: top-v2g-a-light, top-v2g-b-dark, top-v2g-c-light (commit from first CI artifact; Wine has no math font).
+- Next: size-map shares, gates (M0/M1, T4, T5, T7, size; M3, PWS 5 GIFs), TRACEABILITY, PR.

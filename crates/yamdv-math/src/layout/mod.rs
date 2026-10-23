@@ -259,13 +259,23 @@ pub fn render_with(
     size: f32,
     display: bool,
 ) -> Result<MathBox, MathError> {
-    let expanded = crate::macros::expand(src, env)?;
-    let nodes = if matches!(expanded, std::borrow::Cow::Borrowed(_)) {
-        crate::parse::parse(&expanded)?
-    } else {
-        crate::parse::parse_limited(&expanded, crate::parse::MAX_EXPANDED)?
-    };
+    let nodes = nodes_of(src, env)?;
     layout(&nodes, font, table, size, display)
+}
+
+/// Expands and parses `src` without a font: the same errors [`render_with`] reports before
+/// layout (driver probe for the error color on machines without a math font).
+pub fn check(src: &str, env: &mut Macros) -> Result<(), MathError> {
+    nodes_of(src, env).map(|_| ())
+}
+
+fn nodes_of(src: &str, env: &mut Macros) -> Result<Vec<crate::parse::Node>, MathError> {
+    let expanded = crate::macros::expand(src, env)?;
+    if matches!(expanded, std::borrow::Cow::Borrowed(_)) {
+        crate::parse::parse(&expanded)
+    } else {
+        crate::parse::parse_limited(&expanded, crate::parse::MAX_EXPANDED)
+    }
 }
 
 fn spacing(left: Class, right: Class, script: bool) -> f32 {

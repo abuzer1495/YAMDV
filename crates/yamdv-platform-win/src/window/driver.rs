@@ -582,6 +582,15 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
             w.tz_tip_hide();
             "ok ui hover-off".into()
         }
+        // Copy as PNG on the first diagram (the context-menu command).
+        "diagram-copy-png" => match w.tz_drive_hot(sh, "diagram") {
+            Some((x, y)) => {
+                w.ctx_diagram = w.diagram_at(sh, x, y);
+                w.diagram_copy(sh, true);
+                "ok ui diagram-copy-png".into()
+            }
+            None => "FAIL ui diagram-copy-png: no diagram".into(),
+        },
         "dblclick-media" => {
             if w.tz_drive_open(sh, arg) {
                 format!("ok ui dblclick-media {arg}")
@@ -922,6 +931,13 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         Some(f) => ("open", f.matches.len(), f.cur.map_or(0, |c| c + 1)),
         None => ("closed", 0, 0),
     };
+    let math_errors = match &w.view {
+        View::Doc(d) => match &d.content {
+            yamdv_layout::viewer::Content::Markdown(doc) => yamdv_layout::rich::math_errors(doc),
+            _ => 0,
+        },
+        _ => 0,
+    };
     let (source_len, (math_cached, diagrams_cached)) = match &w.view {
         View::Doc(d) => (d.content.source().len(), d.rich.len()),
         _ => (0, (0, 0)),
@@ -1143,6 +1159,11 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
             "clip_text".into(),
             V::S(sys::paste_text(w.hwnd).unwrap_or_default()),
         ),
+        (
+            "clip_img".into(),
+            V::N(f64::from(u8::from(sys::clip_has(8)))),
+        ),
+        ("math_errors".into(), V::N(math_errors as f64)),
         (
             "clip_html".into(),
             V::N(f64::from(u8::from(sys::clip_has(sys::html_format())))),
