@@ -30,3 +30,4 @@ and `v1.2.0` on it (the v1.2.0 tag run builds the draft). Otherwise let the main
 - CHECKPOINT 12:49 fix run 39931340336 red only on files-favorites last step (drop-folder path '.'); probe fix pushed [skip ci], not CI-verified. No merge/tags (F-24). Report written. Next: owner approves one more CI run.
 - CHECKPOINT 19:01 owner approved one more CI run; triggering it.
 - CHECKPOINT 19:27 run 3 39983230028 red: only export-progress cpu_delta_ms 16>15 (timer tick); no fixes pushed; waiting for owner decision (rerun or relax to <32).
+- CHECKPOINT 19:32 A-10 owner override: export-progress CPU assert report-only, anchor.yds removed (covered by navigation.yds); final CI run then merge regardless.
