@@ -85,6 +85,15 @@ impl Win {
                     true
                 })
             }
+            "v2e-banner" => {
+                let id = if arg == "restore" {
+                    BTN_RESTORE
+                } else {
+                    BTN_JOURNAL_DISCARD
+                };
+                self.tz_banner_button(sh, yamdv_ui::transient::BannerKind::Recovery, id);
+                true
+            }
             "v2e-set" => arg
                 .split_once('=')
                 .is_some_and(|(k, v)| app::set(k.trim(), v.trim())),

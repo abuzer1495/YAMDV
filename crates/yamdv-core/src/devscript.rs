@@ -34,6 +34,8 @@ pub enum Op {
     Le,
     /// substring
     Contains,
+    /// no such substring (`!contains`)
+    Lacks,
 }
 
 /// One script command.
@@ -235,6 +237,7 @@ pub fn parse_line(line: &str) -> Result<Option<Cmd>, String> {
                 ">=" => Op::Ge,
                 "<=" => Op::Le,
                 "contains" => Op::Contains,
+                "!contains" => Op::Lacks,
                 _ => return Err(bad()),
             };
             Cmd::Assert(f.to_string(), op, unquote(v))
@@ -259,6 +262,9 @@ pub fn check(actual: &str, op: Op, expected: &str) -> bool {
     if op == Op::Contains {
         return actual.contains(expected);
     }
+    if op == Op::Lacks {
+        return !actual.contains(expected);
+    }
     match (actual.parse::<f64>(), expected.parse::<f64>()) {
         (Ok(a), Ok(e)) => match op {
             Op::Eq => (a - e).abs() < 0.5,
@@ -267,7 +273,7 @@ pub fn check(actual: &str, op: Op, expected: &str) -> bool {
             Op::Lt => a < e,
             Op::Ge => a >= e - 0.5,
             Op::Le => a <= e + 0.5,
-            Op::Contains => false,
+            Op::Contains | Op::Lacks => false,
         },
         _ => match op {
             Op::Eq => actual == expected,
@@ -345,6 +351,7 @@ mod tests {
         assert!(check("16", Op::Eq, "16.3"));
         assert!(check("a.md", Op::Eq, "a.md"));
         assert!(check("ask-url", Op::Contains, "ask"));
+        assert!(check("ask-url", Op::Lacks, "script"));
         assert!(!check("x", Op::Gt, "y"));
     }
 

@@ -1360,7 +1360,8 @@ impl Win {
                     ed.delete(t);
                 });
             }
-            0x2D if shift && !ctrl => self.edit_paste(sh),
+            // Prompt 015 §3.5: rich paste (HTML → Markdown, bitmaps → assets).
+            0x2D if shift && !ctrl => self.paste_rich(sh),
             0x2D if ctrl => self.edit_copy(),
             v if v == VK_RETURN.0 && ctrl => self.with_ed(sh, md::toggle_task),
             v if v == VK_RETURN.0 => self.with_ed(sh, md::enter),
@@ -1381,6 +1382,7 @@ impl Win {
             0x43 if ctrl && !shift => self.edit_copy(),
             0x58 if ctrl && shift => self.with_ed(sh, |ed| md::toggle_wrap(ed, md::Wrap::Strike)),
             0x58 if ctrl => self.edit_cut(sh),
+            0x56 if ctrl && !shift => self.paste_rich(sh),
             0x56 if ctrl => self.edit_paste(sh),
             0x42 if ctrl => self.with_ed(sh, |ed| md::toggle_wrap(ed, md::Wrap::Bold)),
             0x49 if ctrl => self.with_ed(sh, |ed| md::toggle_wrap(ed, md::Wrap::Italic)),
