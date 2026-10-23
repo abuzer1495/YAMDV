@@ -398,3 +398,25 @@ pub(in crate::window) fn ring(b: &Band<'_>, r: Rect, accent: u32) {
         2.0,
     );
 }
+
+#[cfg(feature = "dev-tools")]
+impl Win {
+    /// Driver: the current stop's kind name and its document y.
+    pub(super) fn focus_probe(&mut self, sh: &Shared) -> Option<(String, f64, usize)> {
+        let (b, s) = self.cur_stop()?;
+        let name = match &s {
+            Stop::Toggle => "Toggle".to_string(),
+            Stop::Hot(k) => format!("{k:?}")
+                .split([' ', '{', '('])
+                .next()
+                .unwrap_or("")
+                .to_string(),
+        };
+        let st = self.stops_of(sh, b);
+        let r = st.get(position(&st, &s)?)?.rect;
+        let View::Doc(d) = &self.view else {
+            return None;
+        };
+        Some((name, d.viewer.block_top(&d.content, b) + f64::from(r.y), b))
+    }
+}

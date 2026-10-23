@@ -1,0 +1,61 @@
+# V2-D heading palette, [TOC] and mind map (prompt 014 §3 items 4–6; FUT-08, FUT-37).
+resize 1000 700
+command mode light
+open toc-palette.md
+wait-idle
+# [TOC]: a Contents list with one link per heading (depth 4), clicking one jumps.
+assert toc_links == 6
+assert scroll_y == 0
+click-link "License"
+wait-idle
+assert scroll_y > 500
+key Home
+wait-idle
+# Palette: Ctrl+Shift+O, "inst", Enter scrolls to Installation and unfolds it.
+ui fold Installation
+assert folds == 1
+key ctrl+shift+o
+assert palette == open
+type inst
+assert palette_first == Installation
+key Enter
+wait-idle
+assert palette == none
+assert folds == 0
+assert scroll_y > 300
+key Home
+wait-idle
+# Mind map: headings + list items (+ root), right and balanced, double-click jumps.
+key ctrl+shift+m
+wait-idle
+assert mind == right
+assert mind_nodes == 9
+ui nav-mind-mode balanced
+assert mind == balanced
+ui nav-mind-dblclick License
+wait-idle
+assert mind == none
+assert scroll_y > 500
+# T7: nothing runs while the map is open and idle.
+key ctrl+shift+m
+wait-idle
+ui cpu-mark
+sleep 2000
+assert cpu_delta_ms < 60
+key Esc
+wait-idle
+# PWS returns within +0.2 MiB after closing (two warm-up passes first).
+key ctrl+shift+m
+key Esc
+key ctrl+shift+o
+key Esc
+wait-idle
+ui mem-mark
+key ctrl+shift+m
+wait-idle
+key Esc
+key ctrl+shift+o
+key Esc
+wait-idle
+sleep 300
+assert pws_delta_kib < 205

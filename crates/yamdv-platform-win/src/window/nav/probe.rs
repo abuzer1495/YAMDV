@@ -35,6 +35,13 @@ fn make_tree(root: &std::path::Path) -> std::io::Result<()> {
     Ok(())
 }
 
+thread_local! {
+    /// Last `nav-tab-walk`: visited stop kinds and whether their y never decreased.
+    static WALK: std::cell::RefCell<(String, bool)> = const {
+        std::cell::RefCell::new((String::new(), true))
+    };
+}
+
 impl Win {
     /// `ui nav-<verb> <arg>`.
     pub(in crate::window) fn nav_ui(&mut self, sh: &Shared, verb: &str, arg: &str) -> String {
@@ -141,6 +148,62 @@ impl Win {
                 self.mind_mode(arg == "balanced");
                 String::new()
             }
+            "nav-tab-to" => {
+                // "Kind [source text]": Tab until a stop of that kind in a block whose source
+                // contains the text (at most 60 steps).
+                let (kind, text) = arg.split_once(' ').unwrap_or((arg, ""));
+                self.nav_kbd(true);
+                for _ in 0..60 {
+                    self.doc_focus_step(sh, 1);
+                    let Some((k, _, b)) = self.focus_probe(sh) else {
+                        continue;
+                    };
+                    let src = match &self.view {
+                        View::Doc(d) => {
+                            let r = d.content.range(b);
+                            d.content
+                                .source()
+                                .get(r.start as usize..r.end as usize)
+                                .unwrap_or("")
+                                .to_string()
+                        }
+                        _ => String::new(),
+                    };
+                    if k == kind && src.contains(text) {
+                        return String::new();
+                    }
+                }
+                format!("FAIL ui nav-tab-to: no {arg}")
+            }
+            "nav-region" => {
+                self.nav_kbd(true);
+                self.nav.region = match arg {
+                    "sidebar" => {
+                        self.side_focus_first(sh);
+                        Region::Sidebar
+                    }
+                    "titlebar" => Region::TitleBar,
+                    "banners" => Region::Banners,
+                    _ => Region::Document,
+                };
+                self.invalidate();
+                String::new()
+            }
+            "nav-tab-walk" => {
+                let n: usize = arg.parse().unwrap_or(1);
+                self.nav_kbd(true);
+                let (mut names, mut mono, mut last) = (Vec::new(), true, f64::MIN);
+                for _ in 0..n {
+                    self.doc_focus_step(sh, 1);
+                    if let Some((k, y, _)) = self.focus_probe(sh) {
+                        mono &= y + 4.0 >= last;
+                        last = y;
+                        names.push(k);
+                    }
+                }
+                WALK.with(|w| *w.borrow_mut() = (names.join(">"), mono));
+                String::new()
+            }
             "nav-state-reload" => {
                 // Restart check: the saved order is what a new process would read.
                 let saved = app::reload_state_favorites();
@@ -191,6 +254,36 @@ impl Win {
             ("side_focus", side_focus),
             ("kfocus", kf),
         ];
+        let toc_links = match &self.view {
+            View::Doc(d) => match &d.content {
+                Content::Markdown(doc) => (0..doc.index.blocks.len())
+                    .filter(|&i| {
+                        doc.index.blocks.get(i).is_some_and(|b| {
+                            doc.source
+                                .get(b.range.start as usize..b.range.end as usize)
+                                .is_some_and(yamdv_core::doc::toc::is_marker)
+                        })
+                    })
+                    .map(|i| doc.detail_uncached(i).links.len())
+                    .sum::<usize>(),
+                _ => 0,
+            },
+            _ => 0,
+        };
+        v.push(("toc_links", toc_links.to_string()));
+        let (walk, mono) = WALK.with(|w| w.borrow().clone());
+        v.push(("tab_walk", walk));
+        v.push(("tab_walk_mono", u8::from(mono).to_string()));
+        v.push(("kbd", u8::from(self.nav.kbd).to_string()));
+        v.push((
+            "clipboard",
+            crate::sys::paste_text(self.hwnd)
+                .unwrap_or_default()
+                .chars()
+                .take(120)
+                .collect::<String>()
+                .replace(['\r', '\n'], " "),
+        ));
         v.extend(self.palette_state());
         v.extend(self.mind_state());
         v
