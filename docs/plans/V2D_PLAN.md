@@ -17,3 +17,4 @@ and `v1.2.0` on it (the v1.2.0 tag run builds the draft). Otherwise let the main
 ## CHECKPOINT
 - 11:17: prompt 014 stored (14,0 KB, 227 lines); F-23 plain_text + unit test, wired into the footnote tooltip; F-24 line A-9 §8; gate OK. Next: P-43…P-45, then item 1 pure parts (natural sort, skip rules).
 - 11:17: P-43…P-45 applied via docs/spec-patches/v2d.txt; F-24 line lives in PROCESS_AMENDMENTS.md (PROCESS.md is generated); spec-check match. Next: item 1 pure parts.
+- 11:25 §3 pure layer: core files.rs (natural sort/skip/tree), outline.rs (palette filter, [TOC]), doc/mind.rs; ui mindmap.rs (tidy layout, hues); layout focus.rs. Next: window nav modules.

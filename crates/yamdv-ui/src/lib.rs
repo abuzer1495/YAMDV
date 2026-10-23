@@ -4,5 +4,6 @@
 #![forbid(unsafe_code)]
 
 pub mod dialog;
+pub mod mindmap;
 pub mod settings_panel;
 pub mod transient;

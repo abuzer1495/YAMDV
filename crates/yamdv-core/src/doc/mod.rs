@@ -7,6 +7,7 @@
 pub mod detail;
 pub mod index;
 pub mod inline;
+pub mod mind;
 pub mod plain;
 pub mod slug;
 pub mod text;
