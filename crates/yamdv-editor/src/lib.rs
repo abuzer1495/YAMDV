@@ -5,7 +5,9 @@
 
 pub mod buffer;
 pub mod history;
+pub mod lines;
 pub mod md;
+pub mod pairs;
 pub mod replace;
 pub mod snippets;
 
@@ -17,3 +19,5 @@ mod tests;
 mod tests_replace;
 #[cfg(test)]
 mod tests_snippets;
+#[cfg(test)]
+mod tests_lines;
