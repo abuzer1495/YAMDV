@@ -59,3 +59,16 @@ key Esc
 wait-idle
 sleep 300
 assert pws_delta_kib < 205
+# Report-only (prompt 014 §4): mind map of large-1mb.md, build time and PWS growth.
+open ../fixtures/large-1mb.md
+wait-idle
+sleep 1000
+ui mem-mark
+key ctrl+shift+m
+wait-idle
+assert mind_build_ms >= 0
+assert mind_nodes > 0
+sleep 300
+assert pws_delta_kib >= -100000
+key Esc
+wait-idle

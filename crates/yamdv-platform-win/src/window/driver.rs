@@ -156,6 +156,8 @@ pub(super) fn tick(w: &mut Win, sh: &Shared) {
                     s.fails += 1;
                 }
                 s.log.push(line);
+                // Partial log, so a script killed on timeout still shows how far it got.
+                let _ = std::fs::write(format!("{}.log", s.path), s.log.join("\n"));
             }
         });
         if yield_after {

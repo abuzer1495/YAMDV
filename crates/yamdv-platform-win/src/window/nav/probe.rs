@@ -36,6 +36,8 @@ fn make_tree(root: &std::path::Path) -> std::io::Result<()> {
 }
 
 thread_local! {
+    /// Polls of the current `nav-wait-files` (gives up after ~4 s instead of hanging).
+    static WAITS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
     /// Last `nav-tab-walk`: visited stop kinds and whether their y never decreased.
     static WALK: std::cell::RefCell<(String, bool)> = const {
         std::cell::RefCell::new((String::new(), true))
@@ -83,8 +85,16 @@ impl Win {
             }
             "nav-wait-files" => {
                 // Polls until the Files tab lists `arg` (FUT-33: updates within 1 s).
-                if self.files_describe().contains(arg) {
+                let now = self.files_describe();
+                if now.contains(arg) {
+                    WAITS.with(|c| c.set(0));
                     String::new()
+                } else if WAITS.with(|c| {
+                    c.set(c.get() + 1);
+                    c.get() > 80
+                }) {
+                    WAITS.with(|c| c.set(0));
+                    format!("FAIL ui nav-wait-files {arg}: rows {now}")
                 } else {
                     crate::window::driver::again(50)
                 }

@@ -124,11 +124,21 @@ impl Drop for Watcher {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(t) = self.thread.take() {
-            // SAFETY: the thread handle is valid until joined; cancels its blocking read.
-            unsafe {
-                let _ = CancelSynchronousIo(HANDLE(t.as_raw_handle()));
+            // A thread that has not reached its blocking read yet cannot be cancelled, so cancel
+            // until it ends (at most ~2 s; after that it is left detached instead of hanging).
+            for _ in 0..1000 {
+                // SAFETY: the thread handle is valid until joined; cancels its blocking read.
+                unsafe {
+                    let _ = CancelSynchronousIo(HANDLE(t.as_raw_handle()));
+                }
+                if t.is_finished() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(2));
             }
-            let _ = t.join();
+            if t.is_finished() {
+                let _ = t.join();
+            }
         }
     }
 }

@@ -4,7 +4,8 @@ command mode light
 open interactive.md
 wait-idle
 # Tab visits every interactive element in reading order, with the ring after keyboard use.
-ui nav-tab-walk 16
+# 13 stops: the walk stops before it wraps to the top again.
+ui nav-tab-walk 13
 assert kbd == 1
 assert tab_walk_mono == 1
 assert tab_walk contains Link>CodeCopy>CodeLines>CodeWrap

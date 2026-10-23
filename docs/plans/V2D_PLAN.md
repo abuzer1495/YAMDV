@@ -26,3 +26,4 @@ and `v1.2.0` on it (the v1.2.0 tag run builds the draft). Otherwise let the main
 - CHECKPOINT 11:48 driver scripts files-favorites, palette-mindmap-toc, keyboard-reach + fixtures. Next: goldens, TRACEABILITY, docs, PR.
 - CHECKPOINT 11:49 4 goldens wired (shots.yds/SHELL_SHOTS), TRACEABILITY by script. Next: open PR, single CI run.
 - CHECKPOINT 11:50 PR opened; full CI run 1 of 1 (+ at most one fix push).
+- CHECKPOINT 12:21 CI run 39927529395 red (tab-order needs heading stops, keyboard-reach walk wrapped, files-favorites timeout; menu + footnote goldens). Fix push: scripts, bounded nav-wait-files, partial driver log, watcher drop cancel loop, 6 goldens, mind-map-on-large report step.

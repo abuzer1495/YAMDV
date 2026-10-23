@@ -15,9 +15,10 @@ assert files == > sub|*file2.md|file10.md
 key F6
 key F6
 assert region == sidebar
+ui nav-region sidebar
 key Home
 key right
-ui nav-wait-files v sub
+ui nav-wait-files v sub|a.md
 key down
 key Enter
 wait-idle
