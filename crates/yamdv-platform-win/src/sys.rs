@@ -588,7 +588,9 @@ pub fn unhex(s: &str) -> Option<Vec<u8>> {
 /// recommended"). `false` when the token cannot be queried.
 pub fn is_elevated() -> bool {
     use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
+    use windows::Win32::Security::{
+        GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation,
+    };
     use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
     let mut tok = HANDLE::default();
     // SAFETY: pseudo handle of this process; the token handle is closed below; the out buffer
@@ -634,7 +636,7 @@ pub fn copy_image(hwnd: HWND, w: u32, h: u32, bgra: &[u8], png: Option<&[u8]>) -
         push32(&mut dib, 0);
     }
     for row in (0..hu).rev() {
-        for p in bgra[row * wu * 4..(row + 1) * wu * 4].chunks_exact(4) {
+        for p in bgra[row * wu * 4..(row + 1) * wu * 4].as_chunks::<4>().0 {
             dib.extend_from_slice(&[p[0], p[1], p[2], 255]);
         }
     }

@@ -1525,7 +1525,7 @@ impl Win {
             self.reload(sh);
         } else if !self.dimmed {
             self.dimmed = true;
-            self.toast(Msg::ToastDeleted);
+            self.tz_banner(sh, yamdv_ui::transient::BannerKind::Deleted, true);
             self.invalidate();
         }
     }

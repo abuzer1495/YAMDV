@@ -627,7 +627,13 @@ impl Viewer {
     /// marked in `moving` get the height factor `squash` (between 0 and 1 while the 120 ms
     /// fold animation runs), the others 0. Layout heights are kept, so unfolding restores
     /// exact positions. The caller keeps the heading on screen.
-    pub fn set_hidden(&mut self, content: &Content, hidden: Vec<bool>, moving: Vec<bool>, squash: f64) {
+    pub fn set_hidden(
+        &mut self,
+        content: &Content,
+        hidden: Vec<bool>,
+        moving: Vec<bool>,
+        squash: f64,
+    ) {
         let n = self.heights.len();
         let hidden = if hidden.iter().any(|&h| h) && hidden.len() == n {
             hidden

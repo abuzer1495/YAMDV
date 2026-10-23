@@ -396,9 +396,11 @@ fn snapshot(w: &mut Win, sh: &Shared, f: &str) -> String {
         }
         me.draw(sh, band, cx, geo.as_ref());
         me.draw_overlays(sh, band);
+        me.tz_draw(sh, band);
         if full {
             band.set_origin(0.0);
             me.draw_chrome(sh, band);
+            me.tz_draw_client(sh, band);
         }
     });
     for p in px.as_chunks_mut::<4>().0 {
@@ -551,6 +553,52 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
             w.chrome_move(x, y);
             format!("ok ui hover {y}")
         }
+        // V2-C transient UI (FUT-40/36/06/34/41).
+        "hover-hot" | "hover-hot-now" => match w.tz_drive_hot(sh, arg) {
+            Some((x, y)) => {
+                w.tz_drive_hover(sh, x, y, verb == "hover-hot-now");
+                format!("ok ui {verb} {arg} at {x:.0},{y:.0}")
+            }
+            None => format!("FAIL ui {verb} {arg}: not found"),
+        },
+        "hover-off" => {
+            w.tz_tip_hide();
+            "ok ui hover-off".into()
+        }
+        "dblclick-media" => {
+            if w.tz_drive_open(sh, arg) {
+                format!("ok ui dblclick-media {arg}")
+            } else {
+                format!("FAIL ui dblclick-media {arg}: no viewer")
+            }
+        }
+        "viewer-wheel" => {
+            let notches: f32 = arg.parse().unwrap_or(1.0);
+            let (x, y) = (w.cw * 0.3, w.ch * 0.4);
+            match w.tz_drive_wheel(notches, x, y) {
+                Some((a, b)) if (a.0 - b.0).abs() < 0.5 && (a.1 - b.1).abs() < 0.5 => {
+                    format!("ok ui viewer-wheel {notches}: point kept")
+                }
+                Some((a, b)) => format!("FAIL ui viewer-wheel: {a:?} -> {b:?}"),
+                None => "FAIL ui viewer-wheel: no viewer".into(),
+            }
+        }
+        "viewer-key" => {
+            if w.tz_drive_key(sh, arg) {
+                format!("ok ui viewer-key {arg}")
+            } else {
+                format!("FAIL ui viewer-key {arg}")
+            }
+        }
+        "fold" | "fold-alt" => match w.tz_heading(arg) {
+            Some(h) => {
+                w.tz_fold(h, verb == "fold-alt");
+                w.tz_drive_settle();
+                w.prepare_now(sh);
+                format!("ok ui {verb} {arg}")
+            }
+            None => format!("FAIL ui {verb} {arg}: no heading"),
+        },
         "popup-hover" => op(w, PopupOp::Hover(arg.parse().ok())),
         "popup-click" => match arg.parse() {
             Ok(i) => op(w, PopupOp::Click(i)),
@@ -810,8 +858,7 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
     };
     let blocked = yamdv_core::i18n::tr(sh.lang, yamdv_core::i18n::Msg::BlockedSafety);
     let popover = match &w.dialog {
-        None => "none",
-        Some((_, Pending::Url { .. })) => "ask-url",
+        None => w.tz_state().5.unwrap_or("none"),
         Some((_, Pending::Local { .. })) => "confirm-local",
         Some((d, Pending::Reveal { .. })) if d.title == blocked => "blocked",
         Some((_, Pending::Reveal { .. })) => "folder",
@@ -901,12 +948,31 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
     let out_text = String::from_utf8_lossy(&out).into_owned();
     let lower = out_text.to_ascii_lowercase();
     let srcs: Vec<&str> = lower.split(" src=\"").skip(1).collect();
+    let tz = w.tz_state();
+    let or_none = |s: &str| {
+        if s.is_empty() {
+            "none".to_string()
+        } else {
+            s.to_string()
+        }
+    };
     let mut out = vec![
         ("document".into(), V::S(doc)),
         ("scroll_y".into(), V::N(w.scroll_pos())),
         ("focus".into(), V::S(focus)),
         ("popover".into(), V::S(popover.into())),
-        ("banner".into(), V::S("none".into())),
+        ("banner".into(), V::S(or_none(&tz.1))),
+        ("tooltip".into(), V::S(or_none(&tz.0))),
+        ("viewer".into(), V::S(or_none(&tz.2))),
+        ("viewer_zoom".into(), V::N(tz.3)),
+        ("folds".into(), V::N(tz.4 as f64)),
+        (
+            "doc_height".into(),
+            V::N(match &w.view {
+                View::Doc(d) => d.viewer.total_height(),
+                _ => 0.0,
+            }),
+        ),
         ("job".into(), V::S(job.into())),
         ("job_n".into(), V::N(f64::from(job_n))),
         ("job_total".into(), V::N(f64::from(job_total))),

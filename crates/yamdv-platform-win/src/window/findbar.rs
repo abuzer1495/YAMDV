@@ -97,7 +97,7 @@ impl Win {
             .find
             .as_ref()
             .and_then(|f| f.cur.and_then(|i| f.matches.get(i)).cloned());
-        if let Some(m) = cur
+        if let Some(m) = cur.clone()
             && self.find_reveal_edit(sh, m)
         {
             return;

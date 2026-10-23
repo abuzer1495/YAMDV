@@ -709,10 +709,7 @@ impl Band<'_> {
             return;
         };
         self.with_clipped(|pm, t, m| {
-            let (sx, sy) = (
-                dst.w * t.sx / w as f32,
-                dst.h * t.sy / h as f32,
-            );
+            let (sx, sy) = (dst.w * t.sx / w as f32, dst.h * t.sy / h as f32);
             let paint = tiny_skia::PixmapPaint {
                 quality: tiny_skia::FilterQuality::Bilinear,
                 ..Default::default()

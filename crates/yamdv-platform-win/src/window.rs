@@ -320,10 +320,6 @@ enum Pending {
         path: String,
         plain: bool,
     },
-    /// External URL awaiting the Ask decision (R-LINK-04).
-    Url {
-        url: String,
-    },
     /// Allowlisted local file awaiting confirmation (S-LINK-03).
     Local {
         path: String,
@@ -348,7 +344,6 @@ const BTN_CANCEL: u32 = 0;
 const BTN_PLAIN: u32 = 1;
 const BTN_RENDER: u32 = 2;
 const BTN_OPEN: u32 = 3;
-const BTN_COPY: u32 = 4;
 const BTN_REVEAL: u32 = 5;
 const BTN_KEEP: u32 = 40;
 const BTN_REMOVE: u32 = 41;
@@ -647,10 +642,12 @@ impl Win {
             self.watcher = crate::shell::watch(&long, self.hwnd);
         }
         self.dimmed = false;
+        self.tz_on_open(sh);
     }
 
     /// Shows `text` as the document `full` (a file, or a built-in document when `virt`).
     fn show_text(&mut self, sh: &Shared, full: String, text: String, plain: bool, virt: bool) {
+        self.tz_doc_changed();
         let (_, col_w) = self.col(sh);
         let content = if plain {
             Content::plain(text)
@@ -732,12 +729,6 @@ impl Win {
             (Pending::Large { path }, BTN_PLAIN) => self.open(sh, &path, Some(true), false),
             (Pending::Large { path }, BTN_RENDER) => self.open(sh, &path, Some(false), false),
             (Pending::Binary { path, plain }, BTN_OPEN) => self.open(sh, &path, Some(plain), true),
-            (Pending::Url { url }, BTN_OPEN) => sys::shell_open(&url),
-            (Pending::Url { url }, BTN_COPY) => {
-                if sys::copy_text(self.hwnd, &url) {
-                    self.toast(Msg::Copied);
-                }
-            }
             (Pending::Local { path }, BTN_OPEN) => sys::shell_open(&path),
             (Pending::Reveal { path } | Pending::Local { path }, BTN_REVEAL) => {
                 sys::reveal_in_explorer(&path);
@@ -795,21 +786,17 @@ impl Win {
                     _ => ylink::ExternalMode::Ask,
                 };
                 if ylink::must_ask(mode, internet) {
-                    let mut body = url.clone();
+                    // FUT-41: an anchored popover instead of a modal dialog.
+                    let mut notes = Vec::new();
                     if u.is_idn() {
-                        body.push('\n');
-                        body.push_str(tr(sh.lang, Msg::LinkPunycode));
-                        body.push_str(&sys::idn_to_ascii(&u.host).unwrap_or_default());
+                        let ascii = sys::idn_to_ascii(&u.host).unwrap_or_default();
+                        notes.push(format!("{}{ascii}", tr(sh.lang, Msg::LinkPunycode)));
                     }
                     if u.userinfo.is_some() {
-                        body.push_str("\n\n");
-                        body.push_str(tr(sh.lang, Msg::LinkCredentials));
+                        notes.push(tr(sh.lang, Msg::LinkCredentials).to_string());
                     }
-                    let mut buttons = vec![(Msg::Cancel, BTN_CANCEL), (Msg::CopyLink, BTN_COPY)];
-                    if mode != ylink::ExternalMode::Never {
-                        buttons.push((Msg::OpenInBrowser, BTN_OPEN));
-                    }
-                    self.ask_text(sh, Msg::LinkAskTitle, body, buttons, Pending::Url { url });
+                    let can_open = mode != ylink::ExternalMode::Never;
+                    self.tz_ask_url(sh, Some((bi, link)), url, notes, can_open);
                 } else if mode == ylink::ExternalMode::Never {
                     if sys::copy_text(self.hwnd, &url) {
                         self.toast(Msg::Copied);
@@ -1317,8 +1304,10 @@ impl Win {
                     band.set_origin(me.top);
                     me.draw(sh, band, cx, geo.as_ref());
                     me.draw_overlays(sh, band);
+                    me.tz_draw(sh, band);
                     band.set_origin(0.0);
                     me.draw_chrome(sh, band);
+                    me.tz_draw_client(sh, band);
                 });
             }
             if let View::Doc(d) = &me.view {
@@ -1649,6 +1638,9 @@ impl Win {
         if self.settings.is_some() {
             return self.panel_key(sh, vk, ctrl, shift, alt).then_some(None);
         }
+        if let Some(r) = self.tz_key(sh, vk, ctrl, shift) {
+            return Some(r);
+        }
         let c = yamdv_core::keymap::Chord {
             ctrl,
             shift,
@@ -1780,9 +1772,7 @@ impl Win {
             self.panel_down(sh, x, y);
             return;
         }
-        if self.dialog.is_none()
-            && (self.job_click(x, y) || self.toast_click(x, y))
-        {
+        if self.dialog.is_none() && (self.job_click(x, y) || self.toast_click(x, y)) {
             return;
         }
         if self.dialog.is_none() && matches!(self.view, View::Empty { note: None }) {
@@ -2040,6 +2030,7 @@ impl Win {
         if self.dialog.is_some() {
             return;
         }
+        self.tz_tip_hide();
         let lines = f64::from(sys::wheel_lines());
         let d = -f64::from(delta) / 120.0 * lines * LINE_STEP;
         // Precision touchpads send fractional notches: apply directly, no animation.
@@ -2394,7 +2385,11 @@ impl Win {
         self.focus = next;
         if let Some((b, l)) = next {
             self.scroll_into_view(sh, b, l);
+        } else if dir > 0 && cur.is_some() {
+            // After the last link: the heading fold toggles (R-READ-06).
+            self.tz_fold_focus_step(true);
         }
+        self.tz_focus_tip(sh);
         self.invalidate();
     }
 
@@ -2909,6 +2904,7 @@ fn update_size(w: &mut Win, sh: &Shared) {
     if let View::Doc(d) = &mut w.view {
         d.viewer.set_width(&d.content, colw, vh);
     }
+    w.tz_resized();
     w.edit_resize(sh);
     w.invalidate();
 }
@@ -2924,6 +2920,10 @@ fn handle(
     if msg == 0x0010
         && let Some(r) = w.job_close(sh)
     {
+        return (Some(r), actions);
+    }
+    if let Some(r) = w.tz_msg(sh, msg, wp, lp) {
+        actions.append(&mut w.actions);
         return (Some(r), actions);
     }
     if let Some(r) = w.edit_msg(sh, msg, wp, lp) {

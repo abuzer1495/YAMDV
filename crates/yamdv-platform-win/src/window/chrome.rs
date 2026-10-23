@@ -404,7 +404,7 @@ impl Win {
     /// `F11` / Appearance ▸ Full screen (R-WIN-06).
     pub(super) fn toggle_fullscreen(&mut self) {
         self.fs = !self.fs;
-        self.top = if self.fs { 0.0 } else { ch::BAR_H };
+        self.top = if self.fs { 0.0 } else { ch::BAR_H } + self.tz_banners_h();
         self.cap = Caption {
             inactive: self.cap.inactive,
             ..Caption::default()
@@ -585,7 +585,7 @@ impl Win {
 
     /// Words and characters of the document and of the selection (cached by source length and
     /// selection; computed only while the badge is shown).
-    fn word_counts(&self) -> Option<WordCounts> {
+    pub(super) fn word_counts(&self) -> Option<WordCounts> {
         let View::Doc(d) = &self.view else {
             return None;
         };
@@ -677,6 +677,7 @@ impl Win {
         if let Some((r, _)) = self.badge(sh) {
             rects.push(r);
         }
+        rects.extend(self.tz_overlay_rects(sh));
         if self.zoom_ind.is_some() {
             rects.push(Rect::new(
                 (self.cw - 140.0) / 2.0,
