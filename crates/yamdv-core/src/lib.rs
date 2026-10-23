@@ -19,6 +19,7 @@ pub mod i18n;
 pub mod image;
 pub mod ini;
 pub mod ipc;
+pub mod journal;
 pub mod keymap;
 pub mod link;
 pub mod log;
