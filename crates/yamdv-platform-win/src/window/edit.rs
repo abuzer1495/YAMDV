@@ -287,7 +287,7 @@ impl Win {
         }
     }
 
-    fn edit_mut(&mut self) -> Option<&mut Edit> {
+    pub(super) fn edit_mut(&mut self) -> Option<&mut Edit> {
         match &mut self.view {
             View::Doc(d) => d.edit.as_deref_mut(),
             _ => None,
@@ -375,7 +375,7 @@ impl Win {
         let _ = unsafe { InvalidateRect(Some(self.hwnd), Some(&rc), false) };
     }
 
-    fn invalidate_pane(&self) {
+    pub(super) fn invalidate_pane(&self) {
         match self.split_rects() {
             Some((r, _, _)) => self.invalidate_rect(r),
             None => self.invalidate(),
@@ -610,7 +610,7 @@ impl Win {
 
     /// Leaves the F2 block: the document catches up with the buffer (only the edited blocks
     /// re-parse; untouched blocks are never re-serialized). Returns the splice.
-    fn edit_leave_block(&mut self, _sh: &Shared) -> Option<yamdv_core::doc::index::Splice> {
+    pub(super) fn edit_leave_block(&mut self, _sh: &Shared) -> Option<yamdv_core::doc::index::Splice> {
         let vh = self.view_h();
         let View::Doc(d) = &mut self.view else {
             return None;
@@ -738,7 +738,7 @@ impl Win {
     }
 
     /// Keeps the caret visible in the pane; `center` puts it one third from the top.
-    fn pane_scroll_to_caret(&mut self, sh: &Shared, center: bool) {
+    pub(super) fn pane_scroll_to_caret(&mut self, sh: &Shared, center: bool) {
         let Some(g) = self.pane_geo(sh) else { return };
         let vh = self.view_h();
         let pitch = f64::from(sh.m.pitch());
@@ -849,7 +849,7 @@ impl Win {
     // ---- edits ---------------------------------------------------------------------------
 
     /// After every buffer change or caret move: mirror, re-render, autosave timer, title.
-    fn after_edit(&mut self, sh: &Shared, changed: bool) {
+    pub(super) fn after_edit(&mut self, sh: &Shared, changed: bool) {
         let vh = self.view_h();
         let mode = self.edit_mode();
         if let Some(e) = self.edit_mut() {
@@ -988,7 +988,7 @@ impl Win {
         }
     }
 
-    fn with_ed(&mut self, sh: &Shared, f: impl FnOnce(&mut Editor)) {
+    pub(super) fn with_ed(&mut self, sh: &Shared, f: impl FnOnce(&mut Editor)) {
         let Some(e) = self.edit_mut() else { return };
         let v = e.ed.version;
         f(&mut e.ed);
@@ -1008,7 +1008,7 @@ impl Win {
         self.with_ed(sh, |ed| ed.type_text(s, t));
     }
 
-    fn edit_char(&mut self, sh: &Shared, unit: u16) {
+    pub(super) fn edit_char(&mut self, sh: &Shared, unit: u16) {
         let Some(e) = self.edit_mut() else { return };
         let s = if (0xD800..0xDC00).contains(&unit) {
             e.surrogate = Some(unit);
@@ -1019,7 +1019,12 @@ impl Win {
         } else {
             e.surrogate = None;
             match char::from_u32(u32::from(unit)) {
-                Some(c) if !c.is_control() => c.to_string(),
+                Some(c) if !c.is_control() => {
+                    if self.plus_char(sh, c) {
+                        return;
+                    }
+                    c.to_string()
+                }
                 _ => return,
             }
         };
@@ -1421,7 +1426,7 @@ impl Win {
     }
 
     /// Plain-text paste (Ctrl+V and Ctrl+Shift+V alike: no HTML conversion in V1).
-    fn edit_paste(&mut self, sh: &Shared) {
+    pub(super) fn edit_paste(&mut self, sh: &Shared) {
         let Some(t) = sys::paste_text(self.hwnd) else {
             return;
         };
@@ -1936,7 +1941,7 @@ impl Win {
         };
         if self.dialog.is_some()
             || (mode == Mode::Live && self.over_side(sh, x, y))
-            || (self.find.is_some() && findbar::bar_rects(self.cw).0.contains(x, y))
+            || (self.find.is_some() && findbar::bar_rects(self.cw, self.find_tall()).0.contains(x, y))
         {
             return false;
         }

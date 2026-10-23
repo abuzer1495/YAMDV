@@ -69,6 +69,7 @@ mod edit;
 mod findbar;
 mod jobui;
 mod nav;
+mod plus;
 mod popup;
 mod setpanel;
 mod sidebar;
@@ -422,6 +423,8 @@ struct Win {
     /// Sidebar state (B.5).
     side: sidebar::Side,
     nav: nav::Nav,
+    /// V2-E editing extras (prompt 015).
+    plus: plus::Plus,
     /// CSV of the table under the last context-menu click (R-EXP-04).
     ctx_table: Option<String>,
     /// Content offset below the client top: the title bar height, 0 in fullscreen (B.4).
@@ -1050,7 +1053,7 @@ impl Win {
                 // Fixed overlays inside the blitted rect: repaint where they were and are.
                 let ady = dy.abs();
                 if self.find.is_some() {
-                    let (bar, _) = findbar::bar_rects(self.cw);
+                    let (bar, _) = findbar::bar_rects(self.cw, self.find_tall());
                     let rc = self.crc(RECT {
                         left: px(bar.x) - 4,
                         top: px(bar.y) - ady - 4,
@@ -1680,6 +1683,9 @@ impl Win {
             alt,
             vk,
         };
+        if let Some(r) = self.v2e_key(sh, c) {
+            return Some(r);
+        }
         match app::keymap().translate(c, self.edit_mode().is_some()) {
             yamdv_core::keymap::Translate::Pass => None,
             yamdv_core::keymap::Translate::Swallow => Some(None),
@@ -1820,15 +1826,8 @@ impl Win {
             }
             return;
         }
-        if self.find.is_some() && self.dialog.is_none() {
-            let (bar, case) = findbar::bar_rects(self.cw);
-            if case.contains(x, y) {
-                self.find_toggle_case(sh);
-                return;
-            }
-            if bar.contains(x, y) {
-                return;
-            }
+        if self.find.is_some() && self.dialog.is_none() && self.find_click(sh, x, y) {
+            return;
         }
         if self.dialog.is_some() {
             if let Some(g) = self.geometry(sh)
@@ -3102,7 +3101,10 @@ fn handle(
             Some(LRESULT(0))
         }
         WM_CHAR if w.find.is_some() => {
-            if let Some(c) = char::from_u32(wp.0 as u32) {
+            // Ctrl+H arrives as U+0008 too: not a backspace.
+            // SAFETY: GetKeyState has no preconditions.
+            let ctrl = unsafe { GetKeyState(i32::from(VK_CONTROL.0)) } < 0;
+            if let Some(c) = char::from_u32(wp.0 as u32).filter(|c| !(ctrl && *c == '\u{8}')) {
                 w.find_char(sh, c);
             }
             Some(LRESULT(0))
@@ -3783,6 +3785,7 @@ fn create_window(sh: &Shared, path: Option<&str>) -> Option<HWND> {
         settings: None,
         side: sidebar::Side::default(),
         nav: nav::Nav::default(),
+        plus: plus::Plus::default(),
         ctx_table: None,
         top: yamdv_core::chrome::BAR_H,
         fs: false,
