@@ -221,6 +221,7 @@ A-9 CI is back (owner decision, 2026-10-23). The repository moved to https://git
    - releases stay drafts.
 8. F-24 (prompt 014): a version or phase tag goes on a squash-merge commit only when its tree equals a PR head with a green CI run (`git diff --quiet <pr-head> <merge>`); otherwise run CI on main first.
 9. F-25 (prompt 015): A version tag always goes on a `chore(release): vX.Y.Z` commit without [skip ci] whose tree equals a green CI head; phase tags may stay on the squash merge.
+10. F-32 (prompt 017): phase-* tags trigger no workflow; v* tags run only the release job (build, zip, SHA-256, draft); a push whose head commit message starts with `chore(release):` skips the test jobs (its tree equals a green head, F-25); F-31: pws_delta_kib / cpu_delta_ms driver asserts get the two-attempt rule (a script failing only on them is rerun once).
 ```
 
 **A-10 (Phase V2-D, prompt 014; owner decision 2026-10-23).**
