@@ -3,6 +3,7 @@
 //! and dropped files, and the sandbox rule for asset folders (S-FILE-05). Pure.
 
 pub mod assets;
+pub mod dib;
 pub mod html2md;
 mod text;
 
