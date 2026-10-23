@@ -28,3 +28,4 @@ and `v1.2.0` on it (the v1.2.0 tag run builds the draft). Otherwise let the main
 - CHECKPOINT 11:50 PR opened; full CI run 1 of 1 (+ at most one fix push).
 - CHECKPOINT 12:21 CI run 39927529395 red (tab-order needs heading stops, keyboard-reach walk wrapped, files-favorites timeout; menu + footnote goldens). Fix push: scripts, bounded nav-wait-files, partial driver log, watcher drop cancel loop, 6 goldens, mind-map-on-large report step.
 - CHECKPOINT 12:49 fix run 39931340336 red only on files-favorites last step (drop-folder path '.'); probe fix pushed [skip ci], not CI-verified. No merge/tags (F-24). Report written. Next: owner approves one more CI run.
+- CHECKPOINT 19:01 owner approved one more CI run; triggering it.
