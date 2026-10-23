@@ -17,6 +17,11 @@ enum FvKind {
         bmp: crate::images::Bitmap,
         src: yamdv_core::image::Source,
         nat: (u32, u32),
+        /// An animated GIF playing (`reading.animate_gifs`) with its UI-thread factory.
+        anim: Option<(
+            Box<crate::images::gif::Anim>,
+            windows::Win32::Graphics::Imaging::IWICImagingFactory,
+        )>,
     },
     Block {
         viewer: Box<Viewer>,
@@ -243,7 +248,7 @@ impl Win {
         (content, viewer)
     }
 
-    fn open_image(&self, src: &str) -> Option<FullView> {
+    fn open_image(&self, sh: &Shared, src: &str) -> Option<FullView> {
         let View::Doc(d) = &self.view else {
             return None;
         };
@@ -255,12 +260,19 @@ impl Win {
         let w = ((nw as f32 * k).round() as u32).max(1);
         let h = ((nh as f32 * k).round() as u32).max(1);
         let bmp = crate::images::decode(&f, &source, w, h).ok()?;
+        let anim = if sh.animate_gifs && !self.reduced_motion() {
+            crate::images::gif::Anim::open(&f, &source, w, h, crate::images::gif::now_ms())
+                .map(|a| (Box::new(a), f))
+        } else {
+            None
+        };
         let z = ZoomView::new((nw as f32, nh as f32), (self.cw, self.ch));
         Some(FullView::new(
             FvKind::Image {
                 bmp,
                 src: source,
                 nat: (nw, nh),
+                anim,
             },
             z,
             "image",
@@ -353,7 +365,7 @@ impl Win {
         self.tz_tip_hide();
         self.tz.pop = None;
         let fv = match kind {
-            MediaKind::Image(src) => self.open_image(src),
+            MediaKind::Image(src) => self.open_image(sh, src),
             MediaKind::Diagram(node) => self.open_diagram(sh, bi, *node),
             MediaKind::Table(node, rows, cols) => self.open_table(sh, bi, *node, *rows, *cols),
         };
@@ -362,7 +374,51 @@ impl Win {
             self.tz.media = None;
             self.set_status(sh, None);
         }
+        self.fv_schedule_gif();
         self.invalidate();
+    }
+
+    /// Arms the viewer's one-shot GIF timer (only while an animated GIF is open and the
+    /// window is active, T7).
+    pub(super) fn fv_schedule_gif(&self) {
+        let due = match self.tz.fv.as_deref().map(|f| &f.kind) {
+            Some(FvKind::Image {
+                anim: Some((a, _)), ..
+            }) if !self.cap.inactive => Some(a.player.due),
+            _ => None,
+        };
+        // SAFETY: valid hwnd; one-shot, re-armed per frame.
+        unsafe {
+            match due {
+                Some(t) => {
+                    let ms = t
+                        .saturating_sub(crate::images::gif::now_ms())
+                        .clamp(10, 60_000);
+                    SetTimer(
+                        Some(self.hwnd),
+                        TIMER_FVGIF,
+                        u32::try_from(ms).unwrap_or(100),
+                        None,
+                    );
+                }
+                None => {
+                    let _ = KillTimer(Some(self.hwnd), TIMER_FVGIF);
+                }
+            }
+        }
+    }
+
+    pub(super) fn fv_tick_gif(&mut self) {
+        let changed = match self.tz.fv.as_deref_mut().map(|f| &mut f.kind) {
+            Some(FvKind::Image {
+                anim: Some((a, f)), ..
+            }) => a.tick(f, crate::images::gif::now_ms()),
+            _ => false,
+        };
+        if changed {
+            self.invalidate();
+        }
+        self.fv_schedule_gif();
     }
 
     /// Closes the viewer and gives its memory back.
@@ -419,7 +475,7 @@ impl Win {
     fn fv_zoomed(&mut self) {
         let scale = self.scale;
         if let Some(fv) = &mut self.tz.fv
-            && let FvKind::Image { bmp, src, nat } = &mut fv.kind
+            && let FvKind::Image { bmp, src, nat, .. } = &mut fv.kind
             && bmp.svg_color.is_some()
         {
             let z = fv.z.scale * scale;
@@ -585,7 +641,10 @@ impl Win {
         );
         b.push_clip(body);
         match &fv.kind {
-            FvKind::Image { bmp, .. } => b.image_scaled(dst, bmp.w, bmp.h, &bmp.px),
+            FvKind::Image { bmp, anim, .. } => {
+                let bmp = anim.as_ref().map_or(bmp, |(a, _)| &a.out);
+                b.image_scaled(dst, bmp.w, bmp.h, &bmp.px);
+            }
             FvKind::Block { viewer, .. } => {
                 if fv.card.is_none() {
                     b.fill(dst, self.pal.bg, 1.0, 8.0 * fv.z.scale);

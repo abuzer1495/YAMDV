@@ -1051,6 +1051,35 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         ("source_len".into(), V::N(source_len as f64)),
         ("math_cached".into(), V::N(math_cached as f64)),
         ("diagrams_cached".into(), V::N(diagrams_cached as f64)),
+        (
+            "gif_playing".into(),
+            V::N(match &w.view {
+                View::Doc(d) => d.images.anims_playing() as f64,
+                _ => 0.0,
+            }),
+        ),
+        (
+            "window_active".into(),
+            V::N(f64::from(u8::from(!w.cap.inactive))),
+        ),
+        (
+            "gif_due_ms".into(),
+            V::N(match &w.view {
+                View::Doc(d) => d
+                    .images
+                    .anim_due()
+                    .map_or(-1.0, |t| t as f64 - crate::images::gif::now_ms() as f64),
+                _ => -1.0,
+            }),
+        ),
+        (
+            "reduced_motion".into(),
+            V::N(f64::from(u8::from(!crate::sys::animations_enabled()))),
+        ),
+        (
+            "gif_frames".into(),
+            V::N(crate::images::gif::FRAMES.load(std::sync::atomic::Ordering::Relaxed) as f64),
+        ),
         ("menu_items".into(), V::N(menu_items as f64)),
         ("menu_checked".into(), V::S(menu_checked)),
         ("edit_mode".into(), V::S(edit_mode.into())),

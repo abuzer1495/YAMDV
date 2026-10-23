@@ -664,6 +664,8 @@ impl Lru {
     }
 }
 
+pub mod gif;
+
 #[cfg(test)]
 mod tests {
     use super::*;

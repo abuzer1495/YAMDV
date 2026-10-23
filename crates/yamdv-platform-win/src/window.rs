@@ -130,6 +130,8 @@ const TIMER_SPY: usize = 12;
 const TIMER_COPIED: usize = 8;
 /// One-shot: hide the zoom indicator (B.10.2, 900 ms).
 const TIMER_ZOOM: usize = 17;
+/// One-shot: the next animated GIF frame is due (runs only while a visible GIF plays, T7).
+const TIMER_GIF: usize = 23;
 #[cfg(feature = "dev-tools")]
 const TIMER_SCRIPT: usize = 9;
 const LINE_STEP: f64 = 40.0;
@@ -175,6 +177,8 @@ struct Shared {
     read: ReadOpts,
     column_pct: f32,
     smooth: bool,
+    /// `reading.animate_gifs`.
+    animate_gifs: bool,
     autohide: bool,
     dev: DevOptions,
     /// `general.open_external_links`.
@@ -528,6 +532,51 @@ impl Win {
 
     fn reduced_motion(&self) -> bool {
         !sys::animations_enabled()
+    }
+
+    /// Arms the one-shot GIF timer for the next due frame of a visible GIF; none when the
+    /// window is inactive or minimized, or nothing plays (T7).
+    fn schedule_gifs(&self) {
+        // SAFETY: valid hwnd.
+        let iconic =
+            unsafe { windows::Win32::UI::WindowsAndMessaging::IsIconic(self.hwnd) }.as_bool();
+        let due = match &self.view {
+            View::Doc(d) if !self.cap.inactive && !iconic => d.images.anim_due(),
+            _ => None,
+        };
+        // SAFETY: valid hwnd; the timer is one-shot and only armed while a GIF plays.
+        unsafe {
+            match due {
+                Some(t) => {
+                    let ms = t
+                        .saturating_sub(crate::images::gif::now_ms())
+                        .clamp(10, 60_000);
+                    SetTimer(
+                        Some(self.hwnd),
+                        TIMER_GIF,
+                        u32::try_from(ms).unwrap_or(100),
+                        None,
+                    );
+                }
+                None => {
+                    let _ = KillTimer(Some(self.hwnd), TIMER_GIF);
+                }
+            }
+        }
+    }
+
+    fn tick_gifs(&mut self) {
+        // SAFETY: valid hwnd.
+        let _ = unsafe { KillTimer(Some(self.hwnd), TIMER_GIF) };
+        let changed = match &self.view {
+            View::Doc(d) => d.images.tick_anims(crate::images::gif::now_ms()),
+            _ => false,
+        };
+        if changed {
+            self.invalidate();
+        } else {
+            self.schedule_gifs();
+        }
     }
 
     // ---- opening -------------------------------------------------------------------------
@@ -1325,6 +1374,8 @@ impl Win {
             if let View::Doc(d) = &me.view {
                 // SVG `currentColor` = document text color (ADR-0021).
                 crate::images::set_text_color(me.pal.text);
+                d.images
+                    .set_animate(sh.animate_gifs && !me.reduced_motion());
                 d.images.begin_frame();
             }
             // Paint the vertical spans of the update region, not its bounding box: a scroll step
@@ -1362,8 +1413,18 @@ impl Win {
                     }
                 }
                 d.images.end_frame();
+                let mut playing = Vec::new();
+                for (_, _, bl) in d.viewer.visible(&d.content, me.view_h()) {
+                    for it in &bl.items {
+                        if let Item::Image { src, .. } = it {
+                            playing.push(src.clone());
+                        }
+                    }
+                }
+                d.images.set_playing(playing);
             }
         }
+        self.schedule_gifs();
         // SAFETY: matches BeginPaint.
         let _ = unsafe { EndPaint(self.hwnd, &ps) };
         self.edit_painted();
@@ -2527,6 +2588,7 @@ impl Win {
         }
         match id {
             TIMER_ANIM => self.tick_anim(),
+            TIMER_GIF => self.tick_gifs(),
             #[cfg(feature = "dev-tools")]
             TIMER_SCRIPT => driver::tick(self, sh),
             TIMER_SB_HIDE => {
@@ -3080,6 +3142,8 @@ fn handle(
         0x0006 /* WM_ACTIVATE */ => {
             w.cap.inactive = wp.0 & 0xFFFF == 0;
             w.invalidate_bar();
+            // GIFs pause while inactive and resume where they were.
+            w.schedule_gifs();
             None
         }
         0x0084 /* WM_NCHITTEST */ => {
@@ -3932,6 +3996,7 @@ fn build_shared(
         },
         column_pct: s.int("typography.column_width_pct") as f32 / 100.0,
         smooth: s.bool("reading.smooth_scrolling"),
+        animate_gifs: s.bool("reading.animate_gifs"),
         external: s.str("general.open_external_links").to_string(),
         autohide: s.bool("reading.scrollbar_autohide"),
         title_full: s.str("general.title_format") == "fullpath",

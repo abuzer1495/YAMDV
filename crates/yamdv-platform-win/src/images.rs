@@ -32,6 +32,7 @@ use windows::core::HSTRING;
 use yamdv_core::image::{self, DriveKind, Fs, Placeholder, Source};
 use yamdv_layout::img::{ImageHost, ImgState};
 
+pub mod gif;
 mod svg;
 pub use svg::set_text_color;
 
@@ -199,17 +200,15 @@ pub struct Bitmap {
     pub svg_color: Option<u32>,
 }
 
-/// WIC decode of `src` scaled (high-quality cubic) to `w × h` device pixels.
-pub fn decode(f: &IWICImagingFactory, src: &Source, w: u32, h: u32) -> Result<Bitmap, Placeholder> {
-    let w = w.clamp(1, image::MAX_DIM);
-    let h = h.clamp(1, image::MAX_DIM);
-    if let Some(b) = svg_bytes(src)? {
-        return svg::decode(&b, w, h);
-    }
-    // SAFETY: COM initialized on this thread; all objects released by Drop; the buffer size is
-    // `w*h*4` and the stride `w*4`.
+/// A WIC decoder for `src`.
+pub(crate) fn open_decoder(
+    f: &IWICImagingFactory,
+    src: &Source,
+) -> Result<IWICBitmapDecoder, Placeholder> {
+    // SAFETY: COM initialized on this thread; the memory stream borrows `d`, which outlives it
+    // only as long as the caller keeps `src` (the decoder is used while `src` is alive).
     unsafe {
-        let dec: IWICBitmapDecoder = match src {
+        Ok(match src {
             Source::File(p) => f
                 .CreateDecoderFromFilename(
                     &HSTRING::from(p.as_str()),
@@ -225,7 +224,21 @@ pub fn decode(f: &IWICImagingFactory, src: &Source, w: u32, h: u32) -> Result<Bi
                 f.CreateDecoderFromStream(&s, std::ptr::null(), WICDecodeMetadataCacheOnDemand)
                     .map_err(|_| Placeholder::Unsupported)?
             }
-        };
+        })
+    }
+}
+
+/// WIC decode of `src` scaled (high-quality cubic) to `w × h` device pixels.
+pub fn decode(f: &IWICImagingFactory, src: &Source, w: u32, h: u32) -> Result<Bitmap, Placeholder> {
+    let w = w.clamp(1, image::MAX_DIM);
+    let h = h.clamp(1, image::MAX_DIM);
+    if let Some(b) = svg_bytes(src)? {
+        return svg::decode(&b, w, h);
+    }
+    // SAFETY: COM initialized on this thread; all objects released by Drop; the buffer size is
+    // `w*h*4` and the stride `w*4`.
+    unsafe {
+        let dec = open_decoder(f, src)?;
         let frame = dec.GetFrame(0).map_err(|_| Placeholder::Unsupported)?;
         let sc = f
             .CreateBitmapScaler()
@@ -361,6 +374,9 @@ struct Entry {
     src: Option<Source>,
     bmp: Option<Bitmap>,
     pending: Option<(u32, u32)>,
+    /// `Some(true)`: an animated GIF candidate (checked once from the header).
+    gif: Option<bool>,
+    anim: Option<Box<gif::Anim>>,
 }
 
 /// Per-document image store: policy, probe, decoded pixels and the P-13 LRU.
@@ -377,6 +393,12 @@ pub struct Store {
     generation: u64,
     /// Synchronous decode (`--render-png`, tests): no worker.
     sync: Option<IWICImagingFactory>,
+    /// `reading.animate_gifs` (and no reduced motion).
+    animate: std::cell::Cell<bool>,
+    /// UI-thread WIC factory for GIF frames (created on first use).
+    ui: RefCell<Option<IWICImagingFactory>>,
+    /// Animated GIFs inside the viewport this frame (they play).
+    playing: RefCell<Vec<Box<str>>>,
 }
 
 impl std::fmt::Debug for Store {
@@ -403,6 +425,9 @@ impl Store {
             done: Arc::default(),
             generation,
             sync: None,
+            animate: std::cell::Cell::new(false),
+            ui: RefCell::new(None),
+            playing: RefCell::default(),
         }
     }
     /// Store that decodes on the calling thread (COM must be initialized).
@@ -417,8 +442,9 @@ impl Store {
         self.map
             .borrow()
             .values()
-            .filter_map(|e| e.bmp.as_ref())
-            .map(|b| b.px.len())
+            .map(|e| {
+                e.bmp.as_ref().map_or(0, |b| b.px.len()) + e.anim.as_ref().map_or(0, |a| a.bytes())
+            })
             .sum()
     }
     /// Bytes in the LRU part.
@@ -450,6 +476,11 @@ impl Store {
         let keys: Vec<Box<str>> = map.keys().cloned().collect();
         for k in keys {
             let id = self.id(&k);
+            if !pinned.contains(&k)
+                && let Some(e) = map.get_mut(&k)
+            {
+                e.anim = None;
+            }
             let Some(e) = map.get(&k) else { continue };
             let Some(b) = &e.bmp else { continue };
             if pinned.contains(&k) {
@@ -481,6 +512,13 @@ impl Store {
     /// Pixels of `key` at `w × h` device px, if decoded; otherwise queues a decode.
     pub fn pixels(&self, key: &str, w: u32, h: u32) -> Option<std::cell::Ref<'_, Bitmap>> {
         self.pinned.borrow_mut().push(key.into());
+        if self.animate.get() && self.anim_at(key, w, h) {
+            let map = self.map.borrow();
+            return std::cell::Ref::filter_map(map, |m| {
+                m.get(key).and_then(|e| e.anim.as_ref()).map(|a| &a.out)
+            })
+            .ok();
+        }
         let need = {
             let mut map = self.map.borrow_mut();
             let e = map.get_mut(key)?;
@@ -517,6 +555,107 @@ impl Store {
                 .filter(|b| b.w == w && b.h == h)
         })
         .ok()
+    }
+
+    /// Ensures a playing [`gif::Anim`] of `key` at `w × h`; false when it is not animated.
+    fn anim_at(&self, key: &str, w: u32, h: u32) -> bool {
+        let mut map = self.map.borrow_mut();
+        let Some(e) = map.get_mut(key) else {
+            return false;
+        };
+        if !matches!(e.state, ImgState::Ready { .. }) || e.gif == Some(false) {
+            return false;
+        }
+        if e.anim
+            .as_ref()
+            .is_some_and(|a| a.out.w == w && a.out.h == h)
+        {
+            return true;
+        }
+        let Some(src) = e.src.as_ref() else {
+            return false;
+        };
+        if e.gif.is_none() {
+            let head = match src {
+                Source::Data(d) => d.get(..6).map(<[u8]>::to_vec),
+                Source::File(p) => read_head(p, 6),
+            };
+            e.gif = Some(head.is_some_and(|h| h.starts_with(b"GIF8")));
+        }
+        if e.gif != Some(true) {
+            return false;
+        }
+        let mut ui = self.ui.borrow_mut();
+        if ui.is_none() {
+            *ui = self.sync.clone().or_else(factory);
+        }
+        let Some(f) = ui.as_ref() else { return false };
+        e.anim = gif::Anim::open(f, src, w, h, gif::now_ms()).map(Box::new);
+        if e.anim.is_none() {
+            e.gif = Some(false);
+        }
+        e.anim.is_some()
+    }
+
+    /// `reading.animate_gifs` without reduced motion; off drops every animation (first frames show).
+    pub fn set_animate(&self, on: bool) {
+        if self.animate.replace(on) && !on {
+            for e in self.map.borrow_mut().values_mut() {
+                e.anim = None;
+            }
+        }
+    }
+
+    /// The images inside the viewport this frame; their animations play.
+    pub fn set_playing(&self, keys: Vec<Box<str>>) {
+        let now = gif::now_ms();
+        let mut map = self.map.borrow_mut();
+        let old = self.playing.borrow();
+        for k in &keys {
+            if !old.contains(k)
+                && let Some(a) = map.get_mut(k).and_then(|e| e.anim.as_mut())
+            {
+                a.resume(now);
+            }
+        }
+        drop(old);
+        *self.playing.borrow_mut() = keys;
+    }
+
+    /// Visible animations that play (driver `gif_playing`).
+    pub fn anims_playing(&self) -> usize {
+        let map = self.map.borrow();
+        self.playing
+            .borrow()
+            .iter()
+            .filter(|k| map.get(*k).is_some_and(|e| e.anim.is_some()))
+            .count()
+    }
+
+    /// When the next visible frame is due (ms clock), if any GIF plays.
+    pub fn anim_due(&self) -> Option<u64> {
+        let map = self.map.borrow();
+        self.playing
+            .borrow()
+            .iter()
+            .filter_map(|k| map.get(k)?.anim.as_ref())
+            .filter(|a| a.player.frames > 1)
+            .map(|a| a.player.due)
+            .min()
+    }
+
+    /// Advances every visible animation that is due; returns whether any frame changed.
+    pub fn tick_anims(&self, now: u64) -> bool {
+        let ui = self.ui.borrow();
+        let Some(f) = ui.as_ref() else { return false };
+        let mut map = self.map.borrow_mut();
+        let mut any = false;
+        for k in self.playing.borrow().iter() {
+            if let Some(a) = map.get_mut(k).and_then(|e| e.anim.as_mut()) {
+                any |= a.tick(f, now);
+            }
+        }
+        any
     }
 
     fn queue(&self, j: Job) {
@@ -638,6 +777,8 @@ impl ImageHost for Store {
                     src: None,
                     bmp: None,
                     pending: None,
+                    gif: None,
+                    anim: None,
                 },
             );
             return st;
@@ -649,6 +790,8 @@ impl ImageHost for Store {
                 src: None,
                 bmp: None,
                 pending: None,
+                gif: None,
+                anim: None,
             },
         );
         // File-system policy checks and the header probe run on the worker (E.10); the
