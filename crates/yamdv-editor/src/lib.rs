@@ -6,8 +6,11 @@
 pub mod buffer;
 pub mod history;
 pub mod md;
+pub mod replace;
 
 pub use buffer::{Editor, Motion, normalize_eol};
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_replace;

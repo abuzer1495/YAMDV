@@ -37,6 +37,7 @@ pulldown-cmark = { version = "=0.13.4", default-features = false }
 encoding_rs = { version = "=0.8.42", default-features = false, features = ["alloc"] }
 chardetng = { version = "=1.0.0", default-features = false }
 unicode-segmentation = { version = "=1.13.3", default-features = false }
+regex-lite = { version = "=0.1.9", default-features = false, features = ["std", "string"] }
 ropey = { version = "=1.6.1", default-features = false, features = ["simd"] }
 proptest = { version = "=1.12.0", default-features = false, features = ["std"] }
 tiny-skia = { version = "=0.12.0", default-features = false, features = ["std", "simd"] }
@@ -76,3 +77,7 @@ incremental = false
 inherits = "release"
 strip = "none"
 debug = "line-tables-only"
+
+# The regex engine runs optimised in test builds too (regex guard test, prompt 015 §3.2).
+[profile.dev.package.regex-lite]
+opt-level = 3
