@@ -457,46 +457,6 @@ fn dry_launch() -> bool {
     DRY_RUN.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// `ChooseFontW` (dialog host only): `Some(Some(family))` chosen, `Some(None)` cancelled,
-/// `None` failed.
-pub fn font_dialog(owner: HWND, current: &str) -> Option<Option<String>> {
-    use windows::Win32::Graphics::Gdi::LOGFONTW;
-    use windows::Win32::UI::Controls::Dialogs::{
-        CF_INITTOLOGFONTSTRUCT, CF_NOSCRIPTSEL, CF_SCREENFONTS, CHOOSEFONTW, ChooseFontW,
-        CommDlgExtendedError,
-    };
-    let mut lf = LOGFONTW::default();
-    for (d, s) in lf
-        .lfFaceName
-        .iter_mut()
-        .zip(current.encode_utf16().take(31))
-    {
-        *d = s;
-    }
-    lf.lfHeight = -16;
-    let mut cf = CHOOSEFONTW {
-        lStructSize: u32::try_from(std::mem::size_of::<CHOOSEFONTW>()).unwrap_or(0),
-        hwndOwner: owner,
-        lpLogFont: &mut lf,
-        Flags: CF_SCREENFONTS | CF_INITTOLOGFONTSTRUCT | CF_NOSCRIPTSEL,
-        ..Default::default()
-    };
-    // SAFETY: cf and lf are valid for the modal call.
-    let chosen = unsafe { ChooseFontW(&mut cf) }.as_bool();
-    // SAFETY: no preconditions.
-    let err = unsafe { CommDlgExtendedError() }.0;
-    if chosen {
-        let n = lf.lfFaceName.iter().position(|c| *c == 0).unwrap_or(32);
-        Some(Some(String::from_utf16_lossy(
-            lf.lfFaceName.get(..n).unwrap_or(&[]),
-        )))
-    } else if err == 0 {
-        Some(None)
-    } else {
-        None
-    }
-}
-
 /// D.4 rule 10: one working-set trim right after a print / PDF / export operation (never
 /// periodic; transient buffers are freed by the caller before this).
 pub fn trim_once() {

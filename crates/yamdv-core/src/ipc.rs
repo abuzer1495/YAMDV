@@ -25,8 +25,7 @@ pub enum Kind {
     /// Second launch forwarding its paths to the primary instance (S-IPC-01); `nonce` carries
     /// the `--line` value (0 = none) and the payload is limited to [`FORWARD_MAX_BYTES`].
     Forward = 2,
-    /// Font dialog (`ChooseFontW`); the answer is one family name.
-    Font = 3,
+    // 3 was the font dialog (removed in V2-C: the settings panel has its own font pickers).
     /// Save-as dialog (`IFileSaveDialog`); the answer is one path.
     Save = 4,
     /// Print dialog (`PrintDlgExW`, prompt 008 §3.1); the answer is serializable data only:
@@ -147,7 +146,6 @@ pub fn decode(b: &[u8]) -> Result<Reply, DecodeError> {
     let kind = match u16::from_le_bytes(rd(b, &mut at)?) {
         1 => Kind::Open,
         2 if b.len() <= FORWARD_MAX_BYTES => Kind::Forward,
-        3 => Kind::Font,
         4 => Kind::Save,
         5 => Kind::Print,
         2 => return Err(DecodeError::Malformed),

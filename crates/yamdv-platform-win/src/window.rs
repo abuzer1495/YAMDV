@@ -3485,20 +3485,6 @@ fn run_actions_inner(hwnd: HWND, actions: Vec<Action>) {
                     None => show_toast(hwnd, Msg::DialogHostFailed),
                 }
             }
-            Action::HostResult(yamdv_core::ipc::Kind::Font, o) => {
-                // SAFETY: valid hwnd.
-                unsafe {
-                    let _ = EnableWindow(hwnd, true);
-                    let _ = SetForegroundWindow(hwnd);
-                }
-                if let yamdv_core::ipc::Outcome::Paths(p) = o
-                    && let Some(name) = p.first()
-                    && !name.is_empty()
-                    && name.len() <= 64
-                {
-                    app::set("typography.body_font", name);
-                }
-            }
             Action::HostResult(_, o) => {
                 // SAFETY: valid hwnd.
                 unsafe {
