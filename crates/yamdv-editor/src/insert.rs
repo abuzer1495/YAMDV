@@ -70,7 +70,13 @@ pub fn block(ed: &mut Editor, b: Block) {
     let eol = ed.eol;
     let (body, caret) = text(b, eol);
     let pos = ed.selection().end;
-    let l = ed.line_of(pos);
+    let mut l = ed.line_of(pos);
+    // After the caret's whole block (a table or paragraph is never split; R-TBL-08).
+    if !ed.line_text(l).trim().is_empty() {
+        while l + 1 < ed.line_count() && !ed.line_text(l + 1).trim().is_empty() {
+            l += 1;
+        }
+    }
     let ls = ed.line_start(l);
     let line = ed.line_text(l);
     let content = line.trim_end_matches(['\n', '\r']);

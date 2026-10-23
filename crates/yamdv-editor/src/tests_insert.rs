@@ -14,8 +14,9 @@ fn at(t: &str, pos: usize, eol: &'static str) -> Editor {
 fn blocks_land_on_own_lines_as_one_step() {
     let mut e = at("para one\nnext", 3, "\n");
     block(&mut e, Block::Code);
-    assert_eq!(e.text(), "para one\n\n```\n\n```\n\nnext");
-    assert_eq!(e.caret(), "para one\n\n```\n".len());
+    // After the whole paragraph (a block is never split).
+    assert_eq!(e.text(), "para one\nnext\n\n```\n\n```\n");
+    assert_eq!(e.caret(), "para one\nnext\n\n```\n".len());
     assert!(e.undo());
     assert_eq!(e.text(), "para one\nnext");
     let mut e = at("a\r\n\r\n", 3, "\r\n");

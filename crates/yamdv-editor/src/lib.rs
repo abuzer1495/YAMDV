@@ -13,7 +13,9 @@ pub mod md;
 pub mod pairs;
 pub mod replace;
 pub mod snippets;
+pub mod table;
 pub mod transform;
+pub mod tsv;
 
 pub use buffer::{Editor, Motion, normalize_eol};
 
@@ -27,5 +29,7 @@ mod tests_lines;
 mod tests_replace;
 #[cfg(test)]
 mod tests_snippets;
+#[cfg(test)]
+mod tests_table;
 #[cfg(test)]
 mod tests_transform;
