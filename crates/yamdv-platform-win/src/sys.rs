@@ -159,6 +159,52 @@ pub fn paste_text(hwnd: HWND) -> Option<String> {
     }
 }
 
+/// Registered id of the `HTML Format` clipboard format (0 when registration failed).
+pub fn html_format() -> u32 {
+    use windows::Win32::System::DataExchange::RegisterClipboardFormatW;
+    // SAFETY: constant, NUL-terminated format name.
+    unsafe { RegisterClipboardFormatW(windows::core::w!("HTML Format")) }
+}
+
+/// Whether the clipboard holds format `fmt`.
+pub fn clip_has(fmt: u32) -> bool {
+    use windows::Win32::System::DataExchange::IsClipboardFormatAvailable;
+    // SAFETY: read-only query.
+    fmt != 0 && unsafe { IsClipboardFormatAvailable(fmt) }.is_ok()
+}
+
+/// Raw bytes of clipboard format `fmt` (an HGLOBAL format such as `HTML Format` or `CF_DIB`),
+/// `None` when absent or larger than `max` bytes (prompt 015 §3.5).
+pub fn clip_bytes(hwnd: HWND, fmt: u32, max: usize) -> Option<Vec<u8>> {
+    use windows::Win32::System::DataExchange::GetClipboardData;
+    use windows::Win32::System::Memory::GlobalSize;
+    if !clip_has(fmt) {
+        return None;
+    }
+    // SAFETY: standard clipboard read; the handle belongs to the clipboard and is only locked
+    // for the copy; reads stay within GlobalSize.
+    unsafe {
+        OpenClipboard(Some(hwnd)).ok()?;
+        let out = (|| -> Option<Vec<u8>> {
+            let h = GetClipboardData(fmt).ok()?;
+            let g = HGLOBAL(h.0);
+            let n = GlobalSize(g);
+            if n == 0 || n > max {
+                return None;
+            }
+            let p = GlobalLock(g);
+            if p.is_null() {
+                return None;
+            }
+            let v = std::slice::from_raw_parts(p.cast::<u8>(), n).to_vec();
+            let _ = GlobalUnlock(g);
+            Some(v)
+        })();
+        let _ = CloseClipboard();
+        out
+    }
+}
+
 /// Filter labels for the open dialog (R-OPEN-03).
 pub struct Filters<'a> {
     /// "Markdown".

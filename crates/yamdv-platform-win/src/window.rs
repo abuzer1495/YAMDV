@@ -344,6 +344,8 @@ enum Pending {
     JobClose,
     /// Settings panel confirmation (Reset all, Reset colours, Clear …).
     Panel(&'static str),
+    /// Large files dropped on an edit mode (prompt 015 §3.5).
+    Drop(Vec<String>),
 }
 
 const BTN_CANCEL: u32 = 0;
@@ -353,6 +355,7 @@ const BTN_OPEN: u32 = 3;
 const BTN_REVEAL: u32 = 5;
 const BTN_KEEP: u32 = 40;
 const BTN_REMOVE: u32 = 41;
+const BTN_DROP_COPY: u32 = 42;
 
 #[derive(Default)]
 struct Scrollbar {
@@ -735,6 +738,7 @@ impl Win {
             (_, BTN_CANCEL) => {}
             (Pending::JobClose, jobui::BTN_JOB_CLOSE) => jobui::cancel_and_close(),
             (Pending::Panel(what), setpanel::BTN_PANEL_OK) => self.panel_confirmed(what),
+            (Pending::Drop(files), BTN_DROP_COPY) => self.drop_copy(sh, &files),
             (Pending::Large { path }, BTN_PLAIN) => self.open(sh, &path, Some(true), false),
             (Pending::Large { path }, BTN_RENDER) => self.open(sh, &path, Some(false), false),
             (Pending::Binary { path, plain }, BTN_OPEN) => self.open(sh, &path, Some(plain), true),
@@ -2146,6 +2150,11 @@ impl Win {
             DragFinish(hdrop);
         }
         let mut actions = Vec::new();
+        // Prompt 015 §3.5: files dropped on an edit mode are copied in as links.
+        if !files.is_empty() && self.edit_mode().is_some() {
+            self.drop_into_doc(sh, files);
+            return actions;
+        }
         let mut it = files.into_iter();
         if let Some(first) = it.next() {
             self.open(sh, &first, None, false);

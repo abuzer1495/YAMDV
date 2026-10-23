@@ -1445,7 +1445,7 @@ impl Win {
                 ed.redo();
             }),
             app::CUT => self.edit_cut(sh),
-            app::PASTE => self.edit_paste(sh),
+            app::PASTE => self.paste_rich(sh),
             i if (app::FMT0..app::FMT0 + 13).contains(&i) => {
                 if !self.typing() {
                     return;

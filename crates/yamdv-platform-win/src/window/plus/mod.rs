@@ -107,7 +107,7 @@ impl Win {
                     lines::move_lines(ed, up);
                 });
             }
-            "paste_plain" => self.edit_paste(sh),
+            "paste_plain" => self.paste_plain(sh),
             "highlight" => self.with_ed(sh, |ed| md::toggle_wrap(ed, md::Wrap::Highlight)),
             _ => return None,
         }
