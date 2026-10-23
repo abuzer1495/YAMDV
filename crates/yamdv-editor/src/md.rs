@@ -356,6 +356,16 @@ pub fn link(ed: &mut Editor) {
     ed.replace_select(r, &s, (url, url + 3));
 }
 
+/// Ctrl+Shift+I (F-29): inserts `![sel]()` with the caret in the alt text (the selection, if
+/// any, becomes the alt text and stays selected). One undo step.
+pub fn image(ed: &mut Editor) {
+    let r = ed.selection();
+    let alt = ed.slice(r.clone());
+    let a = r.start + 2;
+    ed.replace_select(r, &format!("![{alt}]()"), (a, a + alt.len()));
+    ed.seal();
+}
+
 fn heading_level(body: &str) -> (usize, usize) {
     let n = body.chars().take_while(|&c| c == '#').count();
     if (1..=6).contains(&n) && (body.len() == n || body[n..].starts_with(' ')) {

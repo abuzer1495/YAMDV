@@ -132,7 +132,10 @@ pub(super) fn tick(w: &mut Win, sh: &Shared) {
     let next = SCRIPT.with(|s| s.borrow_mut().as_mut().and_then(|s| s.chars.pop_front()));
     if let Some(c) = next {
         // As WM_CHAR: V2-E auto-pair first (prompt 015 §3.4).
-        if c.is_control() || !w.plus_char(sh, c) {
+        if !c.is_control() {
+            w.xsel_input(sh);
+        }
+        if c.is_control() || !(w.linkpop_char(c) || w.plus_char(sh, c)) {
             w.edit_type(sh, &c.to_string());
         }
         return;
@@ -273,7 +276,7 @@ fn run(w: &mut Win, sh: &Shared, cmd: &Cmd) -> String {
                 for c in t.chars() {
                     w.panel_char(c);
                 }
-            } else if w.find.is_none() && w.typing() {
+            } else if w.find.is_none() && (w.typing() || w.xsel().is_some()) {
                 SCRIPT.with(|s| {
                     if let Some(s) = s.borrow_mut().as_mut() {
                         s.chars.extend(t.chars());
@@ -685,6 +688,7 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
         }
         v if v.starts_with("nav-") => w.nav_ui(sh, v, arg),
         v if v.starts_with("v2e-") => w.v2e_ui(sh, v, arg),
+        v if v.starts_with("v2f-") => w.v2f_ui(sh, v, arg),
         _ => format!("FAIL ui {verb}: unknown verb"),
     }
 }
@@ -699,6 +703,24 @@ fn command_id(name: &str) -> Option<u32> {
     };
     Some(match verb {
         "mode" => app::MODE0 + idx(&["system", "light", "dark"])?,
+        "insert" => {
+            app::INS0
+                + idx(&[
+                    "table",
+                    "code",
+                    "note",
+                    "tip",
+                    "important",
+                    "warning",
+                    "caution",
+                    "math",
+                    "mermaid",
+                    "rule",
+                    "image",
+                    "link",
+                    "footnote",
+                ])?
+        }
         "scheme" => {
             let names: Vec<&str> = app::SCHEMES.iter().map(|s| s.0).collect();
             app::SCHEME0 + idx(&names)?
@@ -926,6 +948,7 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         }
         None => (0, -1.0, 0, 0, String::new(), 0, (0.0, 0)),
     };
+    let (fchg, fbom, fcrlf) = w.v2f_file_probe();
     let (preview, file) = match &w.view {
         View::Doc(d) if !d.virt => (
             esc_text(d.content.source()),
@@ -1035,6 +1058,61 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         ("active_block".into(), V::N(active)),
         ("caret".into(), V::N(caret as f64)),
         ("sel_len".into(), V::N(sel_len as f64)),
+        ("revealed".into(), V::S(w.revealed_markers().join(" "))),
+        ("f2_preview".into(), V::S(w.preview_kind().into())),
+        ("lang_items".into(), V::S(w.lang_probe())),
+        (
+            "doc_blocks".into(),
+            V::N(match &w.view {
+                View::Doc(d) => d.content.len() as f64,
+                _ => 0.0,
+            }),
+        ),
+        ("file_changed_blocks".into(), V::N(fchg)),
+        ("file_bom".into(), V::N(fbom)),
+        ("file_crlf".into(), V::N(fcrlf)),
+        ("table_cell".into(), V::S(w.table_probe())),
+        (
+            "table_picker".into(),
+            V::S(w.wysi.pick.map(super::wysi::pick_label).unwrap_or_default()),
+        ),
+        (
+            "tsv_offer".into(),
+            V::N(f64::from(u8::from(w.tsv_offered()))),
+        ),
+        ("table_tools".into(), V::N(w.table_tools(sh).len() as f64)),
+        (
+            "xsel".into(),
+            V::S(w.xsel().map_or(String::new(), |r| {
+                w.edit().map_or(String::new(), |e| esc_text(&e.ed.slice(r)))
+            })),
+        ),
+        (
+            "clip_md".into(),
+            V::S(
+                sys::clip_bytes(w.hwnd, sys::md_format(), 1 << 20)
+                    .map(|b| esc_text(String::from_utf8_lossy(&b).trim_end_matches('\0')))
+                    .unwrap_or_default(),
+            ),
+        ),
+        (
+            "clip_text".into(),
+            V::S(sys::paste_text(w.hwnd).unwrap_or_default()),
+        ),
+        (
+            "clip_html".into(),
+            V::N(f64::from(u8::from(sys::clip_has(sys::html_format())))),
+        ),
+        (
+            "link_pop".into(),
+            V::S(
+                w.wysi
+                    .link
+                    .as_ref()
+                    .map(|p| p.fields.join("|"))
+                    .unwrap_or_default(),
+            ),
+        ),
         ("undo_depth".into(), V::N(undo as f64)),
         ("buffer".into(), V::S(buffer)),
         ("preview".into(), V::S(preview)),

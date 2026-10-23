@@ -1,0 +1,10 @@
+# T5 (prompt 016 §3 item 7): key -> caret painted latency, Live Edit (F2) on large-1mb.md (p99 <= 40 ms; target 25 ms).
+wait-idle
+key f2
+ui v2f-caret "26|The reader is built around"
+wait-idle
+type "quick brown fox jumps quick brown fox jumps quick brown fox "
+wait-idle
+dump
+assert t5_n >= 50
+assert t5_p99_ms <= 40

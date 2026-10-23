@@ -6,6 +6,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-23
+
+V2-E editing plus (prompt 015) and V2-F WYSIWYG Live Edit with table editing (prompt 016).
+
+### Added
+- Live Edit (F2) is WYSIWYG (V2-F, FUT-43, ADR-0020): the page stays rendered and Markdown
+  markers appear muted only around the caret; code blocks show their fences with a language
+  input and autocomplete; math and Mermaid get a live preview card (last good diagram kept).
+- Typing transforms in F2: `# `…`###### `, `- `/`* `/`+ `, `1. `, `[ ] `/`[x] `, `> `,
+  ```` ``` ````/`$$`/`---` + `Enter`, and a pipe header row + `Enter` → table; one `Ctrl+Z`
+  leaves the typed literal.
+- F2 links: `Ctrl+K` popover (text, URL, title), `Ctrl+click` follows; cross-block selection
+  with Markdown + HTML + plain-text clipboard; checkbox click toggles; context menu Format ▸,
+  Insert ▸ (13 items) and Table ▸.
+- Table editing (V2-F, FUT-44): in-cell editing with `Tab`/`Shift+Tab`/`Enter`/`Shift+Enter`
+  (`<br>`), `|` escaped automatically; a tool strip (rows, columns, alignment, sort, move,
+  delete, ⛶, CSV), `Ctrl+Alt+arrows` and `Ctrl+Shift+Backspace`; row and column drag grips;
+  a 10×10 insert picker (`Ctrl+T`, Insert ▸ Table…); TSV/CSV paste (e.g. from Excel) fills
+  cells or offers "Convert to table"; edited tables are pretty-aligned
+  (`editing.auto_format_tables`, East-Asian width aware).
+- Insert image (`Ctrl+Shift+I`, rebindable) in F2 and F3.
+- F2 format toolbar above a selection (V2-E, FUT-45; `editing.format_toolbar`).
+- Find & replace (`Ctrl+H`) with optional regex (`regex-lite`, ADR-0019), `$1`/`${name}`,
+  Replace all as one undo step, Turkish-aware case folding for plain search.
+- Tab snippets (`editing.snippets`) and editor extras: duplicate line, select line, move lines,
+  insert table/code block, auto-pair (FUT-12).
+- Rich paste and drop (FUT-15): HTML is converted to Markdown through an allowlist; pasted or
+  dropped images are saved under `assets/<doc>/`.
+- Recovery journal: unsaved edits survive a crash and are offered on the next open.
+
+### Changed
+- Blocks and tables the user did not touch are never re-serialized; EOL style and BOM are kept.
+- `cargo xtask size-map` lists the largest exe-size contributors from the linker map.
+
 ## [1.2.0] - 2026-10-23
 
 V2-C tooltips, banners and viewers (prompt 013) and V2-D navigation (prompt 014).

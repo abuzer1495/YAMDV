@@ -110,17 +110,14 @@ impl Win {
                 });
             }
             "paste_plain" => self.paste_plain(sh),
-            "code_block" | "insert_table" => {
-                let word = if act == Some("code_block") {
-                    "code"
-                } else {
-                    "table"
-                };
+            "insert_table" => self.pick_open(),
+            "code_block" => {
                 let (d, t) = local_now();
                 let mut sess = None;
-                self.with_ed(sh, |ed| sess = snippets::insert(ed, word, (&d, &t)));
+                self.with_ed(sh, |ed| sess = snippets::insert(ed, "code", (&d, &t)));
                 self.plus.snip = sess;
             }
+            "insert_image" => self.with_ed(sh, md::image),
             "highlight" => self.with_ed(sh, |ed| md::toggle_wrap(ed, md::Wrap::Highlight)),
             _ => return None,
         }
@@ -177,6 +174,9 @@ impl Win {
     /// clear formatting).
     pub(super) fn format_cmd(&mut self, sh: &Shared, k: toolbar::Cmd) {
         use toolbar::Cmd as T;
+        if k == T::Link && self.linkpop_open() {
+            return;
+        }
         self.with_ed(sh, |ed| match k {
             T::Bold => md::toggle_wrap(ed, md::Wrap::Bold),
             T::Italic => md::toggle_wrap(ed, md::Wrap::Italic),

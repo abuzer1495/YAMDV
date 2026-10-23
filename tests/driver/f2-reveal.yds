@@ -1,0 +1,191 @@
+# F2 inline reveal, transforms, link editor, data safety (prompt 016 §3 Part 1)
+write-file r1.tmp.md "a **bold** and *it* `code` [link](u)\n\n# Title\n\nlast para\n"
+open r1.tmp.md
+wait-idle
+key f2
+ui v2f-caret "0|a **bold**"
+wait-idle
+assert active_block == 0
+assert revealed == ""
+ui v2f-caret "6|a **bold**"
+wait-idle
+assert revealed == "** **"
+type "er"
+wait-idle
+assert buffer contains "a **boerld** and"
+assert revealed == "** **"
+key ctrl+end
+wait-idle
+assert revealed == "[ ](u)"
+write-file r2.tmp.md "```ru\nfn a() {}\n```\n\n$$\na+b\n$$\n\n```mermaid\ngraph TD\nA-->B\n```\n"
+open r2.tmp.md
+wait-idle
+key f2
+ui v2f-caret "5|```ru"
+wait-idle
+assert lang_items contains "ruby"
+key down
+key return
+wait-idle
+assert buffer contains "```ruby\nfn"
+assert lang_items == ""
+ui v2f-caret "3|$$"
+wait-idle
+assert f2_preview == "math"
+ui v2f-caret "11|```mermaid"
+wait-idle
+assert f2_preview == "mermaid"
+write-file r3.tmp.md "start\n\nHead\n\n```rust\n\n| a | b |\n"
+open r3.tmp.md
+wait-idle
+key f2
+ui v2f-caret "0|Head"
+type "#"
+type " "
+wait-idle
+assert buffer contains "start\n\n# Head"
+assert revealed == "# "
+key ctrl+z
+wait-idle
+assert buffer contains "\# Head"
+ui v2f-caret "7|```rust"
+key return
+wait-idle
+assert buffer contains "```rust\n\n```"
+ui v2f-caret "9|| a | b |"
+key return
+wait-idle
+assert buffer contains "| a | b |\n| --- | --- |\n|  |  |"
+
+# item 4: Ctrl+K link popover (one undo step)
+write-file r4.tmp.md "go to [site](http://a.b) now\n\nplain word here\n"
+open r4.tmp.md
+wait-idle
+key f2
+ui v2f-caret "8|[site]"
+key ctrl+K
+wait-idle
+assert link_pop == "site|http://a.b|"
+key tab
+type "Home"
+key return
+wait-idle
+assert buffer contains "[site](http://a.b "
+assert buffer contains "Home"
+assert link_pop == ""
+ui v2f-caret "2|word here"
+key ctrl+K
+assert link_pop == "word||"
+type "x.md"
+key return
+wait-idle
+assert buffer contains "plain [word](x.md) here"
+key ctrl+z
+wait-idle
+assert buffer contains "plain word here"
+
+# item 5: cross-block selection, MD+HTML+plain clipboard, multi-block paste
+write-file r5.tmp.md "# Title\n\nFirst **bold** para.\n\nSecond para here.\n\nThird.\n"
+open r5.tmp.md
+wait-idle
+key f2
+ui v2f-caret "6|First"
+key shift+down
+key shift+down
+wait-idle
+assert xsel == "**bold** para.\n\nSecond para here."
+key ctrl+c
+wait-idle
+assert clip_md == "**bold** para.\n\nSecond para here."
+assert clip_text contains "bold para."
+assert clip_html == 1
+key delete
+wait-idle
+assert buffer contains "First \n\nThird."
+assert xsel == ""
+key ctrl+z
+wait-idle
+assert buffer contains "First **bold** para.\n\nSecond para here.\n\nThird."
+ui v2f-caret "6|Third."
+key ctrl+v
+wait-idle
+assert buffer contains "Third.**bold** para.\n\nSecond para here.\n"
+assert doc_blocks == 5
+key ctrl+a
+wait-idle
+assert xsel contains "# Title"
+type "X"
+wait-idle
+assert buffer == "X"
+key ctrl+z
+wait-idle
+assert buffer == ""
+key ctrl+z
+wait-idle
+assert buffer contains "# Title\n\nFirst"
+
+# item 6: checkbox click toggles; Insert ▸ blocks (one undo step each)
+write-file r6.tmp.md "Intro text.\n\n- [ ] task one\n- [x] task two\n"
+open r6.tmp.md
+wait-idle
+key f2
+ui v2f-caret "8|task one"
+ui v2f-task-click "2|- [ ] task one"
+wait-idle
+assert buffer contains "- [x] task one\n- [x] task two"
+key ctrl+z
+wait-idle
+assert buffer contains "- [ ] task one"
+ui v2f-caret "2|Intro"
+command insert code
+wait-idle
+assert buffer contains "Intro text.\n\n```\n\n```\n\n- [ ] task one"
+type "x"
+wait-idle
+assert buffer contains "```\nx\n```"
+assert active_block == 1
+command insert warning
+wait-idle
+assert buffer contains "> [!WARNING]\n> "
+command insert footnote
+wait-idle
+assert buffer contains "[^1]: \n"
+assert buffer contains "> [!WARNING]\n> [^1]"
+key ctrl+z
+key ctrl+z
+key ctrl+z
+key ctrl+z
+wait-idle
+assert buffer == "Intro text.\n\n- [ ] task one\n- [x] task two\n"
+
+# item 7: data safety (block hashes, BOM, CRLF) and ---/$$ transforms
+write-file r7.tmp.md "\ufeff# Title\r\n\r\nAlpha *one*  \r\ntwo.\r\n\r\n| a | b |\r\n|---|:-:|\r\n| 1 | 2 |\r\n\r\n\r\nBeta para.\r\n\r\n* list\r\n* more\r\n"
+open r7.tmp.md
+wait-idle
+key f2
+ui v2f-hash-mark
+ui v2f-caret "4|Beta"
+type " new"
+key ctrl+s
+wait-idle
+assert file_changed_blocks == 1
+assert file_bom == 1
+assert file_crlf == 1
+assert file contains "Beta new para."
+ui v2f-caret "6|* more"
+key return
+key return
+key return
+type "---"
+key return
+wait-idle
+assert buffer contains "* more\r\n\r\n---\r\n\r\n"
+type "$$"
+key return
+wait-idle
+assert buffer contains "---\r\n\r\n$$\r\n\r\n$$"
+key ctrl+s
+wait-idle
+# edited Beta + new rule + the two $$ lines (blank-line chunks): every other block is byte-identical
+assert file_changed_blocks == 4
+assert file_crlf == 1

@@ -172,14 +172,14 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-SYS-07 | 005 | implemented (008 V1-D): icons (001), version resource 1.1.0 (012) |
 | R-SYS-08 | 005 | deferred (FUT-25) |
 | R-SYS-09 | 005 | deferred (FUT-25) |
-| R-TBL-01 | 003/008 | deferred (FUT-44) |
-| R-TBL-02 | 003/008 | deferred (FUT-44) |
-| R-TBL-03 | 003/008 | deferred (FUT-44) |
-| R-TBL-04 | 003/008 | deferred (FUT-44) |
-| R-TBL-05 | 003/008 | deferred (FUT-44) |
-| R-TBL-06 | 003/008 | deferred (FUT-44) |
-| R-TBL-07 | 003/008 | deferred (FUT-44) |
-| R-TBL-08 | 003/008 | deferred (FUT-44) |
+| R-TBL-01 | 003/008 | implemented (V2-F 016): cell editing, Tab/Shift+Tab/Enter/Shift+Enter; driver table-edit |
+| R-TBL-02 | 003/008 | implemented (V2-F 016): tool strip + Table ▸ + keys; driver table-edit, golden v2f-table-dark |
+| R-TBL-03 | 003/008 | implemented (V2-F 016): row/column grips with drop indicator; driver table-edit, golden v2f-table-dark |
+| R-TBL-04 | 003/008 | implemented (V2-F 016): pipe escaping both ways; driver table-edit, tests_table |
+| R-TBL-05 | 003/008 | implemented (V2-F 016): pretty-align (editing.auto_format_tables, East-Asian width); tests_table |
+| R-TBL-06 | 003/008 | implemented (V2-F 016): 10×10 picker, Ctrl+T / Insert ▸ Table…; driver table-edit |
+| R-TBL-07 | 003/008 | implemented (V2-F 016): TSV/CSV paste (RFC 4180) + Convert to table; driver table-edit |
+| R-TBL-08 | 003/008 | implemented (V2-F 016): untouched tables byte-identical; driver table-edit |
 | R-THEME-01 | 004 | implemented (005 V1-A) |
 | R-THEME-02 | 004 | partial (002): data only |
 | R-THEME-03 | 004 | implemented (011): scheme cards, popup.rs + scheme-cards.yds (FUT-32) |
@@ -291,14 +291,14 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-A11Y-03 | 012 | deferred (FUT-47) |
 | R-A11Y-04 | 012 | implemented (002) |
 | R-F2-01 | 007 | implemented (006 V1-B): block-level model |
-| R-F2-02 | 007 | deferred (FUT-43) |
-| R-F2-03 | 007 | deferred (FUT-43) |
+| R-F2-02 | 007 | implemented (V2-F 016): ADR-0020 inline reveal + block constructs; driver f2-reveal, golden v2f-reveal-light |
+| R-F2-03 | 007 | implemented (V2-F 016): typing transforms (yamdv_editor::transform); driver f2-reveal |
 | R-F2-04 | 007 | implemented (V2-E 015): F2 format toolbar, editing.format_toolbar (FUT-45); driver edit-plus, golden v2e-toolbar-light |
-| R-F2-05 | 007 | partial (006 V1-B): Undo/Redo/Cut/Copy/Paste + Format ▸ |
-| R-F2-06 | 007 | planned |
+| R-F2-05 | 007 | implemented (V2-F 016): Format ▸, Insert ▸ (13), Table ▸ in a table; drivers f2-reveal, table-edit |
+| R-F2-06 | 007 | implemented (V2-F 016): cross-block selection, Markdown + HTML + text clipboard, one undo step; driver f2-reveal |
 | R-F2-07 | 007 | implemented (006 V1-B) |
-| R-F2-08 | 007 | partial (006 V1-B): click enters block, Ctrl+click follows, Ctrl+K wraps |
-| R-F2-09 | 007 | planned |
+| R-F2-08 | 007 | implemented (V2-F 016): click places caret, Ctrl+click follows, Ctrl+K popover; driver f2-reveal |
+| R-F2-09 | 007 | implemented (V2-F 016): code language input with autocomplete; driver f2-reveal |
 | R-F2-10 | 007 | implemented (006 V1-B) |
 | R-F2-11 | 007 | deferred (FUT-18) |
 | R-F2-12 | 007 | deferred (FUT-26) |

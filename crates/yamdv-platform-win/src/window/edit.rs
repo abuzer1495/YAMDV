@@ -178,6 +178,8 @@ pub(super) struct Edit {
     close_ok: bool,
     dirty_shown: bool,
     nums: Cell2<HashMap<usize, Box<dyn yamdv_layout::shaper::Shaped>>>,
+    /// F2 inline reveal analysis of the active block (ADR-0020).
+    pub reveal: Option<super::wysi::RevealCache>,
 }
 
 impl Edit {
@@ -203,6 +205,7 @@ impl Edit {
             close_ok: false,
             dirty_shown: false,
             nums: Cell2::new(HashMap::new()),
+            reveal: None,
         }
     }
 }
@@ -587,9 +590,14 @@ impl Win {
                 start: u32::try_from(start).unwrap_or(0),
                 text: src.get(start..end).unwrap_or("").to_string(),
                 code_font: e.opts.code_font,
+                reveal: None,
+                preview: None,
+                table: None,
             });
             d.viewer.invalidate_block(bi);
         }
+        self.sel = None;
+        self.live_reveal();
         self.prepare_now(sh);
         self.live_scroll_to_caret(sh);
         self.blink_restart();
@@ -614,6 +622,7 @@ impl Win {
         &mut self,
         _sh: &Shared,
     ) -> Option<yamdv_core::doc::index::Splice> {
+        self.table_format_on_leave();
         let vh = self.view_h();
         let View::Doc(d) = &mut self.view else {
             return None;
@@ -637,6 +646,27 @@ impl Win {
         }
         self.invalidate();
         sp
+    }
+
+    /// Source offset under client (x, y) in the rendered document.
+    pub(super) fn doc_hit(&self, sh: &Shared, x: f32, y: f32) -> Option<usize> {
+        let (cx, _) = self.col(sh);
+        let View::Doc(d) = &self.view else {
+            return None;
+        };
+        let pos = d
+            .viewer
+            .hit(&d.content, x - cx, f64::from(y) + d.viewer.scroll)?
+            .source as usize;
+        // Offsets after an edited active block shift by the pending edit.
+        let e = d.edit.as_deref()?;
+        Some(match e.active {
+            Some(a) if pos >= a.start + a.old_len => {
+                let delta = e.ed.len() as i64 - d.content.source().len() as i64;
+                (pos as i64 + delta).max(0) as usize
+            }
+            _ => pos,
+        })
     }
 
     /// F2 click at client (x, y) outside the active block: leave it and enter the clicked one
@@ -682,8 +712,24 @@ impl Win {
         let View::Doc(d) = &self.view else {
             return None;
         };
-        let a = d.edit.as_deref()?.active?;
-        let p = d.viewer.layout_of(a.block)?.paras.first()?;
+        let e = d.edit.as_deref()?;
+        let a = e.active?;
+        let paras = &d.viewer.layout_of(a.block)?.paras;
+        // A table has one paragraph per cell: the caret's.
+        let caret = u32::try_from(e.ed.caret()).unwrap_or(0);
+        let p = if paras.len() > 1 {
+            paras
+                .iter()
+                .find(|p| {
+                    p.map.as_ref().is_some_and(|m| {
+                        m.segs.first().is_some_and(|f| f.src.start <= caret)
+                            && m.segs.last().is_some_and(|l| caret <= l.src.end)
+                    })
+                })
+                .or_else(|| paras.first())?
+        } else {
+            paras.first()?
+        };
         let (cx, _) = self.col(sh);
         let top = (d.viewer.block_top(&d.content, a.block) - d.viewer.scroll) as f32;
         Some((cx + p.x, top + p.y, p))
@@ -903,6 +949,9 @@ impl Win {
                 self.invalidate_pane();
             }
             Some(Mode::Live) => {
+                if !changed && self.live_reveal() {
+                    self.prepare_now(sh);
+                }
                 self.live_scroll_to_caret(sh);
                 self.invalidate();
             }
@@ -923,7 +972,14 @@ impl Win {
             let a = e.active?;
             let new = e.ed.text();
             let (o, n) = (d.content.source().as_bytes(), new.as_bytes());
-            let p = o.iter().zip(n).take_while(|(x, y)| x == y).count();
+            // The diff is ambiguous at the block end (an inserted line break can match the one
+            // after the block): prefer the alignment that keeps the edit inside the block.
+            let p = o
+                .iter()
+                .zip(n)
+                .take_while(|(x, y)| x == y)
+                .count()
+                .min(a.start + a.old_len);
             let max_s = o.len().min(n.len()) - p;
             let s = o
                 .iter()
@@ -948,7 +1004,13 @@ impl Win {
                 return;
             }
             Some(false) => {
-                self.edit_leave_block(sh);
+                let s = self.edit().map(|e| (e.ed.anchor(), e.ed.caret()));
+                match s {
+                    Some((a, c)) if a != c => self.xsel_set(sh, a, c),
+                    _ => {
+                        self.edit_leave_block(sh);
+                    }
+                }
                 return;
             }
             Some(true) => {}
@@ -962,6 +1024,7 @@ impl Win {
             let b = sb.block;
             d.viewer.invalidate_block(b);
         }
+        self.live_reveal();
         self.prepare_now(sh);
     }
 
@@ -1011,11 +1074,19 @@ impl Win {
         if let Some(e) = self.edit_mut() {
             e.typed_at = Some(Instant::now());
         }
+        if self.f2_type(sh, s) {
+            return;
+        }
+        let fixed = self.table_type_fix(s);
+        let s = fixed.as_deref().unwrap_or(s);
         let t = now_ms();
         self.with_ed(sh, |ed| ed.type_text(s, t));
     }
 
     pub(super) fn edit_char(&mut self, sh: &Shared, unit: u16) {
+        if unit >= 0x20 && unit != 0x7F {
+            self.xsel_input(sh);
+        }
         let Some(e) = self.edit_mut() else { return };
         let s = if (0xD800..0xDC00).contains(&unit) {
             e.surrogate = Some(unit);
@@ -1027,7 +1098,7 @@ impl Win {
             e.surrogate = None;
             match char::from_u32(u32::from(unit)) {
                 Some(c) if !c.is_control() => {
-                    if self.plus_char(sh, c) {
+                    if self.linkpop_char(c) || self.plus_char(sh, c) {
                         return;
                     }
                     c.to_string()
@@ -1113,7 +1184,11 @@ impl Win {
                 };
                 let rel = target_y - oy;
                 if rel < 0.0 || rel > p.shaped.height() {
-                    if !extend {
+                    if extend {
+                        if let Some(r) = self.active_range() {
+                            self.xsel_extend(sh, if dy < 0.0 { r.start } else { r.end });
+                        }
+                    } else {
                         self.live_adjacent(sh, dy < 0.0, Some(goal));
                     }
                     return;
@@ -1133,7 +1208,7 @@ impl Win {
     }
 
     /// F2: opens the previous (caret on its last line) or next (first line) block.
-    fn live_adjacent(&mut self, sh: &Shared, up: bool, goal: Option<f32>) {
+    pub(super) fn live_adjacent(&mut self, sh: &Shared, up: bool, goal: Option<f32>) {
         let Some(a) = self.edit().and_then(|e| e.active) else {
             return;
         };
@@ -1364,6 +1439,7 @@ impl Win {
             0x2D if shift && !ctrl => self.paste_rich(sh),
             0x2D if ctrl => self.edit_copy(),
             v if v == VK_RETURN.0 && ctrl => self.with_ed(sh, md::toggle_task),
+            v if v == VK_RETURN.0 && !shift => self.f2_enter(sh),
             v if v == VK_RETURN.0 => self.with_ed(sh, md::enter),
             v if v == VK_TAB.0 && !ctrl => {
                 let unit = self.edit().map_or("  ", |e| e.opts.indent);
@@ -1439,7 +1515,11 @@ impl Win {
         let Some(t) = sys::paste_text(self.hwnd) else {
             return;
         };
+        if self.table_paste(sh, &t) {
+            return;
+        }
         self.with_ed(sh, |ed| ed.paste(&t));
+        self.f2_paste_split(sh);
     }
 
     /// Context-menu commands of the edit modes.
@@ -2032,20 +2112,36 @@ impl Win {
             _ if ctrl => return false,
             _ => {}
         }
-        // Inside the active block: caret / selection.
-        if let Some((ox, oy, p)) = self.live_para(sh)
-            && y >= oy - 8.0
-            && y <= oy + p.shaped.height() + 8.0
-        {
-            let idx = p.shaped.hit(x - ox, y - oy);
-            let pos = p.map.as_ref().map_or(0, |m| m.to_source(idx)) as usize;
+        // Inside the active table: the clicked cell.
+        if let Some(pos) = self.table_hit(sh, x, y) {
             let n = self.count_clicks(x, y);
             self.click_select(pos, shift, n);
             self.set_drag(Drag::Preview, y);
             self.after_edit(sh, false);
             return true;
         }
+        // Inside the active block: caret / selection.
+        if let Some((ox, oy, p)) = self.live_para(sh).filter(|_| self.active_table().is_none())
+            && y >= oy - 8.0
+            && y <= oy + p.shaped.height() + 8.0
+        {
+            let idx = p.shaped.hit(x - ox, y - oy);
+            let pos = p.map.as_ref().map_or(0, |m| m.to_source(idx)) as usize;
+            let n = self.count_clicks(x, y);
+            if n == 1 && !shift && self.f2_task_click(sh, pos) {
+                return true;
+            }
+            self.click_select(pos, shift, n);
+            self.set_drag(Drag::Preview, y);
+            self.after_edit(sh, false);
+            return true;
+        }
         self.count_clicks(x, y);
+        if shift && let Some(pos) = self.doc_hit(sh, x, y) {
+            self.xsel_extend(sh, pos);
+            self.set_drag(Drag::Preview, y);
+            return true;
+        }
         self.live_click(sh, x, y);
         self.edit_title();
         true
@@ -2081,10 +2177,26 @@ impl Win {
             }
             Drag::Preview => {
                 let pos = match self.edit_mode() {
-                    Some(Mode::Live) => self.live_para(sh).map(|(ox, oy, p)| {
-                        let idx = p.shaped.hit(x - ox, y - oy);
-                        p.map.as_ref().map_or(0, |m| m.to_source(idx)) as usize
-                    }),
+                    Some(Mode::Live) => {
+                        let table = self.active_table().is_some();
+                        let inside = if table {
+                            self.table_hit(sh, x, y)
+                        } else {
+                            self.live_para(sh).and_then(|(ox, oy, p)| {
+                                (y >= oy - 8.0 && y <= oy + p.shaped.height() + 8.0).then(|| {
+                                    let idx = p.shaped.hit(x - ox, y - oy);
+                                    p.map.as_ref().map_or(0, |m| m.to_source(idx)) as usize
+                                })
+                            })
+                        };
+                        if inside.is_none()
+                            && let Some(pos) = self.doc_hit(sh, x, y)
+                        {
+                            self.xsel_extend(sh, pos);
+                            return true;
+                        }
+                        inside
+                    }
                     _ => {
                         let (cx, _) = self.col(sh);
                         let View::Doc(d) = &self.view else {
@@ -2162,6 +2274,7 @@ impl Win {
                 }
             }
             plus::TIMER_JOURNAL => self.journal_tick(),
+            super::wysi::TIMER_F2_PREVIEW => self.f2_preview_tick(sh),
             TIMER_PREVIEW => {
                 self.kill(TIMER_PREVIEW);
                 self.sync_preview(sh);
@@ -2236,9 +2349,13 @@ impl Win {
             } else {
                 None
             }
-        } else if self
-            .live_para(sh)
-            .is_some_and(|(_, oy, p)| y >= oy && y <= oy + p.shaped.height())
+        } else if self.grip_at(sh, x, y).is_some() {
+            Some(IDC_HAND)
+        } else if self.table_hit(sh, x, y).is_some()
+            || self.active_table().is_none()
+                && self
+                    .live_para(sh)
+                    .is_some_and(|(_, oy, p)| y >= oy && y <= oy + p.shaped.height())
         {
             Some(IDC_IBEAM)
         } else {
@@ -2323,7 +2440,11 @@ impl Win {
                 }
                 None
             }
-            WM_CHAR if self.find.is_none() && self.dialog.is_none() && self.typing() => {
+            WM_CHAR
+                if self.find.is_none()
+                    && self.dialog.is_none()
+                    && (self.typing() || self.xsel().is_some()) =>
+            {
                 self.edit_char(sh, wp.0 as u16);
                 Some(LRESULT(0))
             }
@@ -2352,9 +2473,9 @@ impl Win {
                 if y < 0.0 && !self.selecting {
                     return None;
                 }
-                self.edit_mouse_move(sh, x, y).then_some(LRESULT(0))
+                (self.v2f_move(sh, x, y) || self.edit_mouse_move(sh, x, y)).then_some(LRESULT(0))
             }
-            WM_LBUTTONUP => self.edit_mouse_up().then_some(LRESULT(0)),
+            WM_LBUTTONUP => (self.v2f_up(sh) || self.edit_mouse_up()).then_some(LRESULT(0)),
             WM_MOUSEWHEEL if self.edit_mode().is_some() && self.dialog.is_none() => {
                 let delta = i32::from((wp.0 >> 16) as u16 as i16);
                 let pt = POINT {

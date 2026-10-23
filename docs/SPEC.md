@@ -200,6 +200,7 @@ Requirement keywords: **MUST** (v1), **SHOULD** (v1 unless a phase prompt defers
   - Mermaid: caret inside the block shows the source with the live diagram below;
   - images: caret on the image line shows `![alt](src)` above the still-visible image;
   - tables are **never** shown as pipes — they use cell editing (R-TBL).
+  - raw HTML blocks, front matter and footnote definitions: the caret inside shows that block's source in place (block-level reveal, as in v1).
 - **R-F2-03 MUST** Typing transforms immediately: `# `…`###### ` at line start → heading; `- `/`* `/`+ ` → bullet; `1. ` → numbered; `[ ] `/`[x] ` in a list → task; `> ` → quote; ```` ``` ```` or ```` ```lang ```` + `Enter` → code block with caret inside (no stray blank lines); `---` + `Enter` → rule; `$$` + `Enter` → math block; a pipe header row + `Enter` → table with delimiter row.
 - **R-F2-04 MUST** Floating format toolbar above a non-empty selection (setting to disable; `Esc` dismisses): Bold, Italic, Strikethrough, Highlight, Inline code, Link, H1, H2, H3, Quote, Bullet list, Numbered list, Task list, Clear formatting.
 - **R-F2-05 MUST** Context menu adds: Cut/Copy/Paste/Paste as plain text, **Format ▸**, **Insert ▸** (Table…, Code block, Callout ▸ 5 types, Math block, Mermaid diagram, Horizontal rule, Image…, Link…, Footnote), **Table ▸** (when inside a table).

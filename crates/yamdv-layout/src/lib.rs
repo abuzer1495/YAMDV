@@ -15,10 +15,17 @@ pub mod front;
 pub mod geom;
 pub mod img;
 pub mod plain;
+pub mod reveal;
 pub mod rich;
 pub mod shaper;
 pub mod table;
+pub mod table_edit;
 pub mod viewer;
 pub mod warm;
 
 pub use geom::Rect;
+
+/// Every syntax-highlighter language name and alias (F2 language picker).
+pub fn highlight_names() -> &'static [&'static str] {
+    yamdv_highlight::ALL_NAMES
+}

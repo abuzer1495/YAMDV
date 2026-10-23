@@ -1,0 +1,8 @@
+# Spec patches of prompt 016 (Phase V2-F) §2, extracted verbatim from docs/prompts/016_V2F_WYSIWYG_TABLES.md.
+
+=== P-47 docs/SPEC.md INSERT_AFTER
+--- anchor
+  - tables are **never** shown as pipes — they use cell editing (R-TBL).
+--- new
+  - raw HTML blocks, front matter and footnote definitions: the caret inside shows that block's source in place (block-level reveal, as in v1).
+=== end

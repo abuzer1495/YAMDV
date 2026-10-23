@@ -262,6 +262,13 @@ pub enum HotKind {
         /// Reference index in [`yamdv_core::doc::index::FootnoteUse::refs`].
         k: u32,
     },
+    /// A cell of the F2 active table (prompt 016 §3 item 8): grid row (0 = header) and column.
+    Cell {
+        /// Grid row.
+        row: u32,
+        /// Column.
+        col: u32,
+    },
     /// Task checkbox (R-F2-07, P-16/P-17): source offset where its list item starts; the
     /// `[ ]` / `[x]` marker is the first `[` on that line.
     Task {

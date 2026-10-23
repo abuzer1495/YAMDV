@@ -209,7 +209,7 @@ impl Content {
     }
 }
 
-fn verbatim(s: &str, start: u32) -> ParaText {
+pub(crate) fn verbatim(s: &str, start: u32) -> ParaText {
     let len16 = u32::try_from(s.encode_utf16().count()).unwrap_or(0);
     let end = start + u32::try_from(s.len()).unwrap_or(0);
     ParaText {
@@ -236,6 +236,19 @@ pub(crate) fn verbatim_layout(
     family: Family,
     bg: Option<u32>,
 ) -> BlockLayout {
+    verbatim_spans(ctx, s, start, w, family, bg, Vec::new())
+}
+
+/// [`verbatim_layout`] with style spans (F2 code-block highlight, fence markers).
+pub(crate) fn verbatim_spans(
+    ctx: &mut Ctx<'_>,
+    s: &str,
+    start: u32,
+    w: Option<f32>,
+    family: Family,
+    bg: Option<u32>,
+    spans: Vec<crate::shaper::Span>,
+) -> BlockLayout {
     let pt = verbatim(s, start);
     let size = match family {
         Family::Body => ctx.m.font_size,
@@ -254,7 +267,7 @@ pub(crate) fn verbatim_layout(
     let shaped = ctx.shaper.shape(&ParaSpec {
         text: &pt.text,
         base,
-        spans: vec![],
+        spans,
         width: w.map(|w| (w - 2.0 * pad).max(1.0)),
         line_pitch: ctx.m.pitch(),
         rtl: is_rtl(&pt.text),
@@ -295,8 +308,14 @@ pub struct SourceBlock {
     pub start: u32,
     /// Current source text of the block (from the editor buffer).
     pub text: String,
-    /// `editing.editor_font = code`.
+    /// `editing.editor_font = code` (or a code / math / diagram block).
     pub code_font: bool,
+    /// Inline reveal (ADR-0020); `None` = block-level reveal (source in place).
+    pub reveal: Option<crate::reveal::Reveal>,
+    /// Live preview under a math / Mermaid source (last good diagram, 150 ms debounce).
+    pub preview: Option<crate::reveal::Preview>,
+    /// The active block is a table: cell editing (R-TBL-01).
+    pub table: Option<crate::table_edit::TableReveal>,
 }
 
 /// Options of the verbatim (plain / F3 editor) layout.
@@ -803,20 +822,7 @@ impl Viewer {
                 };
                 let bl = match (&self.source_block, &*content) {
                     (Some(sb), _) if sb.block == i => {
-                        let fam = if sb.code_font {
-                            Family::Code
-                        } else {
-                            Family::Body
-                        };
-                        let bg = env.pal.code_bg;
-                        verbatim_layout(
-                            &mut ctx,
-                            &sb.text,
-                            sb.start,
-                            Some(self.width),
-                            fam,
-                            Some(bg),
-                        )
+                        crate::reveal::source_block(&mut ctx, sb, self.width)
                     }
                     (_, Content::Plain { text, chunks }) if self.plain.editor => {
                         let r = chunks.get(i).cloned().unwrap_or(0..0);

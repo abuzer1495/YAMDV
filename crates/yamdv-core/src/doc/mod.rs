@@ -5,10 +5,12 @@
 //! * [`text`] — layout string ↔ source mapping and text extraction for copy.
 
 pub mod detail;
+pub mod fence;
 pub mod index;
 pub mod inline;
 pub mod mind;
 pub mod plain;
+pub mod reveal;
 pub mod slug;
 pub mod text;
 pub mod toc;

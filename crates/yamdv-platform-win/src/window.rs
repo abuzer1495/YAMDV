@@ -75,6 +75,7 @@ mod setpanel;
 mod sidebar;
 mod transient;
 mod welcome;
+mod wysi;
 use windows::Win32::UI::WindowsAndMessaging::{
     MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, QS_ALLINPUT,
     SetForegroundWindow, WM_COPYDATA, WM_MOUSEHWHEEL, WM_QUIT, WaitMessage,
@@ -428,6 +429,7 @@ struct Win {
     nav: nav::Nav,
     /// V2-E editing extras (prompt 015).
     plus: plus::Plus,
+    wysi: wysi::Wysi,
     /// CSV of the table under the last context-menu click (R-EXP-04).
     ctx_table: Option<String>,
     /// Content offset below the client top: the title bar height, 0 in fullscreen (B.4).
@@ -1548,6 +1550,7 @@ impl Win {
         }
         self.draw_find(sh, b);
         self.toolbar_draw(sh, b);
+        self.v2f_draw(sh, b);
         self.draw_job(sh, b);
         self.draw_settings(sh, b);
         self.toast_rect.set(None);
@@ -1688,6 +1691,9 @@ impl Win {
             alt,
             vk,
         };
+        if let Some(r) = self.v2f_key(sh, c) {
+            return Some(r);
+        }
         if let Some(r) = self.v2e_key(sh, c) {
             return Some(r);
         }
@@ -1820,6 +1826,9 @@ impl Win {
             return;
         }
         if self.dialog.is_none() && self.toolbar_down(sh, x, y) {
+            return;
+        }
+        if self.v2f_down(sh, x, y) {
             return;
         }
         if self.dialog.is_none() && matches!(self.view, View::Empty { note: None }) {
@@ -2269,6 +2278,7 @@ impl Win {
                 return true;
             }
             HotKind::FootNote { .. }
+            | HotKind::Cell { .. }
             | HotKind::Image { .. }
             | HotKind::ImagePlaceholder { .. }
             | HotKind::Diagram { .. }
@@ -3041,6 +3051,7 @@ fn handle(
         WM_CONTEXTMENU => {
             if lp.0 == -1 {
                 w.ctx_table = None;
+                w.wysi.tbl_at = None;
                 actions.push(w.kbd_menu());
             } else {
                 let (sx, sy) = (
@@ -3055,6 +3066,7 @@ fn handle(
                 }
                 let link = w.link_at(sh, x, y);
                 w.ctx_table = w.table_csv_at(sh, x, y);
+                w.wysi.tbl_at = w.ctx_table.as_ref().and_then(|_| w.doc_hit(sh, x, y));
                 actions.push(Action::ContextMenu(sx, sy, link));
             }
             Some(LRESULT(0))
@@ -3801,6 +3813,7 @@ fn create_window(sh: &Shared, path: Option<&str>) -> Option<HWND> {
         side: sidebar::Side::default(),
         nav: nav::Nav::default(),
         plus: plus::Plus::default(),
+        wysi: wysi::Wysi::default(),
         ctx_table: None,
         top: yamdv_core::chrome::BAR_H,
         fs: false,
