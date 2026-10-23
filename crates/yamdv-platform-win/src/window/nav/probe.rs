@@ -80,6 +80,8 @@ impl Win {
                 } else {
                     rel(arg)
                 };
+                // "." must not survive as a path segment: `\\?\` paths are not normalized.
+                let p = p.trim_end_matches("\\.").trim_end_matches('\\').to_string();
                 self.files_open_folder(sh, &p);
                 String::new()
             }
