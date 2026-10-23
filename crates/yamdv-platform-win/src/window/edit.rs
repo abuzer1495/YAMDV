@@ -672,7 +672,7 @@ impl Win {
     }
 
     /// The active block's laid paragraph and its client origin.
-    fn live_para(&self, sh: &Shared) -> Option<(f32, f32, &yamdv_layout::block::LaidPara)> {
+    pub(super) fn live_para(&self, sh: &Shared) -> Option<(f32, f32, &yamdv_layout::block::LaidPara)> {
         let View::Doc(d) = &self.view else {
             return None;
         };

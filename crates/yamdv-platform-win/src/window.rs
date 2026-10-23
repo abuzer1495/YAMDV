@@ -1543,6 +1543,7 @@ impl Win {
             self.draw_side(sh, b);
         }
         self.draw_find(sh, b);
+        self.toolbar_draw(sh, b);
         self.draw_job(sh, b);
         self.draw_settings(sh, b);
         self.toast_rect.set(None);
@@ -1814,6 +1815,9 @@ impl Win {
         if self.dialog.is_none() && (self.job_click(x, y) || self.toast_click(x, y)) {
             return;
         }
+        if self.dialog.is_none() && self.toolbar_down(sh, x, y) {
+            return;
+        }
         if self.dialog.is_none() && matches!(self.view, View::Empty { note: None }) {
             if let Some(a) = self.welcome_click(sh, x, y) {
                 self.actions.push(a);
@@ -1939,6 +1943,9 @@ impl Win {
             self.invalidate();
         }
         if self.dialog.is_none() && self.side_shown() && self.side_move(sh, x, y) {
+            return;
+        }
+        if self.dialog.is_none() && self.toolbar_move(sh, x, y) {
             return;
         }
         if !self.tracking {
