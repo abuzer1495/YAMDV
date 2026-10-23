@@ -222,6 +222,21 @@ fn card_rects(cw: f32, ch: f32) -> (Rect, Rect) {
     (card, cancel)
 }
 
+/// Action-link colour on a toast drawn in `toast_bg` (B.10.1 `#8ab4ff` on the dark toast,
+/// a darker blue when the toast is light in the dark theme).
+pub(super) fn toast_link_color(toast_bg: u32) -> u32 {
+    let (r, g, b) = (
+        (toast_bg >> 16) & 0xFF,
+        (toast_bg >> 8) & 0xFF,
+        toast_bg & 0xFF,
+    );
+    if r * 3 + g * 6 + b < 1280 {
+        0x8A_B4FF
+    } else {
+        0x1A_5FD0
+    }
+}
+
 /// Toast action buttons ([Open], [Show in folder]) right-aligned in the toast rect `t`.
 pub(super) fn toast_buttons(t: Rect) -> (Rect, Rect) {
     let reveal = Rect::new(t.x + t.w - 128.0, t.y + 6.0, 116.0, t.h - 12.0);
@@ -386,6 +401,25 @@ impl Win {
         self.done_file = None;
         self.invalidate();
         true
+    }
+
+    /// F-28: the completion toast's action links as keyboard stops (`true` = [Open]); they
+    /// follow the banner buttons in the F6 banner region (HARD-04).
+    pub(super) fn toast_stops(&self) -> Vec<(Rect, bool)> {
+        match (&self.done_file, self.toast, self.toast_rect.get()) {
+            (Some(_), Some(_), Some(t)) => {
+                let (open, reveal) = toast_buttons(t);
+                vec![(open, true), (reveal, false)]
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// Enter / Space on a toast link stop: the same as a click on it.
+    pub(super) fn toast_activate(&mut self, open: bool) {
+        if let Some((r, _)) = self.toast_stops().into_iter().find(|s| s.1 == open) {
+            let _ = self.toast_click(r.x + r.w / 2.0, r.y + r.h / 2.0);
+        }
     }
 
     /// WM_CLOSE while this window's export runs: ask (B.10.7). `Some` = handled (kept open).

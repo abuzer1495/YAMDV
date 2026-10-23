@@ -1569,15 +1569,19 @@ impl Win {
             );
             if self.done_file.is_some() {
                 let (open, reveal) = jobui::toast_buttons(r);
+                // F-28: B.10.1 action links "[Open] · [Show in folder]".
+                let link = jobui::toast_link_color(pal.text);
                 for (rr, m) in [(open, Msg::Open), (reveal, Msg::ShowInFolder)] {
-                    b.stroke(rr, pal.bg, 6.0, 1.0);
-                    let l = self.shape_ui(sh, tr(sh.lang, m), 13.0, 600, pal.bg, None);
-                    b.text(
-                        l.as_ref(),
-                        (rr.x + (rr.w - l.width()) / 2.0).round(),
-                        (rr.y + (rr.h - l.height()) / 2.0).round(),
-                    );
+                    let l = self.shape_ui(sh, tr(sh.lang, m), 13.0, 600, link, None);
+                    let ly = (rr.y + (rr.h - l.height()) / 2.0).round();
+                    b.text(l.as_ref(), (rr.x + (rr.w - l.width()) / 2.0).round(), ly);
                 }
+                let dot = self.shape_ui(sh, "·", 13.0, 400, pal.bg, None);
+                b.text(
+                    dot.as_ref(),
+                    (open.x + open.w + (reveal.x - open.x - open.w - dot.width()) / 2.0).round(),
+                    (open.y + (open.h - dot.height()) / 2.0).round(),
+                );
             }
             self.toast_rect.set(Some(r));
         }
