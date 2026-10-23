@@ -9,6 +9,7 @@ mod memprobe;
 mod pe;
 mod sha256;
 mod size;
+mod sizemap;
 mod spec;
 
 use std::path::{Path, PathBuf};
@@ -207,6 +208,7 @@ fn main() -> ExitCode {
         "ci" => ci(),
         "check-imports" => check_imports(rest),
         "size" => size_cmd(rest),
+        "size-map" => sizemap::run(rest),
         "memprobe" => memprobe_cmd(rest),
         "spec-check" => spec::check(&root()),
         "golden" => golden::run(&root(), rest),
@@ -223,7 +225,7 @@ fn main() -> ExitCode {
         }),
         _ => {
             println!(
-                "usage: cargo xtask <ci | check-imports [<exe>] | size [<exe>] | memprobe <exe> [...] | gen-icons | spec-check | spec-patch | future | future-issues | golden --exe <exe> [--update] | gen-large [<out>]>"
+                "usage: cargo xtask <ci | check-imports [<exe>] | size [<exe>] | size-map <map> [--top N] | memprobe <exe> [...] | gen-icons | spec-check | spec-patch | future | future-issues | golden --exe <exe> [--update] | gen-large [<out>]>"
             );
             Ok(())
         }
