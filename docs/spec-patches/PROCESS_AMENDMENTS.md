@@ -68,7 +68,7 @@ A-8 No CI; the owner runs the Windows tests (owner decision, 2026-10-22). Applie
 3. Put as much new logic as possible into platform-independent crates with unit tests, so it is verified without Windows.
 4. Windows-only checks (driver scripts, golden compare, M0/M1/T4/T7) are written as usual; the owner runs them from the test pack, and the report marks them "OWNER (A-8)". No new goldens: planned goldens become screenshots in the pack's screens\ folder for the owner to look at.
 5. Test pack, once per phase:
-   - YAMDV-<phase>-test.zip plus its SHA-256, built locally with cargo-xwin;
+   - YAMDV-<phase>-test.zip plus its SHA-256, assembled by tools/testpack/build-pack.sh from the MSVC exes of a green CI run (artifact pack-exes); since the V2-B fix, cargo-xwin/lld-linked exes are not used because they crash at startup on Windows;
    - uploaded as the draft pre-release test-<phase> (gh release create test-<phase> --draft --prerelease; to replace assets, gh release upload --clobber);
    - contents: yamdv.exe (release), yamdv-dev.exe (dev-tools), baseline\yamdv-dev.exe (the dev-tools build of main before this phase, for same-PC comparisons), the driver scripts, the existing goldens, the fixtures, run-tests.cmd and OWNER_TEST.md (numbered manual checks in EN and TR).
 6. run-tests.cmd:
