@@ -20,3 +20,4 @@ The branch then continues (merge of origin/main, no history rewrite) with the V2
 
 ## CHECKPOINT
 - 09:19: d9573cc v2b_fix report + PROCESS A-8 pack wording (first commit). Prompt 013 stored (cmp identical). A-9 official text, roadmap lines, P-40…P-42 applied, spec-check green.
+- 09:20: CI: PR runs upload yamdv-exe (7 days, A-9 §5); pack-exes/pack-smoke only on workflow_dispatch (A-9 §3). Next: setup PR squash-merge with a clean message → main push run → tag v1.1.0.
