@@ -235,6 +235,9 @@ pub fn decode(f: &IWICImagingFactory, src: &Source, w: u32, h: u32) -> Result<Bi
     if let Some(b) = svg_bytes(src)? {
         return svg::decode(&b, w, h);
     }
+    if let Some(b) = ico_bytes(src)? {
+        return decode_ico(f, &b, w, h);
+    }
     // SAFETY: COM initialized on this thread; all objects released by Drop; the buffer size is
     // `w*h*4` and the stride `w*4`.
     unsafe {
@@ -259,6 +262,87 @@ pub fn decode(f: &IWICImagingFactory, src: &Source, w: u32, h: u32) -> Result<Bi
         .map_err(|_| Placeholder::Unsupported)?;
         let mut px = vec![0u8; (w as usize) * (h as usize) * 4];
         cv.CopyPixels(std::ptr::null(), w * 4, &mut px)
+            .map_err(|_| Placeholder::Unsupported)?;
+        Ok(Bitmap {
+            w,
+            h,
+            px,
+            svg_color: None,
+        })
+    }
+}
+
+/// The whole ICO file behind `src` (≤ `MAX_FILE`), or `None` when it is not an icon.
+fn ico_bytes(src: &Source) -> Result<Option<std::borrow::Cow<'_, [u8]>>, Placeholder> {
+    let is_ico = |h: &[u8]| h.starts_with(&[0, 0, 1, 0]);
+    match src {
+        Source::Data(d) => Ok(is_ico(d).then_some(std::borrow::Cow::Borrowed(d.as_slice()))),
+        Source::File(p) => {
+            if !read_head(p, 4).is_some_and(|h| is_ico(&h)) {
+                return Ok(None);
+            }
+            let max = usize::try_from(image::MAX_FILE).unwrap_or(usize::MAX);
+            let b = read_head(p, max.saturating_add(1)).ok_or(Placeholder::Missing)?;
+            if b.len() > max {
+                return Err(Placeholder::TooLarge);
+            }
+            Ok(Some(std::borrow::Cow::Owned(b)))
+        }
+    }
+}
+
+/// ADR-0022: our directory parser picks the entry; WIC decodes its PNG or BMP payload.
+fn decode_ico(f: &IWICImagingFactory, b: &[u8], w: u32, h: u32) -> Result<Bitmap, Placeholder> {
+    use yamdv_core::image::ico;
+    let dir = ico::directory(b).ok_or(Placeholder::Invalid)?;
+    let e = ico::pick(&dir, w.max(h)).ok_or(Placeholder::Invalid)?;
+    match ico::payload(b, &e).ok_or(Placeholder::Invalid)? {
+        ico::Payload::Png(p) => decode(f, &Source::Data(p), w, h),
+        ico::Payload::Bgra { px, w: bw, h: bh } => scale_bgra(
+            f,
+            &Bitmap {
+                w: bw,
+                h: bh,
+                px,
+                svg_color: None,
+            },
+            w,
+            h,
+        ),
+        ico::Payload::Bmp {
+            file,
+            mask,
+            w: bw,
+            h: bh,
+        } => match mask {
+            None => decode(f, &Source::Data(file), w, h),
+            Some(m) => {
+                // Mask at the entry's own size, then scale.
+                let mut full = decode(f, &Source::Data(file), bw, bh)?;
+                ico::apply_mask(&mut full.px, &m, bw, bh);
+                if (bw, bh) == (w, h) {
+                    return Ok(full);
+                }
+                scale_bgra(f, &full, w, h)
+            }
+        },
+    }
+}
+
+/// High-quality scale of premultiplied BGRA pixels.
+fn scale_bgra(f: &IWICImagingFactory, b: &Bitmap, w: u32, h: u32) -> Result<Bitmap, Placeholder> {
+    // SAFETY: COM initialized on this thread; buffers sized `w*h*4`, stride `w*4`.
+    unsafe {
+        let src = f
+            .CreateBitmapFromMemory(b.w, b.h, &GUID_WICPixelFormat32bppPBGRA, b.w * 4, &b.px)
+            .map_err(|_| Placeholder::Unsupported)?;
+        let sc = f
+            .CreateBitmapScaler()
+            .map_err(|_| Placeholder::Unsupported)?;
+        sc.Initialize(&src, w, h, WICBitmapInterpolationModeHighQualityCubic)
+            .map_err(|_| Placeholder::Unsupported)?;
+        let mut px = vec![0u8; (w as usize) * (h as usize) * 4];
+        sc.CopyPixels(std::ptr::null(), w * 4, &mut px)
             .map_err(|_| Placeholder::Unsupported)?;
         Ok(Bitmap {
             w,
@@ -622,6 +706,24 @@ impl Store {
         *self.playing.borrow_mut() = keys;
     }
 
+    /// Driver: images with decoded pixels, and the sorted placeholder messages of failures.
+    pub fn summary(&self) -> (usize, String) {
+        let map = self.map.borrow();
+        let ok = map
+            .values()
+            .filter(|e| e.bmp.is_some() || e.anim.is_some())
+            .count();
+        let mut fails: Vec<&str> = map
+            .values()
+            .filter_map(|e| match &e.state {
+                ImgState::Fail(p) => Some(p.message()),
+                _ => None,
+            })
+            .collect();
+        fails.sort_unstable();
+        (ok, fails.join("|"))
+    }
+
     /// Visible animations that play (driver `gif_playing`).
     pub fn anims_playing(&self) -> usize {
         let map = self.map.borrow();
@@ -755,6 +857,8 @@ impl Store {
         match image::probe(&head) {
             None => ImgState::Fail(Placeholder::Unsupported),
             Some(p) if p.format == image::Format::Svg => Self::probe_svg(src),
+            // ADR-0022: no WebP decoder under ACG.
+            Some(p) if p.format == image::Format::Webp => ImgState::Fail(Placeholder::NoCodec),
             Some(p) if !image::within_limits(&p) => ImgState::Fail(Placeholder::TooLarge),
             Some(p) if p.w == 0 || p.h == 0 => ImgState::Pending,
             Some(p) => ImgState::Ready { w: p.w, h: p.h },

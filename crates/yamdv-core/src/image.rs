@@ -73,6 +73,8 @@ pub enum Placeholder {
     Invalid,
     /// P-27: device name, alternate data stream or NUL — the file system is never touched.
     InvalidPath,
+    /// WebP: no decoder in the hardened process (ADR-0022).
+    NoCodec,
 }
 
 impl Placeholder {
@@ -86,6 +88,7 @@ impl Placeholder {
             Self::Unsupported => "Unsupported image format",
             Self::Invalid => "Invalid image source",
             Self::InvalidPath => "Invalid image path",
+            Self::NoCodec => "WebP codec not installed",
         }
     }
 }
@@ -477,13 +480,22 @@ pub fn probe(head: &[u8]) -> Option<Probe> {
         return p(Format::Bmp, le32(head, 18)?, h.unsigned_abs());
     }
     if head.starts_with(&[0, 0, 1, 0]) {
-        let w = u32::from(*head.get(6)?);
-        let h = u32::from(*head.get(7)?);
-        return p(
-            Format::Ico,
-            if w == 0 { 256 } else { w },
-            if h == 0 { 256 } else { h },
-        );
+        // The largest directory entry is the intrinsic size (ADR-0022 picks per display size).
+        let n = (le16(head, 4)? as usize).min(ico::MAX_ENTRIES);
+        let dim = |o: usize| {
+            head.get(o)
+                .map(|&v| if v == 0 { 256 } else { u32::from(v) })
+        };
+        let (mut w, mut h) = (dim(6)?, dim(7)?);
+        for i in 1..n {
+            let (Some(ew), Some(eh)) = (dim(6 + i * 16), dim(7 + i * 16)) else {
+                break;
+            };
+            if ew.max(eh) > w.max(h) {
+                (w, h) = (ew, eh);
+            }
+        }
+        return p(Format::Ico, w, h);
     }
     if head.starts_with(b"RIFF") && head.get(8..12) == Some(b"WEBP") {
         return match head.get(12..16)? {
@@ -665,6 +677,7 @@ impl Lru {
 }
 
 pub mod gif;
+pub mod ico;
 
 #[cfg(test)]
 mod tests {

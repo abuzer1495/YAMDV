@@ -1052,6 +1052,20 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         ("math_cached".into(), V::N(math_cached as f64)),
         ("diagrams_cached".into(), V::N(diagrams_cached as f64)),
         (
+            "img_decoded".into(),
+            V::N(match &w.view {
+                View::Doc(d) => d.images.summary().0 as f64,
+                _ => 0.0,
+            }),
+        ),
+        (
+            "img_fail".into(),
+            V::S(match &w.view {
+                View::Doc(d) => d.images.summary().1,
+                _ => String::new(),
+            }),
+        ),
+        (
             "gif_playing".into(),
             V::N(match &w.view {
                 View::Doc(d) => d.images.anims_playing() as f64,
