@@ -6,6 +6,7 @@ members = [
     "crates/yamdv-highlight",
     "crates/yamdv-math",
     "crates/yamdv-mermaid",
+    "crates/yamdv-svg",
     "crates/yamdv-editor",
     "crates/yamdv-ui",
     "crates/yamdv-export",

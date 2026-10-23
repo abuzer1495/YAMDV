@@ -685,6 +685,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "yamdv-svg"
+version = "1.3.0"
+dependencies = [
+ "tiny-skia",
+]
+
+[[package]]
 name = "yamdv-ui"
 version = "1.3.0"
 dependencies = [
