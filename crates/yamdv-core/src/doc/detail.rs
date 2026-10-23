@@ -930,6 +930,9 @@ impl Detail {
             .and_then(|s| s.rfind('\n'))
             .map_or(0, |p| p + 1);
         let slice = source.get(ls..be).unwrap_or("");
+        if block.kind == super::index::BlockKind::Paragraph && super::toc::is_marker(slice) {
+            return super::toc::detail(index, block.range.clone(), opts.toc_depth);
+        }
         let labels = footnote_labels(slice, index);
         let mut text = String::with_capacity(slice.len() + labels.len() * 16);
         text.push_str(slice);

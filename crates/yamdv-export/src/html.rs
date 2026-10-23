@@ -1043,6 +1043,16 @@ mod tests {
     }
 
     #[test]
+    fn toc_marker_exports_anchored_list() {
+        let d = doc("[TOC]\n\n# Intro\n\n## Installation\n\nText.\n");
+        let h = document(&d, &Mock, &opts());
+        assert!(h.contains("<strong>Contents</strong>"), "{h}");
+        assert!(h.contains("href=\"#installation\""), "{h}");
+        assert!(h.contains("<h2 id=\"installation\">"), "{h}");
+        assert!(!h.contains("[TOC]"), "{h}");
+    }
+
+    #[test]
     fn r_exp_02_static_document() {
         let d = doc(concat!(
             "# Title\n\n## Sub & more\n\nText $E=mc^2$ and ![pic](a.png) ![gone](missing.png) [x](https://e.com) [s](#title).[^1]\n\n",

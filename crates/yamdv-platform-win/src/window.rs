@@ -3867,6 +3867,7 @@ fn build_shared(
             code_wrap: s.bool("reading.code_wrap"),
             render_math: s.bool("reading.render_math"),
             render_mermaid: s.bool("reading.render_mermaid"),
+            toc_depth: u8::try_from(s.int("sidebar.toc_max_depth").clamp(1, 6)).unwrap_or(3),
             front_matter: match s.str("reading.front_matter") {
                 "expanded" => 1,
                 "hidden" => 2,
