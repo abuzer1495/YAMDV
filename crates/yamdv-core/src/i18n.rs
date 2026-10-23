@@ -296,6 +296,21 @@ messages! {
     ExportCsv => "Export CSV", "CSV dışa aktar";
     CopiedImage => "Image copied", "Görüntü kopyalandı";
     CopiedCsv => "Table copied as CSV", "Tablo CSV olarak kopyalandı";
+    TabFiles => "Files", "Dosyalar";
+    FilesEmpty => "No Markdown files in this folder", "Bu klasörde Markdown dosyası yok";
+    FilesMore => "…more", "…daha fazla";
+    FilesNoFolder => "Open a file or drop a folder", "Bir dosya açın veya klasör bırakın";
+    FilesNetwork => "Network folders are not listed", "Ağ klasörleri listelenmez";
+    MFloating => "Floating", "Yüzen";
+    MGoToHeading => "Go to heading…", "Başlığa git…";
+    MMindMap => "View as mind map", "Zihin haritası olarak görüntüle";
+    PaletteHint => "Type to filter headings", "Başlıkları süzmek için yazın";
+    PaletteNone => "No matching heading", "Eşleşen başlık yok";
+    TocTitle => "Contents", "İçindekiler";
+    MindRight => "Right", "Sağ";
+    MindBalanced => "Balanced", "Dengeli";
+    MindCopied => "Mind map copied", "Zihin haritası kopyalandı";
+    FilesPick => "Pick a file in the Files tab", "Dosyalar sekmesinden bir dosya seçin";
 }
 
 /// Resolves the UI language from the setting (`system`/`en`/`tr`) and the user's UI language

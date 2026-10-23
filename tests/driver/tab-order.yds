@@ -1,4 +1,7 @@
-# Tab / Shift+Tab move through the links in document order; Enter activates
+# Tab / Shift+Tab move through the document's stops in reading order; Enter activates.
+# HARD-04 (V2-D): each heading's fold toggle is a stop too (H1 before the links, H2 before "the top").
+key Tab
+assert focus == none
 key Tab
 assert focus == Go to target
 key Tab
@@ -7,10 +10,12 @@ key Tab
 key Tab
 assert focus == Website
 key Tab
+key Tab
 assert focus == the top
 assert scroll_y > 500
 key Tab
 assert focus == Open B again
+key shift+Tab
 key shift+Tab
 key shift+Tab
 assert focus == Website

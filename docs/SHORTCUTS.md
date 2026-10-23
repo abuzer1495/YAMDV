@@ -9,6 +9,7 @@ Every binding maps to an `Action` id (E.7) and is rebindable in Settings → Sho
 | `close_window` | `Ctrl+W`; `Esc` | `Esc` only in read mode with no overlay/popup open |
 | `reload` | `F5` | all (edit: asks if dirty) |
 | `toggle_sidebar` | `Ctrl+\` | all |
+| `focus_next_region` / `focus_prev_region` | `F6` / `Shift+F6` | all |
 | `sidebar_contents` / `sidebar_history` / `sidebar_favorites` / `sidebar_files` | `Ctrl+Shift+1` / `2` / `3` / `4` | all |
 | `toggle_favorite` | `Ctrl+D` | all |
 | `find` | `Ctrl+F` | all |

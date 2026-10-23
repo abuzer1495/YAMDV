@@ -627,6 +627,7 @@ impl Win {
         };
         if let Some(sp) = &sp {
             d.viewer.splice(&d.content, sp, vh);
+            d.viewer.refresh_toc(&d.content);
         }
         if let Some(f) = &mut self.find {
             f.dirty = true;
@@ -974,6 +975,7 @@ impl Win {
                 && let Some((_, sp)) = doc.sync_to(&text)
             {
                 d.viewer.splice(&d.content, &sp, vh);
+                d.viewer.refresh_toc(&d.content);
             }
         }
         if let Some(f) = &mut self.find {

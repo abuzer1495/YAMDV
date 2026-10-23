@@ -14,9 +14,9 @@ use windows::Win32::Security::{
     GetLengthSid, GetTokenInformation, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_LIST_DIRECTORY, FILE_NOTIFY_CHANGE_FILE_NAME,
-    FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE, FILE_SHARE_DELETE, FILE_SHARE_READ,
-    FILE_SHARE_WRITE, OPEN_EXISTING, ReadDirectoryChangesW,
+    CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_LIST_DIRECTORY, FILE_NOTIFY_CHANGE_DIR_NAME,
+    FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE,
+    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, ReadDirectoryChangesW,
 };
 use windows::Win32::System::IO::CancelSynchronousIo;
 use windows::Win32::System::Registry::{
@@ -124,11 +124,21 @@ impl Drop for Watcher {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(t) = self.thread.take() {
-            // SAFETY: the thread handle is valid until joined; cancels its blocking read.
-            unsafe {
-                let _ = CancelSynchronousIo(HANDLE(t.as_raw_handle()));
+            // A thread that has not reached its blocking read yet cannot be cancelled, so cancel
+            // until it ends (at most ~2 s; after that it is left detached instead of hanging).
+            for _ in 0..1000 {
+                // SAFETY: the thread handle is valid until joined; cancels its blocking read.
+                unsafe {
+                    let _ = CancelSynchronousIo(HANDLE(t.as_raw_handle()));
+                }
+                if t.is_finished() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(2));
             }
-            let _ = t.join();
+            if t.is_finished() {
+                let _ = t.join();
+            }
         }
     }
 }
@@ -158,6 +168,25 @@ pub fn watch_tagged(file: &str, hwnd: HWND, tag: usize) -> Option<Watcher> {
     })
 }
 
+/// Watches folder `dir` itself (Files tab, P-43): posts [`WM_APP_FILE_CHANGED`] with `tag` on
+/// any file or folder name change inside it (not recursive).
+pub fn watch_dir(dir: &str, hwnd: HWND, tag: usize) -> Option<Watcher> {
+    let dir = format!("{}\\", dir.trim_end_matches('\\'));
+    let stop = Arc::new(AtomicBool::new(false));
+    let st = stop.clone();
+    let target = hwnd.0 as isize;
+    let thread = std::thread::Builder::new()
+        .name("yamdv-watch".into())
+        .stack_size(64 * 1024)
+        .spawn(move || watch_loop(&dir, "", target, tag, &st))
+        .ok()?;
+    Some(Watcher {
+        stop,
+        thread: Some(thread),
+    })
+}
+
+/// `name` empty = any change in the folder (names of files and sub-folders).
 fn watch_loop(dir: &str, name: &str, hwnd: isize, tag: usize, stop: &AtomicBool) {
     let d = HSTRING::from(yamdv_core::path::long_form(dir));
     // SAFETY: valid path; directory handle closed at the end.
@@ -184,9 +213,13 @@ fn watch_loop(dir: &str, name: &str, hwnd: isize, tag: usize, stop: &AtomicBool)
                 buf.as_mut_ptr().cast(),
                 (buf.len() * 4) as u32,
                 false,
-                FILE_NOTIFY_CHANGE_FILE_NAME
-                    | FILE_NOTIFY_CHANGE_LAST_WRITE
-                    | FILE_NOTIFY_CHANGE_SIZE,
+                if name.is_empty() {
+                    FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME
+                } else {
+                    FILE_NOTIFY_CHANGE_FILE_NAME
+                        | FILE_NOTIFY_CHANGE_LAST_WRITE
+                        | FILE_NOTIFY_CHANGE_SIZE
+                },
                 Some(&mut got),
                 None,
                 None,
@@ -198,6 +231,7 @@ fn watch_loop(dir: &str, name: &str, hwnd: isize, tag: usize, stop: &AtomicBool)
         }
         // got == 0: buffer overflow, treat as "maybe changed".
         let hit = got == 0
+            || name.is_empty()
             || notify_names(&buf, got as usize)
                 .iter()
                 .any(|n| n.to_lowercase() == name);

@@ -7,8 +7,11 @@
 pub mod detail;
 pub mod index;
 pub mod inline;
+pub mod mind;
+pub mod plain;
 pub mod slug;
 pub mod text;
+pub mod toc;
 
 use pulldown_cmark::Options;
 
@@ -31,6 +34,8 @@ pub struct ReadOpts {
     pub render_math: bool,
     /// `reading.render_mermaid` (R-MMD-*; layout only).
     pub render_mermaid: bool,
+    /// `sidebar.toc_max_depth` for `[TOC]` blocks (0 → 3).
+    pub toc_depth: u8,
 }
 
 /// pulldown-cmark options per Phase 002 §4.3 item 1.

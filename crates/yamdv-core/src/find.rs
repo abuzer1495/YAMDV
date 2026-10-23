@@ -2,7 +2,7 @@
 //! all matches, and wrap-around navigation. Pure.
 
 /// Folds one char for matching. Case-insensitive mode maps i, İ, ı and I to `i`.
-fn fold(c: char, case: bool) -> char {
+pub fn fold(c: char, case: bool) -> char {
     if case {
         return c;
     }

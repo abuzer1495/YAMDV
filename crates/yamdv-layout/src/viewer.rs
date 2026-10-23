@@ -558,6 +558,22 @@ impl Viewer {
         self.layouts.retain(|e| e.0 != b);
     }
 
+    /// Drops cached `[TOC]` blocks so they follow heading edits (prompt 014 §3 item 5).
+    pub fn refresh_toc(&mut self, content: &Content) {
+        let Content::Markdown(doc) = content else {
+            return;
+        };
+        self.layouts.retain(|e| {
+            !doc.index.blocks.get(e.0).is_some_and(|b| {
+                b.kind == yamdv_core::doc::index::BlockKind::Paragraph
+                    && doc
+                        .source
+                        .get(b.range.start as usize..b.range.end as usize)
+                        .is_some_and(yamdv_core::doc::toc::is_marker)
+            })
+        });
+    }
+
     /// Typography metrics in use.
     pub fn metrics(&self) -> Metrics {
         self.m

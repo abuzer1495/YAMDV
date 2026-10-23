@@ -100,4 +100,13 @@ A-9 CI is back (owner decision, 2026-10-23). The repository moved to https://git
    - workflows keep permissions: contents: read, and only the tag/release job may write;
    - pull_request, never pull_request_target;
    - releases stay drafts.
+8. F-24 (prompt 014): a version or phase tag goes on a squash-merge commit only when its tree equals a PR head with a green CI run (`git diff --quiet <pr-head> <merge>`); otherwise run CI on main first.
+```
+
+**A-10 (Phase V2-D, prompt 014; owner decision 2026-10-23).**
+```text
+A-10 Owner override (2026-10-23, verbatim): "testleri azalt gereksiz test olmasın birleştir yinede" (reduce the tests, no unnecessary tests, merge anyway).
+1. Redundant tests (same feature, same assertions as another test) are removed; timing-noise asserts (one timer tick, 15.6 ms) are report-only. Goldens, the M0/M1/T4/T7 gates, pack smoke and security checks stay.
+2. PR #83 (V2-D) is squash-merged although its last CI run is not green. F-24 is waived for this merge only and the report says so; the phase-v2d and v1.2.0 tags go on that merge commit.
+3. Releases stay drafts; repository settings are not changed. A-9 applies again from the next phase.
 ```

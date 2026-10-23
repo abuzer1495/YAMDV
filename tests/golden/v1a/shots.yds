@@ -87,4 +87,33 @@ wait-idle
 ui fold Folded notes
 wait-idle
 ui shot-window v2c-wide-light.png
+# V2-D (prompt 014 §4): Files tab, floating sidebar (dark), heading palette, balanced mind map.
+command mode light
+ui nav-tree yamdv-v2d-golden
+wait-idle
+key ctrl+shift+4
+ui nav-wait-files file10.md
+wait-idle
+ui shot-window v2d-files-light.png
+key ctrl+shift+1
+open ../../driver/toc-palette.md
+wait-idle
+ui settings-set sidebar.position=left-floating
+command mode dark
+wait-idle
+ui shot-window v2d-floating-dark.png
+ui settings-set sidebar.position=left
+command mode light
+wait-idle
+key ctrl+shift+o
+type in
+wait-idle
+ui shot-window v2d-palette-light.png
+key esc
+key ctrl+shift+m
+ui nav-mind-mode balanced
+wait-idle
+ui shot-window v2d-mindmap-light.png
+key esc
+wait-idle
 command mode system

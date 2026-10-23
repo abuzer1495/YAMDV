@@ -27,7 +27,7 @@
 - **S-FILE-05 MUST** Assets sandbox: the target folder `<doc_dir>/<assets_dir>/<doc_stem>/` must, after creation and `GetFinalPathNameByHandleW`, still be inside `<doc_dir>` (rejects `..`, absolute values, junction/symlink escapes). File names are sanitized (remove `<>:"/\|?*` and control characters, trim trailing dots/spaces, avoid reserved names, max 120 UTF-16 units) and created with `CREATE_NEW` (never overwrite).
 - **S-FILE-06 MUST** Temporary files only in the document folder (atomic save) or `%TEMP%\YAMDV-<random>\` (export staging), created with `CREATE_NEW`, deleted on success, on failure and at exit.
 - **S-FILE-07 MUST** Config/state parsing is defensive: ≤ 4 MB per file, ≤ 64 KB per line, unknown keys ignored, values clamped to their ranges, nothing ever executed; corrupt files renamed to `*.corrupt-<timestamp>` and defaults used.
-- **S-FILE-08 MUST** File watching covers only the open document's folder (non-recursive) and the config folder; buffer overflow → full reload of the document.
+- **S-FILE-08 MUST** File watching covers only the open document's folder (non-recursive), the config folder, and the folders currently expanded in the Files tab (each non-recursive, at most 32; a collapsed folder stops being watched); buffer overflow → full reload of the document, or a re-list of that folder.
 - **S-FILE-09 MUST** `.lnk`, `.url` and other shell-link files are never followed or resolved automatically.
 - **S-FILE-10 MUST** Data integrity: never normalize line endings, never strip/add a BOM, never re-format untouched blocks, never write in read mode (also R-EDIT-01/02).
 

@@ -1,0 +1,60 @@
+# V2-D Files tab and favorites (prompt 014 §3 items 1 and 3; FUT-33, FUT-03).
+resize 1000 700
+command mode light
+# Temp tree: sub/, file2.md, file10.md, notes.txt, node_modules/, hidden .hidden/, a junction.
+ui nav-tree yamdv-v2d-tree
+wait-idle
+assert document == file2.md
+key ctrl+shift+4
+wait-idle
+ui nav-wait-files file10.md
+assert side_tab == 3
+# Folders first, natural order, the current file marked; skipped items never listed.
+assert files == > sub|*file2.md|file10.md
+# Keyboard: F6 reaches the sidebar; Home, → expands sub, ↓, Enter opens a.md in place.
+key F6
+key F6
+assert region == sidebar
+ui nav-region sidebar
+key Home
+key right
+ui nav-wait-files v sub|a.md
+key down
+key Enter
+wait-idle
+assert document == a.md
+assert windows == 1
+assert title contains a.md
+# A new file in the watched root shows up within 1 s.
+ui nav-touch new.md
+sleep 1000
+assert files contains new.md
+# T7: idle with the Files tab visible.
+wait-idle
+ui cpu-mark
+sleep 2000
+assert cpu_delta_ms < 60
+# Favorites: three, the third dragged to the top, kept after a restart (state re-read).
+ui nav-fav-add a.md
+ui nav-fav-add b.md
+ui nav-fav-add v2c.md
+key ctrl+shift+3
+wait-idle
+assert side_tab == 2
+ui nav-fav-drag 2 0
+wait-idle
+assert fav_order == v2c.md|a.md|b.md
+ui nav-state-reload
+assert fav_order == v2c.md|a.md|b.md
+# Alt+↑ on a focused favorite moves it (wins over column_narrower).
+ui nav-region sidebar
+key Home
+key down
+assert side_focus == a.md
+key alt+up
+assert fav_order == a.md|v2c.md|b.md
+# A dropped folder opens the Files tab rooted at it.
+ui nav-drop-folder .
+wait-idle
+ui nav-wait-files b.md
+assert side_tab == 3

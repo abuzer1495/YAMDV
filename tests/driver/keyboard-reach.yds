@@ -1,0 +1,48 @@
+# V2-D keyboard reach (prompt 014 §3 item 7; HARD-04) on interactive.md.
+resize 1000 700
+command mode light
+open interactive.md
+wait-idle
+# Tab visits every interactive element in reading order, with the ring after keyboard use.
+# 13 stops: the walk stops before it wraps to the top again.
+ui nav-tab-walk 13
+assert kbd == 1
+assert tab_walk_mono == 1
+assert tab_walk contains Link>CodeCopy>CodeLines>CodeWrap
+assert tab_walk contains Fold
+assert tab_walk contains FootRef
+assert tab_walk contains Table
+assert tab_walk contains Diagram
+key Esc
+key Home
+wait-idle
+# Enter on Copy fills the clipboard.
+ui nav-tab-to CodeCopy
+key Enter
+assert clipboard contains copy me
+# Enter on a <details> summary opens it.
+key Esc
+key Home
+wait-idle
+ui height-mark
+ui nav-tab-to Fold <details
+key Enter
+wait-idle
+assert doc_height_delta > 10
+# F6 reaches the sidebar; Ctrl+Shift+2 shows History.
+key Esc
+key F6
+key F6
+assert region == sidebar
+key ctrl+shift+2
+assert side_tab == 1
+# left-floating: the page keeps its width; the card sits 12 px from the edges.
+ui height-mark
+ui settings-set sidebar.position=left
+wait-idle
+assert side_float == 0
+ui settings-set sidebar.position=left-floating
+wait-idle
+assert side_float == 1
+assert doc_area_w == 1000
+assert side_rect contains 12 8

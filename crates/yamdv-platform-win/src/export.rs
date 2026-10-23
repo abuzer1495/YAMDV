@@ -290,6 +290,14 @@ fn unpremultiply(px: &mut [u8]) {
     }
 }
 
+/// Parse options for exports: defaults plus `sidebar.toc_max_depth` for `[TOC]` blocks.
+pub(crate) fn toc_opts(s: &yamdv_core::settings::Settings) -> ReadOpts {
+    ReadOpts {
+        toc_depth: u8::try_from(s.int("sidebar.toc_max_depth").clamp(1, 6)).unwrap_or(3),
+        ..ReadOpts::default()
+    }
+}
+
 /// The exported HTML text of `job` (COM must be initialized on this thread).
 pub fn html_text(dw: &DWrite, job: &Job) -> String {
     html_text_with(dw, job, &mut |_, _| true).unwrap_or_default()
@@ -318,7 +326,7 @@ pub fn html_text_with(
         lang: job.lang,
         wic: crate::images::factory(),
     };
-    let doc = Document::new(job.source.clone(), ReadOpts::default());
+    let doc = Document::new(job.source.clone(), toc_opts(&s));
     yamdv_export::html::document_with(
         &doc,
         &host,

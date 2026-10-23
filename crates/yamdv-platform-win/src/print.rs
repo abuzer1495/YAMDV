@@ -22,8 +22,8 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::Storage::Xps::{AbortDoc, DOCINFOW, EndDoc, EndPage, StartDocW, StartPage};
 use windows::core::{HSTRING, PCWSTR, w};
+use yamdv_core::doc::Document;
 use yamdv_core::doc::index::BlockKind;
-use yamdv_core::doc::{Document, ReadOpts};
 use yamdv_core::theme::Palette;
 use yamdv_export::paginate::{Page, Unit, footer, paginate};
 use yamdv_layout::viewer::{Content, Env, Viewer};
@@ -268,7 +268,10 @@ fn print_inner(
     let rscale = g.dpi.min(MAX_RENDER_DPI) / 96.0;
     let width_dips = g.width as f32 / dev_per_dip;
     let page_h = f64::from(g.height as f32 / dev_per_dip);
-    let mut content = Content::Markdown(Document::new(job.source.clone(), ReadOpts::default()));
+    let mut content = Content::Markdown(Document::new(
+        job.source.clone(),
+        crate::export::toc_opts(&crate::window::load_settings()),
+    ));
     // S-PRIV-06: the document name is the first heading or the file name, nothing personal.
     let title = match &content {
         Content::Markdown(d) => d.index.headings.first().map(|h| h.text.clone()),

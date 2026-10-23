@@ -42,7 +42,7 @@ thread_local! {
 }
 
 /// Re-runs the current command after `ms` (polling verbs; the message loop keeps running).
-fn again(ms: u64) -> String {
+pub(super) fn again(ms: u64) -> String {
     SCRIPT.with(|s| {
         if let Some(s) = s.borrow_mut().as_mut() {
             s.pc = s.pc.saturating_sub(1);
@@ -156,6 +156,8 @@ pub(super) fn tick(w: &mut Win, sh: &Shared) {
                     s.fails += 1;
                 }
                 s.log.push(line);
+                // Partial log, so a script killed on timeout still shows how far it got.
+                let _ = std::fs::write(format!("{}.log", s.path), s.log.join("\n"));
             }
         });
         if yield_after {
@@ -213,7 +215,10 @@ fn run(w: &mut Win, sh: &Shared, cmd: &Cmd) -> String {
             }
         },
         Cmd::Key(c) => {
-            if let Some(a) = w.key_chord(sh, c.vk, c.ctrl, c.shift, c.alt) {
+            // V2-D keys first, as in the window procedure.
+            if w.v2d_key(sh, c.vk, c.ctrl, c.shift, c.alt) {
+                w.nav_kbd(true);
+            } else if let Some(a) = w.key_chord(sh, c.vk, c.ctrl, c.shift, c.alt) {
                 w.actions.extend(a);
             } else if c.alt && (c.vk == 0x25 || c.vk == 0x27) {
                 w.history_go(sh, if c.vk == 0x25 { -1 } else { 1 });
@@ -257,7 +262,11 @@ fn run(w: &mut Win, sh: &Shared, cmd: &Cmd) -> String {
             None => format!("FAIL command {name}: unknown"),
         },
         Cmd::Type(t) => {
-            if w.settings.is_some() {
+            if w.nav.palette.is_some() {
+                for c in t.chars() {
+                    w.palette_char(sh, c);
+                }
+            } else if w.settings.is_some() {
                 for c in t.chars() {
                     w.panel_char(c);
                 }
@@ -427,7 +436,7 @@ fn snapshot(w: &mut Win, sh: &Shared, f: &str) -> String {
 }
 
 /// Path relative to the script's folder.
-fn rel(f: &str) -> String {
+pub(super) fn rel(f: &str) -> String {
     let dir = SCRIPT.with(|s| {
         s.borrow().as_ref().and_then(|s| {
             std::path::Path::new(&s.path)
@@ -671,6 +680,7 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
             super::jobui::cancel_job();
             "ok ui job-cancel".to_string()
         }
+        v if v.starts_with("nav-") => w.nav_ui(sh, v, arg),
         _ => format!("FAIL ui {verb}: unknown verb"),
     }
 }
@@ -1150,6 +1160,11 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
     }
     out.extend(
         w.panel_state(sh.lang)
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), V::S(v))),
+    );
+    out.extend(
+        w.nav_state(sh)
             .into_iter()
             .map(|(k, v)| (k.to_string(), V::S(v))),
     );

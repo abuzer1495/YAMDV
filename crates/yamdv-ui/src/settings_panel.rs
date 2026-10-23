@@ -177,6 +177,9 @@ rows! {
     Sidebar "sidebar.width", "Width", "Genişlik", "Sidebar width in pixels", "Kenar çubuğu genişliği (piksel)";
     Sidebar "sidebar.toc_font_size", "Outline font size", "Ana hat yazı boyutu", "Text size of outline entries", "Ana hat öğelerinin boyutu";
     Sidebar "sidebar.toc_max_depth", "Outline depth", "Ana hat derinliği", "Deepest heading level listed", "Listelenen en derin başlık düzeyi";
+    Sidebar "sidebar.show_history", "History tab", "Geçmiş sekmesi", "Recently opened files in the sidebar", "Kenar çubuğunda son açılan dosyalar";
+    Sidebar "sidebar.show_favorites", "Favorites tab", "Sık kullanılanlar sekmesi", "Starred files in the sidebar", "Kenar çubuğunda yıldızlı dosyalar";
+    Sidebar "sidebar.show_files", "Files tab", "Dosyalar sekmesi", "Markdown files in the document's folder", "Belgenin klasöründeki Markdown dosyaları";
     Reading "reading.single_newline_break", "Single newline = line break", "Tek satır sonu = satır kırma", "Treat every newline as a line break", "Her satır sonunu kırma sayar";
     Reading "reading.smart_punctuation", "Smart punctuation", "Akıllı noktalama", "Curly quotes and dashes", "Kıvrık tırnak ve tireler";
     Reading "reading.subscript_tilde", "~subscript~", "~alt simge~", "Single tildes mark subscript", "Tek tilde alt simge yapar";

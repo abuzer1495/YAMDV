@@ -68,6 +68,7 @@ mod driver;
 mod edit;
 mod findbar;
 mod jobui;
+mod nav;
 mod popup;
 mod setpanel;
 mod sidebar;
@@ -160,6 +161,10 @@ struct Shared {
     /// Sidebar (B.5): visible, docked right, width, TOC font size, TOC depth.
     side_visible: bool,
     side_right: bool,
+    /// `sidebar.position` is a floating card (FUT-02).
+    side_float: bool,
+    /// Tabs shown: Contents, History, Favorites, Files (`sidebar.show_*`).
+    side_tabs: [bool; 4],
     side_w: f32,
     toc_font: f32,
     toc_depth: u8,
@@ -416,6 +421,7 @@ struct Win {
     find: Option<findbar::Find>,
     /// Sidebar state (B.5).
     side: sidebar::Side,
+    nav: nav::Nav,
     /// CSV of the table under the last context-menu click (R-EXP-04).
     ctx_table: Option<String>,
     /// Content offset below the client top: the title bar height, 0 in fullscreen (B.4).
@@ -941,6 +947,15 @@ impl Win {
 
     // ---- scrolling -----------------------------------------------------------------------
 
+    /// The sidebar is shown: a document, or the Files tab of a dropped folder (FUT-33).
+    fn side_shown(&self) -> bool {
+        match &self.view {
+            View::Doc(_) => true,
+            View::Empty { note: Some(_) } => self.nav.files.borrow().is_some(),
+            _ => false,
+        }
+    }
+
     fn doc(&mut self) -> Option<&mut DocView> {
         match &mut self.view {
             View::Doc(d) => Some(d),
@@ -1015,6 +1030,20 @@ impl Win {
                         top: px(t.y) - 2,
                         right: px(r),
                         bottom: px(t.y + t.h) + 2,
+                    });
+                    let _ = InvalidateRect(Some(self.hwnd), Some(&rc), false);
+                }
+                // A floating sidebar card lies inside the blitted rect (FUT-02): repaint its
+                // column (plus the shadow) so the card stays put.
+                if let Some(sh) = &sh
+                    && sh.side_float
+                    && let Some(sr) = self.side_rect(sh)
+                {
+                    let rc = self.crc(RECT {
+                        left: px(sr.x - 16.0),
+                        top: 0,
+                        right: px(sr.x + sr.w + 16.0),
+                        bottom: ch_px,
                     });
                     let _ = InvalidateRect(Some(self.hwnd), Some(&rc), false);
                 }
@@ -1507,7 +1536,7 @@ impl Win {
                 }
             }
         }
-        if matches!(self.view, View::Doc(_)) && self.split_rects().is_none() {
+        if self.side_shown() && self.split_rects().is_none() {
             self.draw_side(sh, b);
         }
         self.draw_find(sh, b);
@@ -1781,7 +1810,7 @@ impl Win {
             }
             return;
         }
-        if self.dialog.is_none() && matches!(self.view, View::Doc(_)) && self.over_side(sh, x, y) {
+        if self.dialog.is_none() && self.side_shown() && self.over_side(sh, x, y) {
             if let Some(a) = self.side_down(sh, x, y) {
                 self.actions.push(a);
             }
@@ -1906,7 +1935,7 @@ impl Win {
             self.side.hover = Some((x, y));
             self.invalidate();
         }
-        if self.dialog.is_none() && matches!(self.view, View::Doc(_)) && self.side_move(sh, x, y) {
+        if self.dialog.is_none() && self.side_shown() && self.side_move(sh, x, y) {
             return;
         }
         if !self.tracking {
@@ -2005,6 +2034,9 @@ impl Win {
             self.panel_up();
             return;
         }
+        if self.fav_up() {
+            return;
+        }
         if let Some(a) = self.side_up() {
             self.actions.push(a);
             return;
@@ -2079,7 +2111,7 @@ impl Win {
 
     fn drop_files(&mut self, sh: &Shared, hdrop: HDROP) -> Vec<Action> {
         let mut files = Vec::new();
-        let mut folder = false;
+        let mut folder: Option<String> = None;
         // SAFETY: hdrop comes from WM_DROPFILES; lengths are queried before each copy and the
         // handle is released with DragFinish.
         unsafe {
@@ -2096,7 +2128,7 @@ impl Win {
                 }
                 let p = String::from_utf16_lossy(buf.get(..len).unwrap_or(&[]));
                 if std::fs::metadata(ypath::long_form(&p)).is_ok_and(|m| m.is_dir()) {
-                    folder = true;
+                    folder.get_or_insert(p);
                 } else {
                     files.push(p);
                 }
@@ -2108,11 +2140,9 @@ impl Win {
         if let Some(first) = it.next() {
             self.open(sh, &first, None, false);
             actions.extend(it.map(Action::NewWindow));
-        } else if folder && !matches!(self.view, View::Doc(_)) {
-            self.view = View::Empty {
-                note: Some(Msg::DropFolders),
-            };
-            self.invalidate();
+        } else if let Some(f) = folder {
+            // FUT-33: a dropped folder opens the Files tab rooted at it.
+            self.files_open_folder(sh, &f);
         }
         actions
     }
@@ -2343,57 +2373,13 @@ impl Win {
     /// Shows a toast for 4 s (B.10).
     /// Tab / Shift+Tab: next / previous link in document order (B.16); scrolls it into view.
     fn focus_step(&mut self, sh: &Shared, dir: i32) {
-        let cur = self.focus;
-        let Some(d) = self.doc() else { return };
-        let Content::Markdown(doc) = &mut d.content else {
-            return;
-        };
-        let n = doc.index.blocks.len();
-        let count = |doc: &mut Document, b: usize| -> u32 {
-            u32::try_from(doc.detail(b).links.len()).unwrap_or(0)
-        };
-        let next = if dir > 0 {
-            let (mut b, mut l) = cur.map_or((0, 0), |(b, l)| (b, l + 1));
-            loop {
-                if b >= n {
-                    break None;
-                }
-                if l < count(doc, b) {
-                    break Some((b, l));
-                }
-                b += 1;
-                l = 0;
-            }
-        } else {
-            match cur {
-                Some((b, l)) if l > 0 => Some((b, l - 1)),
-                _ => {
-                    let mut b = cur.map_or(n, |(b, _)| b);
-                    loop {
-                        if b == 0 {
-                            break None;
-                        }
-                        b -= 1;
-                        let c = count(doc, b);
-                        if c > 0 {
-                            break Some((b, c - 1));
-                        }
-                    }
-                }
-            }
-        };
-        self.focus = next;
-        if let Some((b, l)) = next {
-            self.scroll_into_view(sh, b, l);
-        } else if dir > 0 && cur.is_some() {
-            // After the last link: the heading fold toggles (R-READ-06).
-            self.tz_fold_focus_step(true);
-        }
-        self.tz_focus_tip(sh);
-        self.invalidate();
+        // V2-D (HARD-04): every interactive part, not only links.
+        self.nav_kbd(true);
+        self.doc_focus_step(sh, dir);
     }
 
     /// Scrolls so link `l` of block `b` is visible (auto-scroll for focus and the driver).
+    #[cfg(feature = "dev-tools")]
     fn scroll_into_view(&mut self, sh: &Shared, b: usize, l: u32) {
         let vh = self.view_h();
         for _ in 0..2 {
@@ -2922,11 +2908,23 @@ fn handle(
     {
         return (Some(r), actions);
     }
+    // V2-D: the palette / mind map are modal; folder listings and watchers are ours.
+    let nav_first = w.nav_modal()
+        || msg == nav::WM_APP_FILES
+        || (msg == crate::shell::WM_APP_FILE_CHANGED && wp.0 >= nav::FILES_TAG);
+    if nav_first && let Some(r) = w.nav_msg(sh, msg, wp, lp) {
+        actions.append(&mut w.actions);
+        return (Some(r), actions);
+    }
     if let Some(r) = w.tz_msg(sh, msg, wp, lp) {
         actions.append(&mut w.actions);
         return (Some(r), actions);
     }
     if let Some(r) = w.edit_msg(sh, msg, wp, lp) {
+        actions.append(&mut w.actions);
+        return (Some(r), actions);
+    }
+    if !nav_first && let Some(r) = w.nav_msg(sh, msg, wp, lp) {
         actions.append(&mut w.actions);
         return (Some(r), actions);
     }
@@ -3780,6 +3778,7 @@ fn create_window(sh: &Shared, path: Option<&str>) -> Option<HWND> {
         find: None,
         settings: None,
         side: sidebar::Side::default(),
+        nav: nav::Nav::default(),
         ctx_table: None,
         top: yamdv_core::chrome::BAR_H,
         fs: false,
@@ -3862,6 +3861,13 @@ fn build_shared(
         restore_pos: s.bool("general.restore_reading_position"),
         side_visible: s.bool("sidebar.visible"),
         side_right: s.str("sidebar.position").starts_with("right"),
+        side_float: s.str("sidebar.position").ends_with("floating"),
+        side_tabs: [
+            true,
+            s.bool("sidebar.show_history"),
+            s.bool("sidebar.show_favorites"),
+            s.bool("sidebar.show_files"),
+        ],
         side_w: s.int("sidebar.width") as f32,
         toc_font: s.int("sidebar.toc_font_size") as f32,
         toc_depth: u8::try_from(s.int("sidebar.toc_max_depth").clamp(1, 6)).unwrap_or(4),
@@ -3875,6 +3881,7 @@ fn build_shared(
             code_wrap: s.bool("reading.code_wrap"),
             render_math: s.bool("reading.render_math"),
             render_mermaid: s.bool("reading.render_mermaid"),
+            toc_depth: u8::try_from(s.int("sidebar.toc_max_depth").clamp(1, 6)).unwrap_or(3),
             front_matter: match s.str("reading.front_matter") {
                 "expanded" => 1,
                 "hidden" => 2,
