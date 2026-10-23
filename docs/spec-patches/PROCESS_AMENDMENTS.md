@@ -84,7 +84,20 @@ A-8 No CI; the owner runs the Windows tests (owner decision, 2026-10-22). Applie
 9. Report ≤ 80 lines: a local-gates table, the pending owner tests, and the test-pack link.
 ```
 
-**A-9 (V2-B fix, owner decision 2026-10-22).**
+**A-9 (Phase V2-C, prompt 013 §2 step 1; owner decision 2026-10-23).**
 ```text
-A-9 (owner decision 2026-10-22): repo moved to abuzer1495/YAMDV; CI is back; A-8 ends, A-7 gates apply again (CI on windows-latest: M0, M1, T4 typical warm, T7, with the retry rule). The owner test pack stays optional.
+A-9 CI is back (owner decision, 2026-10-23). The repository moved to https://github.com/abuzer1495/YAMDV, where GitHub Actions minutes are available. A-8 ends and A-7's CI rules apply again; where they differ from A-8, A-9 wins.
+1. CI gates as in A-7: M0, M1, T4 typical warm and T7 (two-attempt retry rule). M0/M1 may grow by at most 0.3 MiB per phase. At most 3 new driver scripts and 4 new goldens per phase.
+2. Minute and token economy: one full CI run at the end of a phase plus at most one fix push. WIP pushes use [skip ci].
+3. Kept from A-8:
+   - run-tests.cmd and the test-pack builder stay working, with no new features; build a test pack only when the owner asks;
+   - new pure logic goes into platform-independent crates with unit tests.
+4. Version tags are set when CI is green on main. The tag job creates a draft release; the owner tests the draft by hand and publishes it himself. Problems he reports go first in the next prompt.
+5. Every PR run uploads the release exe as the artifact yamdv-exe (retention 7 days), so the owner can try a phase before its release.
+6. Every report ends with an owner check list (≤ 8 steps, EN + TR) covering what CI cannot judge.
+7. Security rules are unchanged:
+   - no secrets in the repository;
+   - workflows keep permissions: contents: read, and only the tag/release job may write;
+   - pull_request, never pull_request_target;
+   - releases stay drafts.
 ```
