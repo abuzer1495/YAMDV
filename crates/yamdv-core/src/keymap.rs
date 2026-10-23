@@ -104,15 +104,15 @@ actions! {
     "numbered_list", "Numbered list", "Numaralı liste", ["Ctrl+Shift+7"], Edit;
     "task_list", "Task list", "Görev listesi", ["Ctrl+Shift+9"], Edit;
     "toggle_task", "Toggle task", "Görevi işaretle", ["Ctrl+Enter"], Edit;
-    "heading_palette", "Go to heading", "Başlığa git", ["Ctrl+Shift+O"], Global;
+    "heading_jump", "Go to heading", "Başlığa git", ["Ctrl+Shift+O"], Global;
     "mind_map", "Mind map", "Zihin haritası", ["Ctrl+Shift+M"], Global;
-    "sidebar_outline", "Sidebar: Outline", "Kenar çubuğu: Ana hat", ["Ctrl+Shift+1"], Global;
+    "sidebar_contents", "Sidebar: Contents", "Kenar çubuğu: İçindekiler", ["Ctrl+Shift+1"], Global;
     "sidebar_history", "Sidebar: History", "Kenar çubuğu: Geçmiş", ["Ctrl+Shift+2"], Global;
     "sidebar_favorites", "Sidebar: Favorites", "Kenar çubuğu: Sık kullanılanlar", ["Ctrl+Shift+3"], Global;
     "sidebar_files", "Sidebar: Files", "Kenar çubuğu: Dosyalar", ["Ctrl+Shift+4"], Global;
-    "next_region", "Next region", "Sonraki bölge", ["F6"], Global;
-    "prev_region", "Previous region", "Önceki bölge", ["Shift+F6"], Global;
-    "find_replace", "Find and replace", "Bul ve değiştir", ["Ctrl+H"], Global;
+    "focus_next_region", "Next region", "Sonraki bölge", ["F6"], Global;
+    "focus_prev_region", "Previous region", "Önceki bölge", ["Shift+F6"], Global;
+    "replace", "Find and replace", "Bul ve değiştir", ["Ctrl+H"], Global;
     "highlight", "Highlight", "Vurgula", ["Ctrl+Shift+H"], Edit;
     "duplicate_line", "Duplicate line", "Satırı çoğalt", ["Ctrl+Shift+D"], Edit;
     "select_line", "Select line", "Satırı seç", ["Ctrl+L"], Edit;
@@ -585,18 +585,15 @@ mod tests {
 
     #[test]
     fn f27_nav_keys_are_actions_and_scopes_overlay() {
-        let mut k = Keymap::new("default", [("heading_palette", "Ctrl+Shift+P")]);
-        assert_eq!(
-            k.action_of(ch("Ctrl+Shift+P"), false),
-            Some("heading_palette")
-        );
+        let mut k = Keymap::new("default", [("heading_jump", "Ctrl+Shift+P")]);
+        assert_eq!(k.action_of(ch("Ctrl+Shift+P"), false), Some("heading_jump"));
         assert_eq!(k.action_of(ch("Ctrl+Shift+O"), false), None);
         assert_eq!(k.translate(ch("Ctrl+Shift+O"), false), Translate::Swallow);
         for (id, c) in [
             ("mind_map", "Ctrl+Shift+M"),
             ("sidebar_files", "Ctrl+Shift+4"),
-            ("next_region", "F6"),
-            ("prev_region", "Shift+F6"),
+            ("focus_next_region", "F6"),
+            ("focus_prev_region", "Shift+F6"),
         ] {
             assert_eq!(k.action_of(ch(c), false), Some(id));
             assert_eq!(Keymap::new("typora", []).action_of(ch(c), true), Some(id));
@@ -605,7 +602,7 @@ mod tests {
         assert_eq!(k.action_of(ch("Alt+Up"), false), Some("column_wider"));
         assert_eq!(k.action_of(ch("Alt+Up"), true), Some("move_line_up"));
         assert!(k.conflicts().is_empty());
-        let pal = index("heading_palette").unwrap();
+        let pal = index("heading_jump").unwrap();
         assert_eq!(
             k.set(pal, vec![ch("Ctrl+D")]),
             Err(index("toggle_favorite").unwrap())

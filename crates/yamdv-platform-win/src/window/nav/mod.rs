@@ -184,11 +184,11 @@ impl Win {
         };
         let act = app::keymap().action_of(c, self.edit_mode().is_some());
         match act.unwrap_or("") {
-            "sidebar_outline" => return self.side_select_tab_key(sh, 0),
+            "sidebar_contents" => return self.side_select_tab_key(sh, 0),
             "sidebar_history" => return self.side_select_tab_key(sh, 1),
             "sidebar_favorites" => return self.side_select_tab_key(sh, 2),
             "sidebar_files" => return self.side_select_tab_key(sh, 3),
-            "heading_palette" => {
+            "heading_jump" => {
                 self.palette_open(sh);
                 return true;
             }
@@ -196,9 +196,16 @@ impl Win {
                 self.mind_open(sh);
                 return true;
             }
-            "next_region" | "prev_region" => {
+            "focus_next_region" | "focus_prev_region" => {
                 self.nav_kbd(true);
-                self.region_step(sh, if act == Some("prev_region") { -1 } else { 1 });
+                self.region_step(
+                    sh,
+                    if act == Some("focus_prev_region") {
+                        -1
+                    } else {
+                        1
+                    },
+                );
                 return true;
             }
             _ => {}
