@@ -21,3 +21,8 @@ in items — two sealed steps so Ctrl+Z leaves the escaped literal; enter: ```/`
 blocks, --- rule, pipe header → delimiter + empty row) + tests_transform.rs; wired via
 wysi/typing.rs (f2_type, f2_enter; off inside a fence body). Next: item 4 links (Ctrl+click
 follows, Ctrl+K popover), item 5 cross-block selection, 6 checkbox/context menu, 7 data safety.
+
+CHECKPOINT 5 (item 4 done): Ctrl+K / toolbar Link in F2 opens the link popover (Text/URL/Title,
+Tab fields, Enter = one undo step, Esc); Ctrl+click follows via the viewer path. Pure model
+yamdv_editor::linkedit + test; driver f2-reveal covers edit + new link + undo.
+Next: item 5 cross-block selection + multi-format clipboard, 6 checkbox/context menu, 7 data safety.

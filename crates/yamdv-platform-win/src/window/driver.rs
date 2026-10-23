@@ -132,7 +132,7 @@ pub(super) fn tick(w: &mut Win, sh: &Shared) {
     let next = SCRIPT.with(|s| s.borrow_mut().as_mut().and_then(|s| s.chars.pop_front()));
     if let Some(c) = next {
         // As WM_CHAR: V2-E auto-pair first (prompt 015 §3.4).
-        if c.is_control() || !w.plus_char(sh, c) {
+        if c.is_control() || !(w.linkpop_char(c) || w.plus_char(sh, c)) {
             w.edit_type(sh, &c.to_string());
         }
         return;
@@ -1039,6 +1039,16 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         ("revealed".into(), V::S(w.revealed_markers().join(" "))),
         ("f2_preview".into(), V::S(w.preview_kind().into())),
         ("lang_items".into(), V::S(w.lang_probe())),
+        (
+            "link_pop".into(),
+            V::S(
+                w.wysi
+                    .link
+                    .as_ref()
+                    .map(|p| p.fields.join("|"))
+                    .unwrap_or_default(),
+            ),
+        ),
         ("undo_depth".into(), V::N(undo as f64)),
         ("buffer".into(), V::S(buffer)),
         ("preview".into(), V::S(preview)),

@@ -7,6 +7,7 @@ pub mod buffer;
 pub mod clear;
 pub mod history;
 pub mod lines;
+pub mod linkedit;
 pub mod md;
 pub mod pairs;
 pub mod replace;

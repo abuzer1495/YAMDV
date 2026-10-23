@@ -1040,7 +1040,7 @@ impl Win {
             e.surrogate = None;
             match char::from_u32(u32::from(unit)) {
                 Some(c) if !c.is_control() => {
-                    if self.plus_char(sh, c) {
+                    if self.linkpop_char(c) || self.plus_char(sh, c) {
                         return;
                     }
                     c.to_string()

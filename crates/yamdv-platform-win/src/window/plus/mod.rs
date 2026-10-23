@@ -178,6 +178,9 @@ impl Win {
     /// clear formatting).
     pub(super) fn format_cmd(&mut self, sh: &Shared, k: toolbar::Cmd) {
         use toolbar::Cmd as T;
+        if k == T::Link && self.linkpop_open() {
+            return;
+        }
         self.with_ed(sh, |ed| match k {
             T::Bold => md::toggle_wrap(ed, md::Wrap::Bold),
             T::Italic => md::toggle_wrap(ed, md::Wrap::Italic),

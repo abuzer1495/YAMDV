@@ -56,3 +56,30 @@ ui v2f-caret "9|| a | b |"
 key return
 wait-idle
 assert buffer contains "| a | b |\n| --- | --- |\n|  |  |"
+
+# item 4: Ctrl+K link popover (one undo step)
+write-file r4.tmp.md "go to [site](http://a.b) now\n\nplain word here\n"
+open r4.tmp.md
+wait-idle
+key f2
+ui v2f-caret "8|[site]"
+key ctrl+K
+wait-idle
+assert link_pop == "site|http://a.b|"
+key tab
+type "Home"
+key return
+wait-idle
+assert buffer contains "[site](http://a.b "
+assert buffer contains "Home"
+assert link_pop == ""
+ui v2f-caret "2|word here"
+key ctrl+K
+assert link_pop == "word||"
+type "x.md"
+key return
+wait-idle
+assert buffer contains "plain [word](x.md) here"
+key ctrl+z
+wait-idle
+assert buffer contains "plain word here"
