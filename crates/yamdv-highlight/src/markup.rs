@@ -32,6 +32,7 @@ fn tag_body(c: &mut Cur<'_>, out: &mut Out, mut pending_str: Option<u8>) -> Opti
                 return Some(State {
                     mode: X_ATTRSTR,
                     arg: q,
+                    ext: 0,
                 });
             }
             c.i += 1;
@@ -42,6 +43,7 @@ fn tag_body(c: &mut Cur<'_>, out: &mut Out, mut pending_str: Option<u8>) -> Opti
             return Some(State {
                 mode: X_TAG,
                 arg: 0,
+                ext: 0,
             });
         }
         let st = c.i;
@@ -112,6 +114,7 @@ pub(crate) fn xml(state: State, line: &str, out: &mut Out) -> State {
                 return State {
                     mode: X_COMMENT,
                     arg: 0,
+                    ext: 0,
                 };
             }
             continue;
@@ -124,6 +127,7 @@ pub(crate) fn xml(state: State, line: &str, out: &mut Out) -> State {
                 return State {
                     mode: X_CDATA,
                     arg: 0,
+                    ext: 0,
                 };
             }
             continue;
@@ -160,6 +164,96 @@ pub(crate) fn xml(state: State, line: &str, out: &mut Out) -> State {
     State::NORMAL
 }
 
+const H_SCRIPT: u8 = 0x40;
+const H_STYLE: u8 = 0x80;
+
+fn find_ci(hay: &str, needle: &str) -> Option<usize> {
+    hay.as_bytes()
+        .windows(needle.len())
+        .position(|w| w.eq_ignore_ascii_case(needle.as_bytes()))
+}
+
+/// Next `<script …>` / `<style …>` whose head closes on this line: (end of the head, mode).
+fn embed_open(s: &str) -> Option<(usize, u8)> {
+    let mut best: Option<(usize, u8)> = None;
+    for (tag, m) in [("<script", H_SCRIPT), ("<style", H_STYLE)] {
+        let mut from = 0;
+        while let Some(k) = s.get(from..).and_then(|r| find_ci(r, tag)) {
+            let at = from + k;
+            let next = s.as_bytes().get(at + tag.len()).copied().unwrap_or(0);
+            if matches!(next, b'>' | b' ' | b'\t') {
+                if best.is_none_or(|(b, _)| at < b) {
+                    best = Some((at, m));
+                }
+                break;
+            }
+            from = at + tag.len();
+        }
+    }
+    let (at, m) = best?;
+    let gt = at + s.get(at..)?.find('>')?;
+    (s.as_bytes().get(gt.wrapping_sub(1)) != Some(&b'/')).then_some((gt + 1, m))
+}
+
+/// HTML / Vue: markup with `<script>` lexed as JavaScript and `<style>` as CSS. The embedded
+/// lexer's mode is kept in the low 6 bits of `State::mode`. (A `<script>` head must close on
+/// its own line.)
+pub(crate) fn html(state: State, line: &str, out: &mut Out) -> State {
+    let mut pos = 0;
+    let mut st = state;
+    loop {
+        let rest = line.get(pos..).unwrap_or("");
+        let embed = st.mode & (H_SCRIPT | H_STYLE);
+        let mut sub = Out::default();
+        if embed != 0 {
+            let close = if embed == H_SCRIPT {
+                "</script"
+            } else {
+                "</style"
+            };
+            let end = find_ci(rest, close).unwrap_or(rest.len());
+            let inner = State {
+                mode: st.mode & 0x3f,
+                arg: st.arg,
+                ext: 0,
+            };
+            let body = rest.get(..end).unwrap_or("");
+            let ns = if embed == H_SCRIPT {
+                crate::clike::lex(&crate::langs::JS, inner, body, &mut sub)
+            } else {
+                css(inner, body, &mut sub)
+            };
+            out.append(pos, sub);
+            if end == rest.len() {
+                return State {
+                    mode: (ns.mode & 0x3f) | embed,
+                    arg: ns.arg,
+                    ext: 0,
+                };
+            }
+            pos += end;
+            st = State::NORMAL;
+            continue;
+        }
+        let (seg, next) = if st == State::NORMAL {
+            embed_open(rest).unwrap_or((rest.len(), 0))
+        } else {
+            (rest.len(), 0)
+        };
+        let ns = xml(st, rest.get(..seg).unwrap_or(""), &mut sub);
+        out.append(pos, sub);
+        if next == 0 || seg == 0 {
+            return ns;
+        }
+        pos += seg;
+        st = State {
+            mode: next,
+            arg: 0,
+            ext: 0,
+        };
+    }
+}
+
 const C_COMMENT: u8 = 1;
 
 /// CSS / SCSS / LESS. `State::arg` = brace depth (also kept inside comments).
@@ -185,6 +279,7 @@ pub(crate) fn css(state: State, line: &str, out: &mut Out) -> State {
                 return State {
                     mode: C_COMMENT,
                     arg: depth,
+                    ext: 0,
                 };
             }
             continue;
@@ -226,7 +321,16 @@ pub(crate) fn css(state: State, line: &str, out: &mut Out) -> State {
             b'@' => {
                 c.i += 1;
                 let _ = c.ident(b"-");
-                out.push(st..c.i, Tok::Keyword);
+                // LESS variables: `@name:` declarations and `@name` in values.
+                let decl =
+                    c.s.get(c.i..)
+                        .is_some_and(|r| r.trim_start().starts_with(':'));
+                let t = if decl || value {
+                    Tok::Variable
+                } else {
+                    Tok::Keyword
+                };
+                out.push(st..c.i, t);
             }
             b'$' => {
                 c.i += 1;
@@ -311,6 +415,7 @@ pub(crate) fn css(state: State, line: &str, out: &mut Out) -> State {
     State {
         mode: 0,
         arg: depth,
+        ext: 0,
     }
 }
 
@@ -334,6 +439,7 @@ pub(crate) fn markdown(state: State, line: &str, out: &mut Out) -> State {
         return State {
             mode: MD_FENCE,
             arg: 0,
+            ext: 0,
         };
     }
     if t.starts_with('#') && t.trim_start_matches('#').starts_with([' ', '\t'])
@@ -462,6 +568,25 @@ mod tests {
             ],
         );
         expect(
+            "html",
+            "<script type=\"module\">let a = '<b>'; /* x\n y */ f();</script>\n<style>\n  p { color: red; }\n</style><p>",
+            &[
+                ("script", Tag),
+                ("type", Attribute),
+                ("let", Keyword),
+                ("'<b>'", Str),
+                ("/* x", Comment),
+                ("y */", Comment),
+                ("f", Function),
+                ("script", Tag),
+                ("style", Tag),
+                ("p", Tag),
+                ("color", Attribute),
+                ("style", Tag),
+                ("p", Tag),
+            ],
+        );
+        expect(
             "svg",
             "<svg viewBox=\"0 0 1 1\"><![CDATA[x]]></svg>",
             &[("svg", Tag), ("viewBox", Attribute), ("<![CDATA[x]]>", Str)],
@@ -513,7 +638,12 @@ mod tests {
         expect(
             "less",
             "@c: red; a { color: @c; }",
-            &[("@c", Keyword), ("a", Tag), ("color", Attribute)],
+            &[
+                ("@c", Variable),
+                ("a", Tag),
+                ("color", Attribute),
+                ("@c", Variable),
+            ],
         );
     }
 

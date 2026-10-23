@@ -9,6 +9,7 @@
 #![allow(clippy::indexing_slicing)]
 
 mod clike;
+mod jsx;
 mod langs;
 mod markup;
 mod misc;
@@ -67,11 +68,17 @@ pub struct State {
     pub mode: u8,
     /// Mode argument (delimiter index, nesting depth, …).
     pub arg: u8,
+    /// Extra nesting state (JSX element stack).
+    pub ext: u32,
 }
 
 impl State {
     /// Normal state.
-    pub const NORMAL: Self = Self { mode: 0, arg: 0 };
+    pub const NORMAL: Self = Self {
+        mode: 0,
+        arg: 0,
+        ext: 0,
+    };
 }
 
 /// One token: byte range in the line and its class.
@@ -96,6 +103,8 @@ pub fn highlight_line(lang: Lang, state: State, line: &str) -> (Vec<Token>, Stat
     let next = match lang.kind() {
         langs::Kind::CLike(spec) => clike::lex(spec, state, head, &mut out),
         langs::Kind::Markup => markup::xml(state, head, &mut out),
+        langs::Kind::Html => markup::html(state, head, &mut out),
+        langs::Kind::Console => misc::console(state, head, &mut out),
         langs::Kind::Css => markup::css(state, head, &mut out),
         langs::Kind::Markdown => markup::markdown(state, head, &mut out),
         langs::Kind::Json => misc::json(state, head, &mut out),
@@ -148,6 +157,13 @@ impl Out {
             self.push_merge(end..r.start, Tok::Text);
         }
         self.push_merge(r, t);
+    }
+
+    /// Appends the tokens of a sub-lexer run over `line[off..]`.
+    pub(crate) fn append(&mut self, off: usize, sub: Out) {
+        for (r, t) in sub.toks {
+            self.push(r.start + off..r.end + off, t);
+        }
     }
 
     fn push_merge(&mut self, r: Range<usize>, t: Tok) {
@@ -311,13 +327,13 @@ mod tests {
 
     #[test]
     fn r_code_01_every_name_maps_to_lexer() {
-        // (R-CODE-01 name, canonical lexer). Table F-19 of the Phase 003b report.
+        // (R-CODE-01 name, canonical lexer). Table F-19 (V2-G report).
         const MAP: &[(&str, &str)] = &[
             ("bash", "bash"),
             ("sh", "bash"),
             ("shell", "bash"),
             ("zsh", "bash"),
-            ("console", "bash"),
+            ("console", "console"),
             ("powershell", "powershell"),
             ("ps1", "powershell"),
             ("bat", "bat"),
@@ -343,8 +359,8 @@ mod tests {
             ("cjs", "javascript"),
             ("typescript", "typescript"),
             ("ts", "typescript"),
-            ("jsx", "javascript"),
-            ("tsx", "typescript"),
+            ("jsx", "jsx"),
+            ("tsx", "tsx"),
             ("json", "json"),
             ("jsonc", "json"),
             ("json5", "json"),
@@ -355,10 +371,10 @@ mod tests {
             ("conf", "ini"),
             ("properties", "ini"),
             ("xml", "xml"),
-            ("html", "xml"),
+            ("html", "html"),
             ("svg", "xml"),
             ("xaml", "xml"),
-            ("vue", "xml"),
+            ("vue", "html"),
             ("css", "css"),
             ("scss", "css"),
             ("less", "css"),

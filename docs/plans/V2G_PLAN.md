@@ -18,3 +18,9 @@ Order: §1.1 F-31 → F-32 → §2 ADR-0021 (before SVG code), ADR-0022, P-48, I
 - §3.3: crates/yamdv-svg (xml/style/path/render, limits), platform images/svg.rs (DWrite text runs, currentColor = UI text), viewer zoom re-render, image/svg+xml data URIs, fuzz svg_parse. Fixture v2g-golden-c.md + assets/logo.svg, dtd.svg. Commit 0a774b6.
 - Note: under Wine there is no math font, so display math shows the source fallback locally; CI (Windows) renders it.
 - Next: §3.4 animated GIF (pure yamdv-core::image::gif + platform images/gif.rs), then ICO/WebP, lexers, F2 resize.
+
+## CHECKPOINT 4 (§3.4 GIF, §3.5 ICO/WebP, §3.6 lexers done)
+- §3.4: yamdv-core image/gif.rs (disposal, timing, Player), platform images/gif.rs (WIC frames at display size), visible-only one-shot TIMER_GIF=23, viewer TIMER_FVGIF=24, setting reading.animate_gifs (default off).
+- §3.5: yamdv-core image/ico.rs (directory, pick, PNG/BGRA/BMP+mask payloads), WebP → "WebP codec not installed" (ADR-0022); ACG rows ico-png/ico-bmp/webp-lossy/lossless/alpha (webp = placeholder rows). Commit 3fc4815.
+- §3.6: new lexers Console, Jsx, Tsx (jsx.rs element stack in State::ext), Html (`<script>` JS / `<style>` CSS embedded; vue → Html); LESS `@x` variables. Table docs/CODE_LANGUAGES.md (42 lexers). FUT-01 marked done.
+- Next: §3.7 F2 image resize, then drivers content-engines / image-resize, goldens v2g-a/b/c, gates, PR.

@@ -4,7 +4,7 @@ Owner decision 2026-10-17: v1 is a complete product; the items below are deferre
 
 | FUT | Deferred feature | v1 instead | Spec IDs |
 |---|---|---|---|
-| FUT-01 | Highlighting for languages beyond the 30 existing lexers | 30 lexers + aliases | R-CODE-01 |
+| FUT-01 | Highlighting for languages beyond the 30 existing lexers | done in V2-G: 42 lexers, docs/CODE_LANGUAGES.md | R-CODE-01 |
 | FUT-02 | Floating sidebar positions | left / right docked | R-NAV-02 |
 | FUT-03 | Favorites drag-to-reorder | add / remove | R-NAV-09 |
 | FUT-04 | In-app custom-color editor with picker | `custom-theme.ini` + hot reload | R-THEME-06 |

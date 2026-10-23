@@ -1,5 +1,6 @@
 //! Generic lexer for C-like and script languages, configured by a [`Spec`].
 
+use crate::jsx::{self, Jsx};
 use crate::langs::Spec;
 use crate::{Cur, Out, State, Tok, is_ident_start};
 
@@ -108,11 +109,23 @@ fn scan_block(spec: &Spec, c: &mut Cur<'_>, idx: usize, mut depth: u8) -> State 
     State {
         mode: M_BLOCK,
         arg: u8::try_from(idx).unwrap_or(0) | (depth << 3),
+        ext: 0,
     }
 }
 
 /// Lexes one line.
 pub(crate) fn lex(spec: &Spec, state: State, line: &str, out: &mut Out) -> State {
+    if !spec.jsx {
+        return lex_line(spec, state, line, out, &mut Jsx::default());
+    }
+    let mut jx = Jsx::unpack(state.ext);
+    let mut st = lex_line(spec, state, line, out, &mut jx);
+    st.ext = jx.pack();
+    st
+}
+
+#[allow(clippy::too_many_lines)]
+fn lex_line(spec: &Spec, state: State, line: &str, out: &mut Out, jx: &mut Jsx) -> State {
     let mut c = Cur::new(line);
     // Resume a multi-line construct.
     match state.mode {
@@ -139,6 +152,24 @@ pub(crate) fn lex(spec: &Spec, state: State, line: &str, out: &mut Out) -> State
     let mut def_next = false;
     while !c.eof() {
         let st = c.i;
+        if spec.jsx {
+            match jsx_step(&mut c, out, jx, regex_ok) {
+                Step::Eol => return State::NORMAL,
+                Step::Done => {
+                    regex_ok = false;
+                    line_start = false;
+                    continue;
+                }
+                Step::Expr => {
+                    regex_ok = true;
+                    continue;
+                }
+                Step::Lex => {}
+            }
+            if c.eof() {
+                break;
+            }
+        }
         let ch = c.peek();
         if ch == b' ' || ch == b'\t' {
             c.skip_ws();
@@ -204,6 +235,7 @@ pub(crate) fn lex(spec: &Spec, state: State, line: &str, out: &mut Out) -> State
                     return State {
                         mode: M_STR,
                         arg: d,
+                        ext: 0,
                     };
                 }
                 regex_ok = false;
@@ -232,6 +264,7 @@ pub(crate) fn lex(spec: &Spec, state: State, line: &str, out: &mut Out) -> State
                 return State {
                     mode: M_STR,
                     arg: d,
+                    ext: 0,
                 };
             }
             regex_ok = false;
@@ -363,6 +396,7 @@ pub(crate) fn lex(spec: &Spec, state: State, line: &str, out: &mut Out) -> State
                     return State {
                         mode: M_STR,
                         arg: d,
+                        ext: 0,
                     };
                 }
                 continue;
@@ -488,6 +522,9 @@ pub(crate) fn lex(spec: &Spec, state: State, line: &str, out: &mut Out) -> State
             continue;
         }
         if b"()[]{},.;".contains(&ch) {
+            if spec.jsx && matches!(ch, b'{' | b'}') && jx.in_expr() {
+                jx.brace(ch == b'{');
+            }
             c.i += 1;
             out.push(st..c.i, Tok::Punct);
             regex_ok = !matches!(ch, b')' | b']' | b'}');
@@ -497,6 +534,51 @@ pub(crate) fn lex(spec: &Spec, state: State, line: &str, out: &mut Out) -> State
         regex_ok = false;
     }
     State::NORMAL
+}
+
+enum Step {
+    /// Not JSX here; lex as JS/TS.
+    Lex,
+    /// A tag or text run was consumed.
+    Done,
+    /// A `{` child expression was opened.
+    Expr,
+    /// The line ended inside a tag head.
+    Eol,
+}
+
+/// One JSX step at the cursor: a pending/new tag head, a text-children run or `{`.
+fn jsx_step(c: &mut Cur<'_>, out: &mut Out, jx: &mut Jsx, regex_ok: bool) -> Step {
+    if jx.pending == 0 {
+        let children = jx.in_children();
+        if children && !jsx::tag_start(c, true) {
+            let st = c.i;
+            if c.peek() == b'{' {
+                c.i += 1;
+                out.push(st..c.i, Tok::Punct);
+                jx.brace(true);
+                return Step::Expr;
+            }
+            if c.peek() == b'<' {
+                c.i += 1; // a lone `<` in text
+            }
+            while !c.eof() && !matches!(c.peek(), b'<' | b'{') {
+                c.bump();
+            }
+            out.push(st..c.i, Tok::Text);
+            return Step::Done;
+        }
+        if !((children || regex_ok) && jsx::tag_start(c, children)) {
+            return Step::Lex;
+        }
+        jx.pending = jsx::tag_open(c, out);
+    }
+    let end = jsx::tag_body(c, out);
+    if jx.finish(&end) {
+        Step::Done
+    } else {
+        Step::Eol
+    }
 }
 
 #[cfg(test)]
@@ -667,19 +749,45 @@ mod tests {
         );
         expect(
             "jsx",
-            "function App() { return 1 / 2; }",
+            "function App() {\n  return <div className=\"a\" onClick={() => go(1)}>\n    Hi if {n / 2} <b>x</b>\n    {items.map(i => <Item key={i} />)}\n  </div>;\n}\nconst r = 1 / 2;",
             &[
                 ("function", Keyword),
                 ("App", Function),
                 ("return", Keyword),
+                ("div", Tag),
+                ("className", Attribute),
+                ("\"a\"", Str),
+                ("onClick", Attribute),
+                ("2", Number),
+                ("b", Tag),
+                ("b", Tag),
+                ("map", Function),
+                ("Item", Tag),
+                ("key", Attribute),
+                ("div", Tag),
+                ("const", Keyword),
                 ("1", Number),
                 ("/", Operator),
             ],
         );
+        // Text children are not lexed as code; TSX generics are not elements.
+        assert!(
+            !crate::test_util::toks("jsx", "<p>\n if x\n</p>")
+                .iter()
+                .any(|(_, t)| *t == Keyword)
+        );
         expect(
             "tsx",
-            "let a: string = 'x';",
-            &[("let", Keyword), ("string", Type), ("'x'", Str)],
+            "const f = <T,>(x: T) => x;\nlet e: JSX.Element = <>\n  <Box<string>\n    title='t'\n  />\n</>;",
+            &[
+                ("const", Keyword),
+                ("T", Type),
+                ("let", Keyword),
+                ("JSX", Constant),
+                ("Box", Tag),
+                ("title", Attribute),
+                ("'t'", Str),
+            ],
         );
     }
 
@@ -699,6 +807,21 @@ mod tests {
                 ("fi", Keyword),
             ],
         );
+        expect(
+            "console",
+            "$ ls -la $HOME \\\n  | grep x # c\ntotal 8\nuser@host:~/src$ echo \"hi\"\nPS C:\\> Get-Item",
+            &[
+                ("$", Meta),
+                ("$HOME", Variable),
+                ("|", Operator),
+                ("# c", Comment),
+                ("user@host:~/src$", Meta),
+                ("echo", Constant),
+                ("\"hi\"", Str),
+                ("PS C:\\>", Meta),
+            ],
+        );
+        assert!(crate::test_util::toks("console", "total 8 if then").is_empty());
         expect(
             "powershell",
             "<# block #>\nfunction Get-X { param($Path) Write-Host $true }",
