@@ -34,6 +34,10 @@ wait-idle
 ui cpu-mark
 sleep 2000
 assert cpu_delta_ms < 60
+# F-26: ten more folder watches (as ten expanded folders) share the one watcher thread.
+ui nav-watch-threads 10
+assert watch_thread_delta == 0
+assert watch_live >= 10
 # Favorites: three, the third dragged to the top, kept after a restart (state re-read).
 ui nav-fav-add a.md
 ui nav-fav-add b.md

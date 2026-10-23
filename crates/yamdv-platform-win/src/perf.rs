@@ -133,3 +133,33 @@ mod tests {
         assert!(report(&v).starts_with("frames 100\n"));
     }
 }
+
+/// Threads of this process right now (F-26 probe: watches must not add threads).
+pub fn thread_count() -> u32 {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+    };
+    // SAFETY: thread snapshot of the system, closed below.
+    let Ok(snap) = (unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) }) else {
+        return 0;
+    };
+    let pid = std::process::id();
+    let mut te = THREADENTRY32 {
+        dwSize: std::mem::size_of::<THREADENTRY32>() as u32,
+        ..Default::default()
+    };
+    let mut n = 0u32;
+    // SAFETY: valid snapshot and a correctly sized entry.
+    let mut ok = unsafe { Thread32First(snap, &mut te) }.is_ok();
+    while ok {
+        if te.th32OwnerProcessID == pid {
+            n += 1;
+        }
+        // SAFETY: as above.
+        ok = unsafe { Thread32Next(snap, &mut te) }.is_ok();
+    }
+    // SAFETY: opened above.
+    let _ = unsafe { CloseHandle(snap) };
+    n
+}

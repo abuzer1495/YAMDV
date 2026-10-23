@@ -42,6 +42,8 @@ thread_local! {
     static WALK: std::cell::RefCell<(String, bool)> = const {
         std::cell::RefCell::new((String::new(), true))
     };
+    /// Last `nav-watch-threads`: (threads before, threads with the watches, live watches).
+    static WPROBE: std::cell::Cell<(u32, u32, usize)> = const { std::cell::Cell::new((0, 0, 0)) };
 }
 
 impl Win {
@@ -100,6 +102,28 @@ impl Win {
                 } else {
                     crate::window::driver::again(50)
                 }
+            }
+            "nav-watch-threads" => {
+                // F-26: N extra folder watches (as N expanded Files-tab folders) add no thread.
+                let n = arg.parse::<usize>().unwrap_or(10).min(32);
+                let root = std::env::temp_dir().join("yamdv-v2e-watch");
+                let _ = std::fs::remove_dir_all(&root);
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                let before = crate::perf::thread_count();
+                let mut keep = Vec::new();
+                for i in 0..n {
+                    let d = root.join(format!("d{i}"));
+                    let _ = std::fs::create_dir_all(&d);
+                    let w = crate::watch::watch_dir(&d.to_string_lossy(), self.hwnd, 0xFFFF);
+                    keep.extend(w);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                let with = crate::perf::thread_count();
+                let live = crate::watch::active();
+                drop(keep);
+                let _ = std::fs::remove_dir_all(&root);
+                WPROBE.with(|c| c.set((before, with, live)));
+                String::new()
             }
             "nav-tab" => {
                 let t = arg.parse::<u8>().unwrap_or(0);
@@ -265,6 +289,18 @@ impl Win {
             ("region", region.into()),
             ("side_focus", side_focus),
             ("kfocus", kf),
+            ("watch_threads", {
+                let (b, w, _) = WPROBE.with(std::cell::Cell::get);
+                format!("{b}>{w}")
+            }),
+            ("watch_thread_delta", {
+                let (b, w, _) = WPROBE.with(std::cell::Cell::get);
+                (i64::from(w) - i64::from(b)).to_string()
+            }),
+            (
+                "watch_live",
+                WPROBE.with(std::cell::Cell::get).2.to_string(),
+            ),
         ];
         let toc_links = match &self.view {
             View::Doc(d) => match &d.content {

@@ -45,4 +45,6 @@ pub mod sys;
 #[cfg(windows)]
 pub mod theme;
 #[cfg(windows)]
+pub mod watch;
+#[cfg(windows)]
 pub mod window;
