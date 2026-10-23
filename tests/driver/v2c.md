@@ -2,7 +2,7 @@
 
 Read the [project site](https://example.com/docs "Project documentation") or the <abbr title="HyperText Markup Language">HTML</abbr> notes.[^1]
 
-Water is H~2~O and the area is 10 m^2^.
+Water is H<sub>2</sub>O and the area is 10 m<sup>2</sup>.
 
 ## Pictures
 
