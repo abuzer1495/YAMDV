@@ -2278,6 +2278,7 @@ impl Win {
                 return true;
             }
             HotKind::FootNote { .. }
+            | HotKind::Cell { .. }
             | HotKind::Image { .. }
             | HotKind::ImagePlaceholder { .. }
             | HotKind::Diagram { .. }

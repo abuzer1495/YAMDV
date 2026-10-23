@@ -40,3 +40,8 @@ EOL/BOM kept) then Part 2.
 - Fixed F2 diff alignment at a block end (an inserted line break matched the following EOL, so Enter at block end left the block).
 - T5 F2 on large-1mb.md: tests/perf/t5-live-large.yds + measure.ps1 (Wine: 85 ms on 1 MB vs 90 ms on typical — no size dependence; CI gives real numbers).
 - Next: Part 2 items 8–13 (table model in yamdv-editor with pure tests first).
+
+## CHECKPOINT 8 (Part 2 in progress)
+- Done: yamdv_editor::table (grid/parse/serialize pretty EA-width, ops, Turkish natural sort, escape) + tsv (RFC 4180) + tests_table; insert::block goes after the caret's whole block (R-TBL-08).
+- Layout: yamdv_layout::table_edit (active table = grid of reveal paras, HotKind::Cell per cell, SourceBlock.table).
+- Next: platform wysi/table/ (reveal build, live_para by caret, cell hit, keys Tab/Enter/Shift+Enter/arrows, `|`→`\|`, ops + pill tools + Table ▸ menu, grips drag, 10×10 picker on Ctrl+T / Insert ▸ Table…, TSV paste + offer, pretty-align on leave), table-edit.yds, goldens, §4.

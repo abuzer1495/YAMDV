@@ -19,6 +19,7 @@ pub mod reveal;
 pub mod rich;
 pub mod shaper;
 pub mod table;
+pub mod table_edit;
 pub mod viewer;
 pub mod warm;
 

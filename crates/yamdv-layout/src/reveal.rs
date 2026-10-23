@@ -137,6 +137,9 @@ pub(crate) fn source_block(
     sb: &crate::viewer::SourceBlock,
     w: f32,
 ) -> BlockLayout {
+    if let Some(t) = &sb.table {
+        return crate::table_edit::layout(ctx, t, sb.start, w);
+    }
     if let Some(r) = &sb.reveal {
         return layout(ctx, r, sb.start, w);
     }

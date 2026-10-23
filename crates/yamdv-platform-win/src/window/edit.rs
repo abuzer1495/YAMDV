@@ -592,6 +592,7 @@ impl Win {
                 code_font: e.opts.code_font,
                 reveal: None,
                 preview: None,
+                table: None,
             });
             d.viewer.invalidate_block(bi);
         }

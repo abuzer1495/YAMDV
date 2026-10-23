@@ -314,6 +314,8 @@ pub struct SourceBlock {
     pub reveal: Option<crate::reveal::Reveal>,
     /// Live preview under a math / Mermaid source (last good diagram, 150 ms debounce).
     pub preview: Option<crate::reveal::Preview>,
+    /// The active block is a table: cell editing (R-TBL-01).
+    pub table: Option<crate::table_edit::TableReveal>,
 }
 
 /// Options of the verbatim (plain / F3 editor) layout.
