@@ -12,7 +12,7 @@ Options checked:
 | (b) `usvg` + `resvg` 0.48.1, `default-features = false` (no `text`, `svgz`, raster images) | cross-built probe, release profile (`opt-level="s"`, fat LTO, stripped): tiny-skia-only probe 435 200 B → with resvg 996 352 B = **+561 KB**. `roxmltree` also expands internal DTD entities (S-RES-07 wants them rejected). | out (size) |
 | (c) own subset renderer on `tiny-skia` | only the subset the prompt lists; parser and limits are ours, so every S-RES-07 rule is a unit test. | **chosen** |
 
-Decision: (c). New pure crate module `yamdv-layout`-free crate **`yamdv-svg`** (no Windows code, fuzzable):
+Decision: (c). New pure crate **`yamdv-svg`** (no Windows code, fuzzable):
 - `xml`: bounded tokenizer (elements, attributes, text, comments, CDATA; `<!DOCTYPE`/`<!ENTITY` → error, no entity
   expansion beyond the five predefined and numeric references); limits: input ≤ 10 MB, ≤ 50 000 elements, depth ≤ 64.
 - `tree`: `svg`, `g`, `use` (same-document `#id` only, depth ≤ 8, ≤ 10 000 instances), `defs`, `symbol`, `path`,
@@ -26,7 +26,7 @@ Decision: (c). New pure crate module `yamdv-layout`-free crate **`yamdv-svg`** (
   back as runs that the Windows side draws through DirectWrite (system fonts only, S-RES-06).
 - Integration: the image worker decodes SVG at display size like raster images (same LRU); the ⛶ viewer asks
   for a new decode at the zoom scale. Nothing is parsed until an SVG image is visible → zero cost otherwise.
-- Fuzz target `svg_parse` (built in CI, not run).
+- Fuzz target `svg_parse` (not run in CI; V2-I runs it long).
 
 Consequences: SVG filters, masks, clip paths, patterns, markers, CSS and animation are not rendered (the element is
 skipped, the rest draws). Exe delta is measured with `cargo xtask size-map` in the V2-G report; if it exceeds
