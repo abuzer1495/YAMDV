@@ -547,6 +547,10 @@ mod cmd {
     pub const INS0: u32 = 170; // + 0..13
     /// Table ▸ commands (prompt 016 §3 item 9), order of `TblOp::ALL`.
     pub const TBL0: u32 = 190; // + 0..17
+    // V2-G content engines (prompt 017 §3 item 2).
+    /// Diagram context menu: Copy as PNG (2×) / Copy source.
+    pub const DIAGRAM_PNG: u32 = 210;
+    pub const DIAGRAM_SRC: u32 = 211;
 }
 pub(super) use cmd::*;
 
@@ -664,6 +668,8 @@ pub(super) struct MenuCtx {
     pub in_table: bool,
     /// The window is in F11 fullscreen (R-WIN-06).
     pub fullscreen: bool,
+    /// A rendered diagram is under the cursor (Copy as PNG / Copy source).
+    pub diagram: bool,
 }
 
 /// The document context menu (B.7.2), also shown by ⋯.
@@ -748,6 +754,10 @@ pub(super) fn build(lang: Lang, c: &MenuCtx) -> Model {
     if c.table {
         b.msg(m, CSV_COPY, Msg::MCopyTableCsv, "", 0);
         b.msg(m, CSV_EXPORT, Msg::MExportTableCsv, "", 0);
+    }
+    if c.diagram {
+        b.msg(m, DIAGRAM_PNG, Msg::MCopyPng, "", 0);
+        b.msg(m, DIAGRAM_SRC, Msg::MCopySource, "", 0);
     }
     b.msg(m, SELECT_ALL, Msg::MSelectAll, &keys("select_all"), 0);
     b.sep(m);
@@ -1077,6 +1087,8 @@ pub(super) fn run_command(hwnd: HWND, id: u32, link: Option<String>) -> Vec<Acti
                 out.push(Action::Export(super::ExportKind::Csv(t)));
             }
         }
+        DIAGRAM_PNG => with_win(hwnd, |w, sh| w.diagram_copy(sh, true)),
+        DIAGRAM_SRC => with_win(hwnd, |w, sh| w.diagram_copy(sh, false)),
         INSTALL => out.push(Action::Install),
         SCHEME_CARDS => out.push(Action::SchemeCards),
         WORD_COUNT => toggle("reading.word_count_badge"),
@@ -1598,6 +1610,7 @@ impl Win {
                 path: Some(d.path.clone()),
                 edit: self.edit_mode_id(),
                 table: self.ctx_table.is_some(),
+                diagram: self.ctx_diagram.is_some(),
                 in_table: self.wysi.tbl_at.is_some() || self.active_table().is_some(),
                 fullscreen: self.fs,
             },

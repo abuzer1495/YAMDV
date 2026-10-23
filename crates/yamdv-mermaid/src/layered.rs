@@ -9,7 +9,7 @@
     clippy::type_complexity
 )]
 
-use crate::draw::{self, Drawing, Head, Ink, Measure, Path, Prim, Role, Seg, TextPrim};
+use crate::draw::{self, Drawing, Ink, Measure, Path, Prim, Role, Seg, TextPrim};
 use crate::flow::{Dir, Flow, Line, Shape};
 
 /// Virtual-node cap (dummy chains of long edges); above it the layout reports `complex`.
@@ -195,7 +195,9 @@ fn clip(shape: Shape, c: (f32, f32), w: f32, h: f32, to: (f32, f32)) -> (f32, f3
     let (hw, hh) = (w / 2.0, h / 2.0);
     let t = match shape {
         Shape::Rhombus => 1.0 / (dx.abs() / hw + dy.abs() / hh),
-        Shape::Circle => hw / (dx * dx + dy * dy).sqrt(),
+        Shape::Circle | Shape::DoubleCircle | Shape::Start | Shape::End => {
+            hw / (dx * dx + dy * dy).sqrt()
+        }
         _ => {
             let tx = if dx.abs() > 1e-6 {
                 hw / dx.abs()
@@ -218,16 +220,49 @@ struct NodeGeo {
     w: f32,
     h: f32,
     text: (u32, f32, f32),
+    /// Compartments of a [`Shape::Class`] node (id, w, h).
+    secs: Vec<(u32, f32, f32)>,
 }
 
 fn node_geo(f: &Flow, m: &mut dyn Measure, s: f32) -> Vec<NodeGeo> {
     f.nodes
         .iter()
         .map(|n| {
-            let t = m.text(&n.label, 14.0 * s, 200.0 * s, false);
+            if matches!(n.shape, Shape::Start | Shape::End) {
+                let t = m.text("", 14.0 * s, 1.0, false);
+                return NodeGeo {
+                    w: 16.0 * s,
+                    h: 16.0 * s,
+                    text: (t.0, 0.0, 0.0),
+                    secs: Vec::new(),
+                };
+            }
+            let bold = n.shape == Shape::Class;
+            let t = m.text(&n.label, 14.0 * s, 200.0 * s, bold);
+            if bold {
+                let secs: Vec<(u32, f32, f32)> = n
+                    .sections
+                    .iter()
+                    .map(|x| m.text(x, 13.0 * s, 300.0 * s, false))
+                    .collect();
+                let w = secs.iter().map(|x| x.1).fold(t.1, f32::max) + 24.0 * s;
+                let h = secs.iter().map(|x| x.2 + 12.0 * s).sum::<f32>() + t.2 + 16.0 * s;
+                return NodeGeo {
+                    w,
+                    h,
+                    text: t,
+                    secs,
+                };
+            }
             let (w0, h0) = (t.1 + 24.0 * s, t.2 + 16.0 * s);
             let (w, h) = match n.shape {
-                Shape::Rect | Shape::Round => (w0, h0),
+                Shape::Rect | Shape::Round | Shape::Start | Shape::End | Shape::Class => (w0, h0),
+                Shape::Asymmetric => (w0 + h0 / 2.0, h0),
+                Shape::Hexagon => (w0 + h0, h0),
+                Shape::Parallelogram
+                | Shape::ParallelogramAlt
+                | Shape::Trapezoid
+                | Shape::TrapezoidAlt => (w0 + h0, h0),
                 Shape::Subroutine => (w0 + 16.0 * s, h0),
                 Shape::Stadium => (w0 + h0 / 2.0, h0),
                 Shape::Cylinder => (w0, h0 + 12.0 * s),
@@ -235,12 +270,21 @@ fn node_geo(f: &Flow, m: &mut dyn Measure, s: f32) -> Vec<NodeGeo> {
                     let d = (t.1 * t.1 + t.2 * t.2).sqrt() + 16.0 * s;
                     (d, d)
                 }
+                Shape::DoubleCircle => {
+                    let d = (t.1 * t.1 + t.2 * t.2).sqrt() + 24.0 * s;
+                    (d, d)
+                }
                 Shape::Rhombus => {
                     let d = t.1 + t.2 + 24.0 * s;
                     (d, d)
                 }
             };
-            NodeGeo { w, h, text: t }
+            NodeGeo {
+                w,
+                h,
+                text: t,
+                secs: Vec::new(),
+            }
         })
         .collect()
 }
@@ -316,16 +360,17 @@ pub(crate) fn layout(f: &Flow, m: &mut dyn Measure, s: f32) -> Drawing {
 
     // 2. Longest-path ranks (Kahn order).
     let mut indeg = vec![0usize; n];
-    let mut out: Vec<Vec<usize>> = vec![Vec::new(); n];
-    for &(a, b, _) in &dag {
+    let mut out: Vec<Vec<(usize, usize)>> = vec![Vec::new(); n];
+    for &(a, b, ei) in &dag {
         indeg[b] += 1;
-        out[a].push(b);
+        // Extra-length operators (`--->`) ask for a longer rank distance.
+        out[a].push((b, usize::from(f.edges[ei].len.max(1))));
     }
     let mut rank = vec![0usize; n];
     let mut q: std::collections::VecDeque<usize> = (0..n).filter(|&v| indeg[v] == 0).collect();
     while let Some(v) = q.pop_front() {
-        for &w in &out[v] {
-            rank[w] = rank[w].max(rank[v] + 1);
+        for &(w, len) in &out[v] {
+            rank[w] = rank[w].max(rank[v] + len);
             indeg[w] -= 1;
             if indeg[w] == 0 {
                 q.push_back(w);
@@ -702,17 +747,17 @@ pub(crate) fn layout(f: &Flow, m: &mut dyn Measure, s: f32) -> Drawing {
                 Line::Dotted => (1.5 * s, true),
                 Line::Thick => (3.0 * s, false),
             };
+            let ink = e.style.stroke.map_or(Ink::Role(Role::Edge), Ink::Rgb);
             prims.push(Prim::Path(Path {
                 segs: draw::smooth(&pts),
                 fill: None,
-                stroke: Some(Ink::Role(Role::Edge)),
-                width,
-                dash,
+                stroke: Some(ink),
+                width: e.style.width.map_or(width, |w| w * s),
+                dash: e.style.dash.unwrap_or(dash),
             }));
-            if e.arrow {
-                let k = pts.len();
-                draw::head(&mut prims, pts[k - 2], pts[k - 1], Head::Arrow, s);
-            }
+            let k = pts.len();
+            draw::marker(&mut prims, pts[k - 2], pts[k - 1], e.head, ink, s);
+            draw::marker(&mut prims, pts[1], pts[0], e.tail, ink, s);
         }
         out_edges.push(pts);
     }
@@ -742,15 +787,18 @@ pub(crate) fn layout(f: &Flow, m: &mut dyn Measure, s: f32) -> Drawing {
         let fill = Some(col.fill.map_or(Ink::Role(Role::NodeFill), Ink::Rgb));
         let stroke = Some(col.stroke.map_or(Ink::Role(Role::NodeStroke), Ink::Rgb));
         let (cx, cy) = (x0 + w / 2.0, y0 + h / 2.0);
+        let (sw, sdash) = (col.width.map_or(s, |w| w * s), col.dash.unwrap_or(false));
         let shape = |segs: Vec<Seg>| {
             Prim::Path(Path {
                 segs,
                 fill,
                 stroke,
-                width: s,
-                dash: false,
+                width: sw,
+                dash: sdash,
             })
         };
+        let (x1, y1) = (x0 + w, y0 + h);
+        let sl = h / 2.0;
         match nd.shape {
             // B.3.6: rect nodes have radius 6; round nodes are rounder.
             Shape::Rect => prims.push(shape(draw::rrect(x0, y0, w, h, 6.0 * s))),
@@ -761,6 +809,99 @@ pub(crate) fn layout(f: &Flow, m: &mut dyn Measure, s: f32) -> Drawing {
                 &[(cx, y0), (x0 + w, cy), (cx, y0 + h), (x0, cy)],
                 true,
             ))),
+            Shape::DoubleCircle => {
+                prims.push(shape(draw::ellipse(cx, cy, w / 2.0, h / 2.0)));
+                prims.push(shape(draw::ellipse(
+                    cx,
+                    cy,
+                    w / 2.0 - 4.0 * s,
+                    h / 2.0 - 4.0 * s,
+                )));
+            }
+            Shape::Asymmetric => prims.push(shape(draw::poly(
+                &[(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0 + sl, cy)],
+                true,
+            ))),
+            Shape::Hexagon => prims.push(shape(draw::poly(
+                &[
+                    (x0 + sl, y0),
+                    (x1 - sl, y0),
+                    (x1, cy),
+                    (x1 - sl, y1),
+                    (x0 + sl, y1),
+                    (x0, cy),
+                ],
+                true,
+            ))),
+            Shape::Parallelogram => prims.push(shape(draw::poly(
+                &[(x0 + sl, y0), (x1, y0), (x1 - sl, y1), (x0, y1)],
+                true,
+            ))),
+            Shape::ParallelogramAlt => prims.push(shape(draw::poly(
+                &[(x0, y0), (x1 - sl, y0), (x1, y1), (x0 + sl, y1)],
+                true,
+            ))),
+            Shape::Trapezoid => prims.push(shape(draw::poly(
+                &[(x0 + sl, y0), (x1 - sl, y0), (x1, y1), (x0, y1)],
+                true,
+            ))),
+            Shape::TrapezoidAlt => prims.push(shape(draw::poly(
+                &[(x0, y0), (x1, y0), (x1 - sl, y1), (x0 + sl, y1)],
+                true,
+            ))),
+            Shape::Start | Shape::End => {
+                let ink = Some(Ink::Role(Role::Text));
+                if nd.shape == Shape::End {
+                    prims.push(Prim::Path(Path {
+                        segs: draw::ellipse(cx, cy, w / 2.0, h / 2.0),
+                        fill: None,
+                        stroke: ink,
+                        width: s,
+                        dash: false,
+                    }));
+                }
+                let r = if nd.shape == Shape::End {
+                    w / 2.0 - 3.0 * s
+                } else {
+                    w / 2.0
+                };
+                prims.push(Prim::Path(Path {
+                    segs: draw::ellipse(cx, cy, r, r),
+                    fill: ink,
+                    stroke: None,
+                    width: 0.0,
+                    dash: false,
+                }));
+                continue;
+            }
+            Shape::Class => {
+                prims.push(shape(draw::rrect(x0, y0, w, h, 0.0)));
+                let t = geo[i].text;
+                prims.push(Prim::Text(TextPrim {
+                    id: t.0,
+                    x: cx - t.1 / 2.0,
+                    y: y0 + 8.0 * s,
+                    color: col.color.map_or(Ink::Role(Role::Text), Ink::Rgb),
+                }));
+                let mut y = y0 + t.2 + 16.0 * s;
+                for sec in &geo[i].secs {
+                    prims.push(Prim::Path(Path {
+                        segs: draw::poly(&[(x0, y), (x1, y)], false),
+                        fill: None,
+                        stroke,
+                        width: s,
+                        dash: false,
+                    }));
+                    prims.push(Prim::Text(TextPrim {
+                        id: sec.0,
+                        x: x0 + 12.0 * s,
+                        y: y + 6.0 * s,
+                        color: col.color.map_or(Ink::Role(Role::Text), Ink::Rgb),
+                    }));
+                    y += sec.2 + 12.0 * s;
+                }
+                continue;
+            }
             Shape::Subroutine => {
                 prims.push(shape(draw::rrect(x0, y0, w, h, 0.0)));
                 let mut segs = draw::poly(&[(x0 + 8.0 * s, y0), (x0 + 8.0 * s, y0 + h)], false);
@@ -778,7 +919,6 @@ pub(crate) fn layout(f: &Flow, m: &mut dyn Measure, s: f32) -> Drawing {
             }
             Shape::Cylinder => {
                 let ry = 6.0 * s;
-                let (x1, y1) = (x0 + w, y0 + h);
                 let (kx, ky) = (w / 2.0 * 0.552_284_8, ry * 0.552_284_8);
                 prims.push(shape(vec![
                     Seg::M(x0, y0 + ry),

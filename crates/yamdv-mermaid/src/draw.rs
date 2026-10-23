@@ -33,6 +33,22 @@ pub enum Role {
     Activation,
     /// Frame (loop/alt/opt/par) border.
     Frame,
+    /// Gantt task bar.
+    GanttBar,
+    /// Gantt `done` bar.
+    GanttDone,
+    /// Gantt `active` bar.
+    GanttActive,
+    /// Gantt `crit` bar.
+    GanttCrit,
+    /// Gantt milestone.
+    GanttMilestone,
+    /// Gantt grid / excluded-day band.
+    Grid,
+    /// Gantt today marker.
+    Today,
+    /// Pie series color (index into the 10-color B.3.6 series palette).
+    Series(u8),
 }
 
 /// A color: a theme role or an explicit `style`/`classDef` color.
@@ -230,6 +246,121 @@ pub(crate) fn smooth(pts: &[(f32, f32)]) -> Vec<Seg> {
         v.push(Seg::C(c1.0, c1.1, c2.0, c2.1, p2.0, p2.1));
     }
     v
+}
+
+/// Draws edge-end marker `end` at `tip` (pointing along `from → tip`) in `ink`.
+#[allow(clippy::too_many_lines)]
+pub(crate) fn marker(
+    out: &mut Vec<Prim>,
+    from: (f32, f32),
+    tip: (f32, f32),
+    end: crate::flow::End,
+    ink: Ink,
+    s: f32,
+) {
+    use crate::flow::End;
+    let (dx, dy) = (tip.0 - from.0, tip.1 - from.1);
+    let len = (dx * dx + dy * dy).sqrt();
+    if len < 1e-3 || end == End::None {
+        return;
+    }
+    let (ux, uy) = (dx / len, dy / len);
+    let (px, py) = (-uy, ux);
+    let at = |along: f32, across: f32| {
+        (
+            tip.0 - ux * along + px * across,
+            tip.1 - uy * along + py * across,
+        )
+    };
+    let stroke = |segs: Vec<Seg>, fill: Option<Ink>| {
+        Prim::Path(Path {
+            segs,
+            fill,
+            stroke: Some(ink),
+            width: 1.5 * s,
+            dash: false,
+        })
+    };
+    let bg = Some(Ink::Role(Role::LabelBg));
+    match end {
+        End::None => {}
+        End::Arrow => out.push(Prim::Path(Path {
+            segs: poly(&[tip, at(9.0 * s, 4.5 * s), at(9.0 * s, -4.5 * s)], true),
+            fill: Some(ink),
+            stroke: None,
+            width: 0.0,
+            dash: false,
+        })),
+        End::Open => out.push(stroke(
+            poly(&[at(9.0 * s, 5.0 * s), tip, at(9.0 * s, -5.0 * s)], false),
+            None,
+        )),
+        End::Circle => {
+            let c = at(4.0 * s, 0.0);
+            out.push(stroke(ellipse(c.0, c.1, 4.0 * s, 4.0 * s), bg));
+        }
+        End::Cross => {
+            let c = at(5.0 * s, 0.0);
+            let d = 4.0 * s;
+            let mut segs = poly(
+                &[
+                    (c.0 - d * (ux + px), c.1 - d * (uy + py)),
+                    (c.0 + d * (ux + px), c.1 + d * (uy + py)),
+                ],
+                false,
+            );
+            segs.extend(poly(
+                &[
+                    (c.0 - d * (ux - px), c.1 - d * (uy - py)),
+                    (c.0 + d * (ux - px), c.1 + d * (uy - py)),
+                ],
+                false,
+            ));
+            out.push(stroke(segs, None));
+        }
+        End::Triangle => out.push(stroke(
+            poly(&[tip, at(12.0 * s, 6.0 * s), at(12.0 * s, -6.0 * s)], true),
+            bg,
+        )),
+        End::Diamond | End::DiamondFilled => {
+            let fill = if end == End::Diamond { bg } else { Some(ink) };
+            out.push(stroke(
+                poly(
+                    &[
+                        tip,
+                        at(7.0 * s, 4.5 * s),
+                        at(14.0 * s, 0.0),
+                        at(7.0 * s, -4.5 * s),
+                    ],
+                    true,
+                ),
+                fill,
+            ));
+        }
+        End::One | End::ZeroOne | End::OneMany | End::ZeroMany => {
+            let mut segs = Vec::new();
+            // Crow's foot (many) or a bar (one) at the end, then a bar or circle (zero) behind.
+            if matches!(end, End::OneMany | End::ZeroMany) {
+                segs.extend(poly(
+                    &[at(0.0, 6.0 * s), at(10.0 * s, 0.0), at(0.0, -6.0 * s)],
+                    false,
+                ));
+            } else {
+                segs.extend(poly(&[at(6.0 * s, 6.0 * s), at(6.0 * s, -6.0 * s)], false));
+            }
+            if matches!(end, End::One | End::OneMany) {
+                segs.extend(poly(
+                    &[at(13.0 * s, 6.0 * s), at(13.0 * s, -6.0 * s)],
+                    false,
+                ));
+                out.push(stroke(segs, None));
+            } else {
+                out.push(stroke(segs, None));
+                let c = at(17.0 * s, 0.0);
+                out.push(stroke(ellipse(c.0, c.1, 4.0 * s, 4.0 * s), bg));
+            }
+        }
+    }
 }
 
 /// Arrowhead variants.

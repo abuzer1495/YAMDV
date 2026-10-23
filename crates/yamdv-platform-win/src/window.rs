@@ -432,6 +432,8 @@ struct Win {
     wysi: wysi::Wysi,
     /// CSV of the table under the last context-menu click (R-EXP-04).
     ctx_table: Option<String>,
+    /// Diagram (block, node) under the last context-menu click (FUT-18 Copy as PNG / source).
+    ctx_diagram: Option<(usize, usize)>,
     /// Content offset below the client top: the title bar height, 0 in fullscreen (B.4).
     top: f32,
     /// F11 fullscreen (R-WIN-06).
@@ -3051,6 +3053,7 @@ fn handle(
         WM_CONTEXTMENU => {
             if lp.0 == -1 {
                 w.ctx_table = None;
+                w.ctx_diagram = None;
                 w.wysi.tbl_at = None;
                 actions.push(w.kbd_menu());
             } else {
@@ -3066,6 +3069,7 @@ fn handle(
                 }
                 let link = w.link_at(sh, x, y);
                 w.ctx_table = w.table_csv_at(sh, x, y);
+                w.ctx_diagram = w.diagram_at(sh, x, y);
                 w.wysi.tbl_at = w.ctx_table.as_ref().and_then(|_| w.doc_hit(sh, x, y));
                 actions.push(Action::ContextMenu(sx, sy, link));
             }
@@ -3815,6 +3819,7 @@ fn create_window(sh: &Shared, path: Option<&str>) -> Option<HWND> {
         plus: plus::Plus::default(),
         wysi: wysi::Wysi::default(),
         ctx_table: None,
+        ctx_diagram: None,
         top: yamdv_core::chrome::BAR_H,
         fs: false,
         cap: chrome::Caption::default(),

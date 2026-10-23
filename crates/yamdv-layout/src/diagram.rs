@@ -96,6 +96,12 @@ impl Measure for Meas<'_> {
     }
 }
 
+/// B.3.6 pie / mindmap series palette.
+const SERIES: [u32; 10] = [
+    0x60A5FA, 0x34D399, 0xFBBF24, 0xF87171, 0xA78BFA, 0xF472B6, 0x22D3EE, 0xA3E635, 0xFB923C,
+    0x94A3B8,
+];
+
 /// B.3.6 palette.
 fn color(ink: Ink, dark: bool, card: u32) -> u32 {
     let r = match ink {
@@ -123,18 +129,38 @@ fn color(ink: Ink, dark: bool, card: u32) -> u32 {
         (Role::Lifeline, true) => 0x64748B,
         (Role::Activation, false) => 0xE2E8F0,
         (Role::Activation, true) => 0x334155,
+        (Role::GanttBar, false) => 0x93C5FD,
+        (Role::GanttBar, true) => 0x3B82F6,
+        (Role::GanttDone, false) => 0xCBD5E1,
+        (Role::GanttDone, true) => 0x475569,
+        (Role::GanttActive, _) => 0x60A5FA,
+        (Role::GanttCrit, false) => 0xF87171,
+        (Role::GanttCrit, true) => 0xEF4444,
+        (Role::GanttMilestone, false) => 0x2563EB,
+        (Role::GanttMilestone, true) => 0x93C5FD,
+        (Role::Grid, false) => 0xE5E7EB,
+        (Role::Grid, true) => 0x374151,
+        (Role::Today, false) => 0xEF4444,
+        (Role::Today, true) => 0xF87171,
+        (Role::Series(i), _) => SERIES
+            .get(usize::from(i) % SERIES.len())
+            .copied()
+            .unwrap_or(0x94A3B8),
     }
 }
 
-fn lay(ctx: &mut Ctx<'_>, d: &Diagram, inner_w: f32) -> Laid {
+fn lay(ctx: &mut Ctx<'_>, d: &Diagram, src: &str, inner_w: f32) -> Laid {
     let t0 = Instant::now();
+    let now = ctx.rich.now_local();
+    let init = yamdv_mermaid::theme::init(src);
+    let s0 = init.as_ref().and_then(|i| i.font_scale).unwrap_or(1.0);
     let mut m = Meas {
         shaper: &mut *ctx.shaper,
         texts: Vec::new(),
     };
-    let mut dr = d.layout(&mut m, 1.0);
+    let mut dr = d.layout_at(&mut m, s0, now);
     // R-MMD-02: scaled down to fit the column, never up (text is re-laid at the smaller size).
-    let mut s = 1.0f32;
+    let mut s = s0;
     for _ in 0..2 {
         if dr.complex || dr.w <= inner_w || dr.w <= 0.0 {
             break;
@@ -145,7 +171,10 @@ fn lay(ctx: &mut Ctx<'_>, d: &Diagram, inner_w: f32) -> Laid {
         }
         s = ns;
         m.texts.clear();
-        dr = d.layout(&mut m, s);
+        dr = d.layout_at(&mut m, s, now);
+    }
+    if let Some(i) = &init {
+        i.apply(&mut dr);
     }
     Laid {
         drawing: dr,
@@ -213,7 +242,7 @@ pub(crate) fn block(
     {
         Some(l) => l,
         None => {
-            let l = Rc::new(lay(ctx, &d, inner_w));
+            let l = Rc::new(lay(ctx, &d, &pt.text, inner_w));
             if let Some(c) = ctx.rich.cache() {
                 let mut m = c.diagrams.borrow_mut();
                 if m.len() >= 512 {

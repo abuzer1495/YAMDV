@@ -53,6 +53,11 @@ pub trait RichHost {
     fn render_mermaid(&self) -> bool;
     /// Per-document cache (`None` = no caching).
     fn cache(&self) -> Option<&RichCache>;
+    /// Local wall clock (s since 1970-01-01, local zone applied) for the gantt today marker;
+    /// `None` (tests, goldens) draws no marker.
+    fn now_local(&self) -> Option<i64> {
+        None
+    }
 }
 
 /// A host without math font or cache (pure tests, fuzzing): math and diagrams render as source.
@@ -528,11 +533,18 @@ mod tests {
                 ..
             }
         )));
-        let seq = "```mermaid\nsequenceDiagram\nA->>B: hi\n```\n";
-        assert!(count(&lay(seq, &r, 600.0).0, is_path) > 3);
+        for src in [
+            "```mermaid\nsequenceDiagram\nA->>B: hi\n```\n",
+            "```mermaid\npie\n\"a\": 1\n\"b\": 2\n```\n",
+            "```mermaid\ngantt\n x :2024-01-01, 3d\n y : 2d\n```\n",
+            "```mermaid\nstateDiagram-v2\n[*] --> A\nA --> [*]\n```\n",
+            "```mermaid\nmindmap\n  r\n    a\n    b\n```\n",
+        ] {
+            assert!(count(&lay(src, &r, 600.0).0, is_path) > 3, "{src}");
+        }
         // Unsupported type and syntax error: code card, no diagram.
         for src in [
-            "```mermaid\npie\n\"a\": 1\n```\n",
+            "```mermaid\ntimeline\n  2026 : a\n```\n",
             "```mermaid\ngraph TD\nA -->\n```\n",
         ] {
             let (it, _) = lay(src, &r, 600.0);

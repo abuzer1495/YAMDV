@@ -35,7 +35,7 @@ fn syntax(src: &str) -> crate::Error {
 #[test]
 fn flow_shapes_and_edges() {
     let f = flow(
-        "flowchart LR\n  a[Rect] --> b(Round)\n  b --- c([Stadium])\n  c -.-> d[[Sub]]\n  d ==> e[(Db)]\n  e -.- f((Circle))\n  f === g{Rhombus}\n  g --> h>Asym]\n  h --> i[/trap\\]\n  i --> j[\\alt/]\n  %% comment\n  click a callback\n",
+        "flowchart LR\n  a[Rect] --> b(Round)\n  b --- c([Stadium])\n  c -.-> d[[Sub]]\n  d ==> e[(Db)]\n  e -.- f((Circle))\n  f === g{Rhombus}\n  g --> h>Asym]\n  h --> i[/trap\\]\n  i --> j[\\alt/]\n  j --> k{{Hex}}\n  k --> l[/par/]\n  l --> m[\\alt\\]\n  m --> n(((dbl)))\n  %% comment\n  click a callback\n",
     );
     assert_eq!(f.dir, Dir::LR);
     let shapes: Vec<Shape> = f.nodes.iter().map(|n| n.shape).collect();
@@ -49,13 +49,21 @@ fn flow_shapes_and_edges() {
             Shape::Cylinder,
             Shape::Circle,
             Shape::Rhombus,
-            Shape::Rect,
-            Shape::Rect,
-            Shape::Rect
+            Shape::Asymmetric,
+            Shape::Trapezoid,
+            Shape::TrapezoidAlt,
+            Shape::Hexagon,
+            Shape::Parallelogram,
+            Shape::ParallelogramAlt,
+            Shape::DoubleCircle
         ]
     );
     assert_eq!(f.nodes[6].label, "Rhombus");
-    let kinds: Vec<(Line, bool)> = f.edges.iter().map(|e| (e.line, e.arrow)).collect();
+    let kinds: Vec<(Line, bool)> = f
+        .edges
+        .iter()
+        .map(|e| (e.line, e.head == crate::flow::End::Arrow))
+        .collect();
     assert_eq!(
         kinds,
         [
@@ -67,8 +75,40 @@ fn flow_shapes_and_edges() {
             (Line::Thick, false),
             (Line::Solid, true),
             (Line::Solid, true),
+            (Line::Solid, true),
+            (Line::Solid, true),
+            (Line::Solid, true),
+            (Line::Solid, true),
             (Line::Solid, true)
         ]
+    );
+    // Edge ends, extra length, linkStyle (default + index, stroke-dasharray).
+    use crate::flow::End;
+    let f = flow(
+        "graph TD\n a --o b\n b --x c\n c <--> d\n d o--o e\n e ---> f\n f -.-> g\n linkStyle default stroke:#f00\n linkStyle 1 stroke-width:4px,stroke-dasharray:5 5\n style a stroke-dasharray:3",
+    );
+    let ends: Vec<(End, End, u8)> = f.edges.iter().map(|e| (e.tail, e.head, e.len)).collect();
+    assert_eq!(
+        ends,
+        [
+            (End::None, End::Circle, 1),
+            (End::None, End::Cross, 1),
+            (End::Arrow, End::Arrow, 1),
+            (End::Circle, End::Circle, 1),
+            (End::None, End::Arrow, 2),
+            (End::None, End::Arrow, 1)
+        ]
+    );
+    assert_eq!(f.edges[0].style.stroke, Some(0xFF0000));
+    assert_eq!(
+        (f.edges[1].style.width, f.edges[1].style.dash),
+        (Some(4.0), Some(true))
+    );
+    assert_eq!(f.nodes[0].style.dash, Some(true));
+    let d = check_layout("graph TD\n a --o b\n a ---> c\n b --> c");
+    assert!(
+        d.boxes[2].1 > d.boxes[1].1 + d.boxes[1].3,
+        "minlen 2 puts c below b"
     );
 }
 
@@ -79,7 +119,7 @@ fn flow_labels_chains_groups() {
     );
     assert_eq!(f.edges[0].label.as_deref(), Some("yes"));
     assert_eq!(f.edges[1].label.as_deref(), Some("no"));
-    assert!(f.edges[1].arrow);
+    assert_eq!(f.edges[1].head, crate::flow::End::Arrow);
     assert_eq!(f.edges[2].label.as_deref(), Some("maybe"));
     assert_eq!(f.edges[2].line, Line::Dotted);
     assert_eq!(f.edges[3].label.as_deref(), Some("sure"));
@@ -128,14 +168,12 @@ fn flow_errors_have_positions() {
 
 #[test]
 fn unsupported_types() {
-    assert_eq!(
-        parse("pie\n\"a\": 1"),
-        Err(Failure::Unsupported("pie".into()))
-    );
-    assert_eq!(
-        parse("%% c\ngantt\ntitle x"),
-        Err(Failure::Unsupported("gantt".into()))
-    );
+    for k in ["timeline", "journey", "gitGraph", "quadrantChart"] {
+        assert_eq!(
+            parse(&format!("%% c\n{k}\n  title x")),
+            Err(Failure::Unsupported(k.into()))
+        );
+    }
     assert!(matches!(parse(""), Err(Failure::Syntax(_))));
 }
 
@@ -224,9 +262,11 @@ fn overlap(a: (f32, f32, f32, f32), b: (f32, f32, f32, f32)) -> bool {
         && b.1 < a.1 + a.3 - 0.01
 }
 
-fn check_layout(src: &str) -> crate::Drawing {
+pub(crate) fn check_layout(src: &str) -> crate::Drawing {
     let d = parse(src).unwrap();
-    let Diagram::Flow(f) = &d else { panic!() };
+    let (Diagram::Flow(f) | Diagram::Graph(f)) = &d else {
+        panic!()
+    };
     let out = d.layout(&mut MockMeasure::default(), 1.0);
     assert_eq!(out.boxes.len(), f.nodes.len());
     for i in 0..out.boxes.len() {

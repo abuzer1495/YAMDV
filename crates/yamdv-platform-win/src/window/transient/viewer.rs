@@ -437,6 +437,57 @@ impl Win {
         }
     }
 
+    /// The rendered diagram (block, detail node) under content point (x, y).
+    pub(in crate::window) fn diagram_at(
+        &self,
+        sh: &Shared,
+        x: f32,
+        y: f32,
+    ) -> Option<(usize, usize)> {
+        let View::Doc(d) = &self.view else {
+            return None;
+        };
+        let (cx, _) = self.col(sh);
+        let doc_y = f64::from(y) + d.viewer.scroll;
+        let bi = d.viewer.block_at_y(doc_y);
+        let ly = (doc_y - d.viewer.block_top(&d.content, bi)) as f32;
+        d.viewer
+            .layout_of(bi)?
+            .hot
+            .iter()
+            .find_map(|h| match h.kind {
+                HotKind::Diagram { node } if h.rect.contains(x - cx, ly) => Some((bi, node)),
+                _ => None,
+            })
+    }
+
+    /// Context menu on a diagram: Copy as PNG (2×, `CF_DIB` + PNG) or Copy source.
+    pub(in crate::window) fn diagram_copy(&mut self, sh: &Shared, png: bool) {
+        let Some((bi, node)) = self.ctx_diagram else {
+            return;
+        };
+        let ok = if png {
+            let fv = self.open_diagram(sh, bi, node);
+            match fv.as_ref().map(|f| &f.kind) {
+                Some(FvKind::Block { viewer, .. }) => {
+                    self.diagram_png(sh, viewer).is_some_and(|(w, h, px)| {
+                        let png = crate::snapshot::encode_png(w, h, &px).ok();
+                        sys::copy_image(self.hwnd, w, h, &px, png.as_deref())
+                    })
+                }
+                _ => false,
+            }
+        } else {
+            self.node_source(bi, node).is_some_and(|md| {
+                let body = fence_body(&md);
+                sys::copy_text(self.hwnd, body)
+            })
+        };
+        if ok {
+            self.toast(if png { Msg::CopiedImage } else { Msg::Copied });
+        }
+    }
+
     /// The whole diagram at scale 2, opaque BGRA.
     fn diagram_png(&self, sh: &Shared, viewer: &Viewer) -> Option<(u32, u32, Vec<u8>)> {
         let bl = viewer.layout_of(0)?;
@@ -878,5 +929,19 @@ impl Win {
         };
         self.fv_key(sh, vk, ctrl);
         true
+    }
+}
+
+/// The code inside a fenced block (`md` without its opening and closing fence lines).
+fn fence_body(md: &str) -> &str {
+    let md = md.trim_end_matches(['\n', '\r']);
+    let start = md.find('\n').map_or(md.len(), |i| i + 1);
+    let body = md.get(start..).unwrap_or("");
+    let last = body.rfind('\n').map_or(0, |i| i + 1);
+    let tail = body.get(last..).unwrap_or("").trim();
+    if tail.starts_with("```") || tail.starts_with("~~~") {
+        body.get(..last).unwrap_or(body)
+    } else {
+        body
     }
 }

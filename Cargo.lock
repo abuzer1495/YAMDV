@@ -662,6 +662,10 @@ version = "1.3.0"
 [[package]]
 name = "yamdv-mermaid"
 version = "1.3.0"
+dependencies = [
+ "yamdv-core",
+ "yamdv-ui",
+]
 
 [[package]]
 name = "yamdv-platform-win"
