@@ -9,6 +9,7 @@ pub mod callout;
 pub mod code;
 pub mod diagram;
 pub mod fenwick;
+pub mod fold;
 pub mod front;
 pub mod geom;
 pub mod img;

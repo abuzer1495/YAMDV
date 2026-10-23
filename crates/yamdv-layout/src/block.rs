@@ -183,6 +183,8 @@ pub enum Item {
         width: f32,
         /// Dashed stroke.
         dash: bool,
+        /// Horizontal scroll region (BUG-08: a diagram wider than its card scrolls).
+        hscroll: Option<u16>,
     },
     /// A laid-out formula (R-MATH-01) with its baseline origin at (x, y); glyphs without a
     /// `\color` override use `color`.

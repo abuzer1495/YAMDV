@@ -2755,7 +2755,13 @@ pub(crate) fn draw_block(
                 stroke,
                 width,
                 dash,
-            } => b.path(segs, (cx, y), *fill, stroke.map(|c| (c, *width, *dash))),
+                hscroll,
+            } => b.path(
+                segs,
+                (cx - hscroll.map_or(0.0, off), y),
+                *fill,
+                stroke.map(|c| (c, *width, *dash)),
+            ),
             Item::PushClip(r) => b.push_clip(r.offset(cx, y)),
             Item::PopClip => b.pop_clip(),
             Item::HScrollBar(ri) => {

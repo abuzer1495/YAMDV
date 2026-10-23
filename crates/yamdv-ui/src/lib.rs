@@ -5,3 +5,4 @@
 
 pub mod dialog;
 pub mod settings_panel;
+pub mod transient;
