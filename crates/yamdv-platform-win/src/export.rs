@@ -160,6 +160,8 @@ struct Host<'a> {
     m: Metrics,
     lang: Lang,
     wic: Option<windows::Win32::Graphics::Imaging::IWICImagingFactory>,
+    /// Math macros defined so far (R-MATH-07; formulas are exported in document order).
+    macros: std::cell::RefCell<yamdv_math::macros::Macros>,
 }
 
 fn mime(f: Format) -> Option<&'static str> {
@@ -222,7 +224,26 @@ impl ExportHost for Host<'_> {
     fn math(&self, tex: &str, display: bool) -> Option<Png> {
         let face = self.dw.math_face()?;
         let size = yamdv_layout::rich::math_size(self.m.font_size);
-        let mb = yamdv_math::render(tex, face.font.as_ref(), &face.table, size, display).ok()?;
+        // Same engine and document-order macro environment as the view (R-MATH-07).
+        let mut mb = yamdv_math::layout::render_with(
+            tex,
+            &mut self.macros.borrow_mut(),
+            face.font.as_ref(),
+            &face.table,
+            size,
+            display,
+        )
+        .ok()?;
+        if let Some(t) = mb.tag.take() {
+            // `\tag{…}` follows the formula after a 1 em gap.
+            let dx = mb.width + size;
+            let mut t = *t;
+            t.shift(dx, 0.0);
+            mb.width = dx + t.width;
+            mb.ascent = mb.ascent.max(t.ascent);
+            mb.descent = mb.descent.max(t.descent);
+            mb.ops.extend(t.ops);
+        }
         let pad = 2.0f32;
         let w_px = ((mb.width + 2.0 * pad) * SCALE).ceil().clamp(1.0, 16_384.0) as i32;
         let h_px = ((mb.ascent + mb.descent + 2.0 * pad) * SCALE)
@@ -325,6 +346,7 @@ pub fn html_text_with(
         m: job.m,
         lang: job.lang,
         wic: crate::images::factory(),
+        macros: std::cell::RefCell::default(),
     };
     let doc = Document::new(job.source.clone(), toc_opts(&s));
     yamdv_export::html::document_with(

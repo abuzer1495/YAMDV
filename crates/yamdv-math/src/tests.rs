@@ -27,7 +27,7 @@ fn glyphs(b: &MathBox) -> Vec<(u16, f32, f32, f32)> {
             Op::Glyph {
                 gid, x, y, size, ..
             } => Some((*gid, *x, *y, *size)),
-            Op::Rule { .. } => None,
+            Op::Rule { .. } | Op::Line { .. } => None,
         })
         .collect()
 }
@@ -37,7 +37,7 @@ fn rules(b: &MathBox) -> Vec<(f32, f32, f32, f32)> {
         .iter()
         .filter_map(|o| match o {
             Op::Rule { x, y, w, h, .. } => Some((*x, *y, *w, *h)),
-            Op::Glyph { .. } => None,
+            Op::Glyph { .. } | Op::Line { .. } => None,
         })
         .collect()
 }
@@ -101,7 +101,7 @@ fn r_math_02_parse_core_constructs() {
     ] {
         let n = parse(&format!(r"\begin{{{env}}} a & b \\ c & d \\ \end{{{env}}}")).unwrap();
         match &n[0] {
-            Node::Matrix { env: e, rows } => {
+            Node::Matrix { env: e, rows, .. } => {
                 assert_eq!(*e, kind);
                 assert_eq!(rows.len(), 2, "{env}");
                 assert_eq!(rows[0].len(), 2);
@@ -344,7 +344,7 @@ fn colors_override_and_never_panic_on_garbage() {
         .ops
         .iter()
         .map(|o| match o {
-            Op::Glyph { color, .. } | Op::Rule { color, .. } => *color,
+            Op::Glyph { color, .. } | Op::Rule { color, .. } | Op::Line { color, .. } => *color,
         })
         .collect();
     assert_eq!(cs, vec![None, Some(0x00ff00)]);

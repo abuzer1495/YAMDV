@@ -1028,20 +1028,34 @@ impl Band<'_> {
     fn math_raw(&self, mb: &yamdv_math::MathBox, x: f32, y: f32, color: u32) {
         use yamdv_math::Op;
         for op in &mb.ops {
-            if let Op::Rule {
-                x: rx,
-                y: ry,
-                w,
-                h,
-                color: c,
-            } = op
-            {
-                self.fill(
+            match op {
+                Op::Rule {
+                    x: rx,
+                    y: ry,
+                    w,
+                    h,
+                    color: c,
+                } => self.fill(
                     Rect::new(x + rx, y + ry, *w, *h),
                     c.unwrap_or(color),
                     1.0,
                     0.0,
-                );
+                ),
+                // `\cancel`, `\not` (R-MATH-02).
+                Op::Line {
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    w,
+                    color: c,
+                } => self.polyline(
+                    &[(x + x1, y + y1), (x + x2, y + y2)],
+                    c.unwrap_or(color),
+                    *w,
+                    false,
+                ),
+                Op::Glyph { .. } => {}
             }
         }
         let Some(face) = crate::dwrite::math_draw_face() else {
@@ -1060,7 +1074,7 @@ impl Band<'_> {
                     size,
                     color: c,
                 } => Some((*gid, *gx, *gy, *size, c.unwrap_or(color))),
-                Op::Rule { .. } => None,
+                Op::Rule { .. } | Op::Line { .. } => None,
             })
             .collect();
         self.cpu_begin();

@@ -116,6 +116,26 @@ pub struct Index {
     pub html_anchors: HashMap<String, u32>,
     /// HTML containers spanning sibling top-level blocks (§4.6 item 3).
     pub html_containers: Vec<HtmlContainer>,
+    /// Top-level blocks that define math macros (`\newcommand`, `\renewcommand`, `\def`;
+    /// R-MATH-07), ascending.
+    pub macro_blocks: Vec<u32>,
+}
+
+/// Top-level blocks of `text` containing a math macro definition, ascending.
+pub fn macro_blocks(text: &str, blocks: &[Block]) -> Vec<u32> {
+    let mut out: Vec<u32> = Vec::new();
+    for pat in ["\\newcommand", "\\renewcommand", "\\def"] {
+        for (at, _) in text.match_indices(pat) {
+            let at = at as u32;
+            let i = blocks.partition_point(|b| b.range.end <= at);
+            if blocks.get(i).is_some_and(|b| b.range.start <= at) {
+                out.push(i as u32);
+            }
+        }
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
 }
 
 /// An HTML container opened in one top-level HTML block and closed in a later one.
@@ -510,10 +530,12 @@ impl Index {
             footnote_order: footnote_order(&s.footrefs, &s.footnotes),
             html_anchors: s.anchors,
             html_containers: Vec::new(),
+            macro_blocks: Vec::new(),
             footnotes: s.footnotes,
             front_matter: s.front_matter,
         };
         ix.html_containers = containers;
+        ix.macro_blocks = macro_blocks(text, &ix.blocks);
         ix
     }
 
@@ -690,6 +712,7 @@ impl Index {
             // HTML containers and anchors are cheap to recompute (HTML blocks only).
             let mut anchors = HashMap::new();
             self.html_containers = html_structure(new_text, &self.blocks, &mut anchors);
+            self.macro_blocks = macro_blocks(new_text, &self.blocks);
             if !self.html_anchors.is_empty() || new_region.contains('<') {
                 self.html_anchors = Index::build(new_text, opts).html_anchors;
             }

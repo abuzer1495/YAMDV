@@ -1,5 +1,13 @@
-//! Bounded TeX-math tokenizer and parser (§2.2, S-PARSE-05): the FUT-17 core subset → [`Node`]s.
+//! Bounded TeX-math tokenizer and parser (§2.2, S-PARSE-05): the R-MATH-02 subset → [`Node`]s.
 //! Unknown commands are errors (R-MATH-03). Linear in the input; recursion depth ≤ 64.
+//! Commands live in `cmd`, environments in `env`, font mapping in `styled`.
+
+mod cmd;
+mod env;
+mod styled;
+
+pub use cmd::known;
+pub use styled::styled;
 
 use crate::symbols::{self, Class};
 
@@ -23,8 +31,16 @@ pub enum Font {
     Bold,
     /// `\mathbb`.
     Blackboard,
-    /// `\mathcal`.
+    /// `\mathcal`, `\mathscr`.
     Calligraphic,
+    /// `\mathsf`, `\textsf`.
+    SansSerif,
+    /// `\mathtt`, `\texttt`.
+    Monospace,
+    /// `\mathfrak`.
+    Fraktur,
+    /// `\boldsymbol`, `\bm`.
+    BoldItalic,
 }
 
 /// Fraction style override.
@@ -51,8 +67,20 @@ pub enum Env {
     VMatrix,
     /// `cases`.
     Cases,
-    /// `aligned`.
+    /// `aligned`, `align`, `align*`, `split`.
     Aligned,
+    /// `Bmatrix`.
+    BraceMatrix,
+    /// `Vmatrix`.
+    DoubleVMatrix,
+    /// `smallmatrix`.
+    Small,
+    /// `dcases`.
+    DCases,
+    /// `gathered`, `gather`, `gather*`, `equation`, `equation*`.
+    Gathered,
+    /// `array{…}` (column spec in [`Node::Matrix::cols`]).
+    Array,
 }
 
 /// Parsed math node.
@@ -138,6 +166,8 @@ pub enum Node {
         env: Env,
         /// Rows of cells.
         rows: Vec<Vec<Node>>,
+        /// `array` column spec: `l`/`c`/`r`, `|` for a vertical rule (empty for other kinds).
+        cols: Vec<char>,
     },
     /// Accent over the body.
     Accent {
@@ -158,6 +188,72 @@ pub enum Node {
         color: u32,
         /// Colored content.
         body: Vec<Node>,
+    },
+    /// `\displaystyle` … `\scriptscriptstyle`: the rest of the group in style `level` (0–3).
+    Style {
+        /// 0 display, 1 text, 2 script, 3 scriptscript.
+        level: u8,
+        /// Content.
+        body: Vec<Node>,
+    },
+    /// `\limits` / `\nolimits` after an operator.
+    Limits {
+        /// The operator.
+        base: Box<Node>,
+        /// Limits above/below in every style (`false` = always at the side).
+        on: bool,
+    },
+    /// `\middle` delimiter inside `\left … \right`.
+    Middle(Option<char>),
+    /// A horizontally stretched glyph over or under the body (`\widehat`, `\overrightarrow`,
+    /// `\overbrace`, …).
+    Stretch {
+        /// Base glyph (stretched with the MATH table's horizontal variants and assemblies).
+        c: char,
+        /// Above (`true`) or below.
+        over: bool,
+        /// Scripts become limits (`\overbrace{}^{}`, `\underbrace{}_{}`).
+        limits: bool,
+        /// Content.
+        body: Box<Node>,
+    },
+    /// `\overset`, `\underset`, `\stackrel`.
+    Stack {
+        /// Base.
+        base: Box<Node>,
+        /// Above (script style).
+        over: Option<Box<Node>>,
+        /// Below (script style).
+        under: Option<Box<Node>>,
+        /// Atom class of the result.
+        class: Class,
+    },
+    /// `\phantom` (both), `\hphantom` (width), `\vphantom` (height and depth).
+    Phantom {
+        /// Content (measured, not drawn).
+        body: Box<Node>,
+        /// Keep the width.
+        h: bool,
+        /// Keep height and depth.
+        v: bool,
+    },
+    /// `\cancel` (0), `\bcancel` (1), `\xcancel` (2), `\not` without a precomposed form (3).
+    Cancel {
+        /// Kind.
+        kind: u8,
+        /// Content.
+        body: Box<Node>,
+    },
+    /// `\boxed`.
+    Boxed(Box<Node>),
+    /// `\tag{…}`: the equation number (right-aligned by the caller, R-MATH-02).
+    Tag(String),
+    /// An atom with an explicit class (`\bmod`).
+    Class {
+        /// Class.
+        class: Class,
+        /// Content.
+        body: Box<Node>,
     },
 }
 
@@ -257,9 +353,18 @@ fn err<T>(msg: impl Into<String>, pos: usize) -> Result<T, MathError> {
 
 /// Parses a formula (without delimiters).
 pub fn parse(src: &str) -> Result<Vec<Node>, MathError> {
+    parse_limited(src, MAX_CHARS)
+}
+
+/// Maximum length of a formula after macro expansion (R-MATH-07; the expansion itself is
+/// bounded by `macros::MAX_TOKENS`).
+pub const MAX_EXPANDED: usize = 4 * crate::macros::MAX_TOKENS;
+
+/// Parses a formula of at most `max` characters.
+pub fn parse_limited(src: &str, max: usize) -> Result<Vec<Node>, MathError> {
     let chars: Vec<char> = src.chars().collect();
-    if chars.len() > MAX_CHARS {
-        return err(format!("formula longer than {MAX_CHARS} characters"), 0);
+    if chars.len() > max {
+        return err(format!("formula longer than {max} characters"), 0);
     }
     let mut p = Parser {
         toks: tokenize(&chars),
@@ -357,6 +462,33 @@ impl Parser {
                     out.push(Node::Color { color, body });
                     break;
                 }
+                Some(Tok::Cmd(c))
+                    if matches!(
+                        c.as_str(),
+                        "displaystyle" | "textstyle" | "scriptstyle" | "scriptscriptstyle"
+                    ) =>
+                {
+                    let level = match c.as_str() {
+                        "displaystyle" => 0,
+                        "textstyle" => 1,
+                        "scriptstyle" => 2,
+                        _ => 3,
+                    };
+                    self.bump();
+                    let body = self.list(stop)?;
+                    self.count()?;
+                    out.push(Node::Style { level, body });
+                    break;
+                }
+                Some(Tok::Cmd(c)) if c == "middle" => {
+                    if stop != Stop::Right {
+                        return err("\\middle outside \\left … \\right", pos);
+                    }
+                    self.bump();
+                    let d = self.delim_tok()?;
+                    self.count()?;
+                    out.push(Node::Middle(d));
+                }
                 Some(Tok::Sup | Tok::Sub | Tok::Prime) => {
                     // A script without a nucleus attaches to an empty group.
                     let base = Node::Group(Vec::new());
@@ -375,7 +507,30 @@ impl Parser {
     }
 
     /// Attaches `^`, `_` and primes following a nucleus.
-    fn scripts(&mut self, base: Node) -> Result<Node, MathError> {
+    fn scripts(&mut self, mut base: Node) -> Result<Node, MathError> {
+        while let Some(Tok::Cmd(c)) = self.peek() {
+            let on = match c.as_str() {
+                "limits" => true,
+                "nolimits" => false,
+                _ => break,
+            };
+            let pos = self.pos();
+            if !matches!(
+                base,
+                Node::BigOp { .. } | Node::Func { .. } | Node::Limits { .. }
+            ) {
+                return err("\\limits or \\nolimits not after an operator", pos);
+            }
+            self.bump();
+            if let Node::Limits { base: b, .. } = base {
+                base = *b;
+            }
+            self.count()?;
+            base = Node::Limits {
+                base: Box::new(base),
+                on,
+            };
+        }
         let mut sup: Option<Node> = None;
         let mut sub: Option<Node> = None;
         let mut primes = 0usize;
@@ -520,322 +675,10 @@ impl Parser {
             Some(Tok::Cmd(n)) => format!("\\{n}"),
             _ => return err("missing delimiter", pos),
         };
-        symbols::delimiter(&s).map_or_else(|| err(format!("bad delimiter {s}"), pos), Ok)
+        if let Some(d) = symbols::delimiter(&s) {
+            return Ok(d);
+        }
+        crate::extra::delimiter(&s)
+            .map_or_else(|| err(format!("bad delimiter {s}"), pos), |c| Ok(Some(c)))
     }
-
-    #[allow(clippy::too_many_lines)]
-    fn command(&mut self, name: &str, pos: usize) -> Result<Node, MathError> {
-        if let Some((_, c)) = symbols::GREEK.iter().find(|g| g.0 == name) {
-            return Ok(Node::Char {
-                c: *c,
-                class: Class::Ord,
-                font: Font::Default,
-            });
-        }
-        if let Some((_, c, class)) = symbols::SYMBOLS.iter().find(|g| g.0 == name) {
-            return Ok(Node::Char {
-                c: *c,
-                class: *class,
-                font: Font::Roman,
-            });
-        }
-        if let Some((_, c, limits)) = symbols::BIG_OPS.iter().find(|g| g.0 == name) {
-            return Ok(Node::BigOp {
-                c: *c,
-                limits: *limits,
-            });
-        }
-        if let Some((n, limits)) = symbols::FUNCS.iter().find(|g| g.0 == name) {
-            return Ok(Node::Func {
-                name: (*n).to_string(),
-                limits: *limits,
-            });
-        }
-        if let Some((_, c, _)) = symbols::ACCENTS.iter().find(|g| g.0 == name) {
-            let body = self.arg()?;
-            return Ok(Node::Accent {
-                c: *c,
-                body: Box::new(body),
-            });
-        }
-        let space = |em: f32| Ok(Node::Space(em));
-        match name {
-            "," => space(3.0 / 18.0),
-            ":" | ">" => space(4.0 / 18.0),
-            ";" => space(5.0 / 18.0),
-            "!" => space(-3.0 / 18.0),
-            " " => space(1.0 / 3.0),
-            "quad" => space(1.0),
-            "qquad" => space(2.0),
-            "frac" | "dfrac" | "tfrac" | "binom" => {
-                let num = self.arg()?;
-                let den = self.arg()?;
-                let style = match name {
-                    "dfrac" => FracStyle::Display,
-                    "tfrac" => FracStyle::Text,
-                    _ => FracStyle::Auto,
-                };
-                let binom = name == "binom";
-                Ok(Node::Frac {
-                    num: Box::new(num),
-                    den: Box::new(den),
-                    style,
-                    rule: !binom,
-                    delims: binom.then_some(('(', ')')),
-                })
-            }
-            "sqrt" => {
-                let index = if self.peek() == Some(&Tok::Char('[')) {
-                    self.bump();
-                    let l = self.list(Stop::Bracket)?;
-                    self.bump();
-                    Some(Box::new(Node::Group(l)))
-                } else {
-                    None
-                };
-                let body = self.arg()?;
-                Ok(Node::Sqrt {
-                    index,
-                    body: Box::new(body),
-                })
-            }
-            "left" => {
-                let left = self.delim_tok()?;
-                let body = self.list(Stop::Right)?;
-                self.bump();
-                let right = self.delim_tok()?;
-                Ok(Node::LeftRight { left, right, body })
-            }
-            "big" | "Big" | "bigg" | "Bigg" | "bigl" | "Bigl" | "biggl" | "Biggl" | "bigr"
-            | "Bigr" | "biggr" | "Biggr" | "bigm" | "Bigm" | "biggm" | "Biggm" => {
-                let size = match name.trim_end_matches(['l', 'r', 'm']) {
-                    "big" => 1,
-                    "Big" => 2,
-                    "bigg" => 3,
-                    _ => 4,
-                };
-                let class = match name.chars().last() {
-                    Some('l') => Class::Open,
-                    Some('r') => Class::Close,
-                    Some('m') => Class::Rel,
-                    _ => Class::Ord,
-                };
-                let c = self.delim_tok()?;
-                Ok(Node::Big { c, size, class })
-            }
-            "overline" => Ok(Node::Overline(Box::new(self.arg()?))),
-            "underline" => Ok(Node::Underline(Box::new(self.arg()?))),
-            "text" => {
-                let s = self.raw_arg()?;
-                Ok(Node::Text(s))
-            }
-            "operatorname" => {
-                let s = self.raw_arg()?;
-                let name: String = s
-                    .chars()
-                    .filter(|c| !c.is_whitespace() && *c != '\\')
-                    .collect();
-                Ok(Node::Func {
-                    name,
-                    limits: false,
-                })
-            }
-            "mathrm" | "mathit" | "mathbf" | "mathbb" | "mathcal" => {
-                let font = match name {
-                    "mathrm" => Font::Roman,
-                    "mathit" => Font::Italic,
-                    "mathbf" => Font::Bold,
-                    "mathbb" => Font::Blackboard,
-                    _ => Font::Calligraphic,
-                };
-                let mut body = self.arg()?;
-                set_font(&mut body, font);
-                Ok(body)
-            }
-            "begin" => self.env(pos),
-            _ => err(format!("unknown command \\{name}"), pos),
-        }
-    }
-
-    fn env(&mut self, pos: usize) -> Result<Node, MathError> {
-        let name = self.raw_arg()?;
-        let env = match name.as_str() {
-            "matrix" => Env::Matrix,
-            "pmatrix" => Env::PMatrix,
-            "bmatrix" => Env::BMatrix,
-            "vmatrix" => Env::VMatrix,
-            "cases" => Env::Cases,
-            "aligned" => Env::Aligned,
-            _ => return err(format!("unknown environment {name}"), pos),
-        };
-        let mut rows: Vec<Vec<Node>> = vec![Vec::new()];
-        loop {
-            let cell = self.list(Stop::Cell)?;
-            self.count()?;
-            if let Some(r) = rows.last_mut() {
-                r.push(Node::Group(cell));
-            }
-            let p = self.pos();
-            match self.bump() {
-                Some(Tok::Amp) => {}
-                Some(Tok::Cmd(c)) if c == "\\" => rows.push(Vec::new()),
-                Some(Tok::Cmd(c)) if c == "end" => {
-                    let end = self.raw_arg()?;
-                    if end != name {
-                        return err(
-                            format!("\\end{{{end}}} does not match \\begin{{{name}}}"),
-                            p,
-                        );
-                    }
-                    break;
-                }
-                _ => return err(format!("missing \\end{{{name}}}"), p),
-            }
-        }
-        // A trailing `\\` leaves an empty last row.
-        if rows.len() > 1
-            && rows.last().is_some_and(|r| {
-                r.len() == 1 && matches!(r.first(), Some(Node::Group(g)) if g.is_empty())
-            })
-        {
-            rows.pop();
-        }
-        Ok(Node::Matrix { env, rows })
-    }
-}
-
-/// Applies `font` to every character in `n` that has the default font.
-fn set_font(n: &mut Node, font: Font) {
-    match n {
-        Node::Char { font: f, .. } => {
-            if *f == Font::Default || font != Font::Roman {
-                *f = font;
-            }
-        }
-        Node::Group(v) | Node::Color { body: v, .. } | Node::LeftRight { body: v, .. } => {
-            for k in v {
-                set_font(k, font);
-            }
-        }
-        Node::Scripts { base, sup, sub } => {
-            set_font(base, font);
-            if let Some(s) = sup {
-                set_font(s, font);
-            }
-            if let Some(s) = sub {
-                set_font(s, font);
-            }
-        }
-        Node::Frac { num, den, .. } => {
-            set_font(num, font);
-            set_font(den, font);
-        }
-        Node::Sqrt { body, .. }
-        | Node::Accent { body, .. }
-        | Node::Overline(body)
-        | Node::Underline(body) => set_font(body, font),
-        _ => {}
-    }
-}
-
-/// Maps a character to its Mathematical Alphanumeric Symbol for `font` (§2.2).
-pub fn styled(c: char, font: Font) -> char {
-    let off = |base: u32, k: u32| char::from_u32(base + k).unwrap_or(c);
-    let up = c.is_ascii_uppercase();
-    let lo = c.is_ascii_lowercase();
-    let k = (c as u32).wrapping_sub(if up { 'A' as u32 } else { 'a' as u32 });
-    match font {
-        Font::Default | Font::Italic => {
-            if c == 'h' {
-                return 'ℎ';
-            }
-            if up {
-                return off(0x1D434, k);
-            }
-            if lo {
-                return off(0x1D44E, k);
-            }
-            if font == Font::Italic && !('α'..='ω').contains(&c) {
-                return c;
-            }
-            greek_italic(c)
-        }
-        Font::Roman => c,
-        Font::Bold => {
-            if up {
-                off(0x1D400, k)
-            } else if lo {
-                off(0x1D41A, k)
-            } else if c.is_ascii_digit() {
-                off(0x1D7CE, c as u32 - '0' as u32)
-            } else {
-                c
-            }
-        }
-        Font::Blackboard => {
-            let special = match c {
-                'C' => Some('ℂ'),
-                'H' => Some('ℍ'),
-                'N' => Some('ℕ'),
-                'P' => Some('ℙ'),
-                'Q' => Some('ℚ'),
-                'R' => Some('ℝ'),
-                'Z' => Some('ℤ'),
-                _ => None,
-            };
-            if let Some(s) = special {
-                s
-            } else if up {
-                off(0x1D538, k)
-            } else if lo {
-                off(0x1D552, k)
-            } else if c.is_ascii_digit() {
-                off(0x1D7D8, c as u32 - '0' as u32)
-            } else {
-                c
-            }
-        }
-        Font::Calligraphic => {
-            let special = match c {
-                'B' => Some('ℬ'),
-                'E' => Some('ℰ'),
-                'F' => Some('ℱ'),
-                'H' => Some('ℋ'),
-                'I' => Some('ℐ'),
-                'L' => Some('ℒ'),
-                'M' => Some('ℳ'),
-                'R' => Some('ℛ'),
-                'e' => Some('ℯ'),
-                'g' => Some('ℊ'),
-                'o' => Some('ℴ'),
-                _ => None,
-            };
-            if let Some(s) = special {
-                s
-            } else if up {
-                off(0x1D49C, k)
-            } else if lo {
-                off(0x1D4B6, k)
-            } else {
-                c
-            }
-        }
-    }
-}
-
-/// Lowercase Greek (and the variant forms) → mathematical italic.
-fn greek_italic(c: char) -> char {
-    let v = c as u32;
-    let m = match c {
-        'α'..='ω' => 0x1D6FC + (v - 'α' as u32),
-        '∂' => 0x1D715,
-        'ϵ' => 0x1D716,
-        'ϑ' => 0x1D717,
-        'ϰ' => 0x1D718,
-        'ϕ' => 0x1D719,
-        'ϱ' => 0x1D71A,
-        'ϖ' => 0x1D71B,
-        _ => return c,
-    };
-    char::from_u32(m).unwrap_or(c)
 }
