@@ -20,3 +20,4 @@ and `v1.2.0` on it (the v1.2.0 tag run builds the draft). Otherwise let the main
 - 11:25 §3 pure layer: core files.rs (natural sort/skip/tree), outline.rs (palette filter, [TOC]), doc/mind.rs; ui mindmap.rs (tidy layout, hues); layout focus.rs. Next: window nav modules.
 - CHECKPOINT 11:36 nav module: Files tab, floating card, tab list, favorites drag/Alt+arrows, keyboard focus + F6, driver verbs; palette/mind map stubs. Next: palette, mind map, TOC, menus/keymap/settings rows, blit fix.
 - CHECKPOINT 11:37 heading palette done (Ctrl+Shift+O, unfold on jump). Next: mind map, TOC, menus/keymap/settings, blit fix.
+- CHECKPOINT 11:39 mind map viewer done. Next: [TOC] render + export, menus/keymap/settings rows, blit fix, version, tests.

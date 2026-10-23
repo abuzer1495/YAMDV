@@ -125,6 +125,17 @@ impl Win {
                 self.mouse_up();
                 String::new()
             }
+            "nav-mind-click" | "nav-mind-dblclick" => {
+                if self.mind_click_text(sh, arg, verb == "nav-mind-dblclick") {
+                    String::new()
+                } else {
+                    format!("FAIL ui {verb}: no node {arg}")
+                }
+            }
+            "nav-mind-mode" => {
+                self.mind_mode(arg == "balanced");
+                String::new()
+            }
             "nav-state-reload" => {
                 // Restart check: the saved order is what a new process would read.
                 let saved = app::reload_state_favorites();

@@ -39,7 +39,7 @@ pub(super) struct Nav {
     /// Files tab tree (built when the tab is first shown).
     pub files: RefCell<Option<Files>>,
     pub palette: Option<palette::Palette>,
-    pub mind: Option<mindmap::Mind>,
+    pub mind: Option<Box<mindmap::Mind>>,
     /// Keyboard focus on a non-link stop of the document.
     pub kf: Option<(usize, yamdv_layout::focus::Stop)>,
     pub region: Region,
