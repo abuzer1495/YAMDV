@@ -121,19 +121,6 @@ pub fn report(frames: &[f64]) -> String {
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn percentiles() {
-        let v: Vec<f64> = (1..=100).map(f64::from).collect();
-        assert_eq!(percentile(&v, 99.0), 99.0);
-        assert_eq!(percentile(&v, 50.0), 50.0);
-        assert!(report(&v).starts_with("frames 100\n"));
-    }
-}
-
 /// Threads of this process right now (F-26 probe: watches must not add threads).
 pub fn thread_count() -> u32 {
     use windows::Win32::Foundation::CloseHandle;
@@ -162,4 +149,17 @@ pub fn thread_count() -> u32 {
     // SAFETY: opened above.
     let _ = unsafe { CloseHandle(snap) };
     n
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn percentiles() {
+        let v: Vec<f64> = (1..=100).map(f64::from).collect();
+        assert_eq!(percentile(&v, 99.0), 99.0);
+        assert_eq!(percentile(&v, 50.0), 50.0);
+        assert!(report(&v).starts_with("frames 100\n"));
+    }
 }
