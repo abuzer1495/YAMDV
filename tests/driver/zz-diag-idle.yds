@@ -1,0 +1,12 @@
+# TEMPORARY V2-G diagnostic (export-progress PWS); removed before merge. Report-only: no export.
+command mode light
+wait-idle
+open ../fixtures/large-1mb.md
+wait-idle
+sleep 1500
+ui mem-report before-mark
+ui mem-mark
+ui mem-peak-reset
+sleep 9000
+ui mem-report after-9000
+assert pws_delta_kib >= -999999

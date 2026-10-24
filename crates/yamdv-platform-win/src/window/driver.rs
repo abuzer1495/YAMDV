@@ -696,6 +696,47 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
             HEIGHT_MARK.with(|m| m.set(doc_height(w)));
             "ok ui height-mark".into()
         }
+        // TEMPORARY V2-G diagnostic (export-progress PWS); removed before merge.
+        "mem-peak-reset" => {
+            use std::sync::atomic::Ordering::Relaxed;
+            crate::diagmem::PEAK.store(crate::diagmem::LIVE.load(Relaxed), Relaxed);
+            "ok ui mem-peak-reset".into()
+        }
+        "heap-compact" => {
+            use windows::Win32::System::Memory::{GetProcessHeap, HEAP_NONE, HeapCompact};
+            // SAFETY: the process heap handle.
+            let big = unsafe { GetProcessHeap().map_or(0, |h| HeapCompact(h, HEAP_NONE)) };
+            format!("ok ui heap-compact largest={big}")
+        }
+        "mem-report" => {
+            use std::sync::atomic::Ordering::Relaxed;
+            let (hc, ha) = crate::diagmem::heap_summary();
+            let (g, u) = gui_now();
+            let (img, lru, lay, rich, docb) = match &w.view {
+                View::Doc(d) => (
+                    d.images.decoded_bytes(),
+                    d.images.lru_bytes(),
+                    d.viewer.layout_stats(),
+                    d.rich.len(),
+                    match &d.content {
+                        yamdv_layout::viewer::Content::Markdown(doc) => doc.heap_bytes(),
+                        _ => (0, 0, 0),
+                    },
+                ),
+                _ => (0, 0, (0, 0, 0), (0, 0), (0, 0, 0)),
+            };
+            format!(
+                "ok ui mem-report {arg} pws_kib={} commit_kib={} heap_commit_kib={} heap_alloc_kib={} live_kib={} peak_kib={} blocks={} allocs={} gdi={g} user={u} img={img} lru={lru} layouts={lay:?} rich={rich:?} doc={docb:?}",
+                pws_now() / 1024,
+                crate::perf::commit_bytes() / 1024,
+                hc / 1024,
+                ha / 1024,
+                crate::diagmem::LIVE.load(Relaxed) / 1024,
+                crate::diagmem::PEAK.load(Relaxed) / 1024,
+                crate::diagmem::BLOCKS.load(Relaxed),
+                crate::diagmem::ALLOCS.load(Relaxed),
+            )
+        }
         "mem-mark" => {
             MEM_MARK.with(|m| m.set(pws_now()));
             GUI_MARK.with(|m| m.set(gui_now()));

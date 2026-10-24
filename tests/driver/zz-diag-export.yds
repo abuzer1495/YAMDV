@@ -1,0 +1,29 @@
+# TEMPORARY V2-G diagnostic (export-progress PWS); removed before merge. Report-only.
+command mode light
+wait-idle
+open ../fixtures/pages-30.md
+wait-idle
+ui job-reset
+ui export-pdf-bg zz-30.tmp.pdf
+ui job-done
+ui mem-report after-run1
+open ../fixtures/large-1mb.md
+wait-idle
+sleep 1500
+ui mem-report before-mark
+ui mem-mark
+ui mem-peak-reset
+ui job-reset
+ui export-pdf-bg zz-large.tmp.pdf
+ui job-wait 5
+ui mem-report at-5-pages
+ui job-cancel
+ui job-done
+ui mem-report after-cancel
+sleep 4500
+ui mem-report after-4500
+assert pws_delta_kib >= -999999
+ui heap-compact
+sleep 500
+ui mem-report after-compact
+assert pws_delta_kib >= -999999
