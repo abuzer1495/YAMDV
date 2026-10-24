@@ -17,6 +17,11 @@ enum FvKind {
         bmp: crate::images::Bitmap,
         src: yamdv_core::image::Source,
         nat: (u32, u32),
+        /// An animated GIF playing (`reading.animate_gifs`) with its UI-thread factory.
+        anim: Option<(
+            Box<crate::images::gif::Anim>,
+            windows::Win32::Graphics::Imaging::IWICImagingFactory,
+        )>,
     },
     Block {
         viewer: Box<Viewer>,
@@ -243,7 +248,7 @@ impl Win {
         (content, viewer)
     }
 
-    fn open_image(&self, src: &str) -> Option<FullView> {
+    fn open_image(&self, sh: &Shared, src: &str) -> Option<FullView> {
         let View::Doc(d) = &self.view else {
             return None;
         };
@@ -255,12 +260,19 @@ impl Win {
         let w = ((nw as f32 * k).round() as u32).max(1);
         let h = ((nh as f32 * k).round() as u32).max(1);
         let bmp = crate::images::decode(&f, &source, w, h).ok()?;
+        let anim = if sh.animate_gifs && !self.reduced_motion() {
+            crate::images::gif::Anim::open(&f, &source, w, h, crate::images::gif::now_ms())
+                .map(|a| (Box::new(a), f))
+        } else {
+            None
+        };
         let z = ZoomView::new((nw as f32, nh as f32), (self.cw, self.ch));
         Some(FullView::new(
             FvKind::Image {
                 bmp,
                 src: source,
                 nat: (nw, nh),
+                anim,
             },
             z,
             "image",
@@ -353,7 +365,7 @@ impl Win {
         self.tz_tip_hide();
         self.tz.pop = None;
         let fv = match kind {
-            MediaKind::Image(src) => self.open_image(src),
+            MediaKind::Image(src) => self.open_image(sh, src),
             MediaKind::Diagram(node) => self.open_diagram(sh, bi, *node),
             MediaKind::Table(node, rows, cols) => self.open_table(sh, bi, *node, *rows, *cols),
         };
@@ -362,7 +374,51 @@ impl Win {
             self.tz.media = None;
             self.set_status(sh, None);
         }
+        self.fv_schedule_gif();
         self.invalidate();
+    }
+
+    /// Arms the viewer's one-shot GIF timer (only while an animated GIF is open and the
+    /// window is active, T7).
+    pub(super) fn fv_schedule_gif(&self) {
+        let due = match self.tz.fv.as_deref().map(|f| &f.kind) {
+            Some(FvKind::Image {
+                anim: Some((a, _)), ..
+            }) if !self.cap.inactive => Some(a.player.due),
+            _ => None,
+        };
+        // SAFETY: valid hwnd; one-shot, re-armed per frame.
+        unsafe {
+            match due {
+                Some(t) => {
+                    let ms = t
+                        .saturating_sub(crate::images::gif::now_ms())
+                        .clamp(10, 60_000);
+                    SetTimer(
+                        Some(self.hwnd),
+                        TIMER_FVGIF,
+                        u32::try_from(ms).unwrap_or(100),
+                        None,
+                    );
+                }
+                None => {
+                    let _ = KillTimer(Some(self.hwnd), TIMER_FVGIF);
+                }
+            }
+        }
+    }
+
+    pub(super) fn fv_tick_gif(&mut self) {
+        let changed = match self.tz.fv.as_deref_mut().map(|f| &mut f.kind) {
+            Some(FvKind::Image {
+                anim: Some((a, f)), ..
+            }) => a.tick(f, crate::images::gif::now_ms()),
+            _ => false,
+        };
+        if changed {
+            self.invalidate();
+        }
+        self.fv_schedule_gif();
     }
 
     /// Closes the viewer and gives its memory back.
@@ -406,6 +462,34 @@ impl Win {
             5 => return self.fv_copy(sh),
             _ => return self.fv_close(),
         }
+        self.fv_zoomed();
+    }
+
+    /// After a zoom change: an SVG image is rendered again at the zoom scale (ADR-0021; at most
+    /// 16 M px, beyond that it is scaled), then the viewer repaints.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    fn fv_zoomed(&mut self) {
+        let scale = self.scale;
+        if let Some(fv) = &mut self.tz.fv
+            && let FvKind::Image { bmp, src, nat, .. } = &mut fv.kind
+            && bmp.svg_color.is_some()
+        {
+            let z = fv.z.scale * scale;
+            let (mut w, mut h) = (nat.0 as f32 * z, nat.1 as f32 * z);
+            let k = (16.0e6 / (w * h).max(1.0)).sqrt().min(1.0);
+            (w, h) = (w * k, h * k);
+            let (w, h) = ((w.round() as u32).max(1), (h.round() as u32).max(1));
+            if w.abs_diff(bmp.w) * 10 > bmp.w.max(1)
+                && let Some(f) = crate::images::factory()
+                && let Ok(b) = crate::images::decode(&f, src, w, h)
+            {
+                *bmp = b;
+            }
+        }
         self.invalidate();
     }
 
@@ -434,6 +518,57 @@ impl Win {
         };
         if ok {
             self.toast(m);
+        }
+    }
+
+    /// The rendered diagram (block, detail node) under content point (x, y).
+    pub(in crate::window) fn diagram_at(
+        &self,
+        sh: &Shared,
+        x: f32,
+        y: f32,
+    ) -> Option<(usize, usize)> {
+        let View::Doc(d) = &self.view else {
+            return None;
+        };
+        let (cx, _) = self.col(sh);
+        let doc_y = f64::from(y) + d.viewer.scroll;
+        let bi = d.viewer.block_at_y(doc_y);
+        let ly = (doc_y - d.viewer.block_top(&d.content, bi)) as f32;
+        d.viewer
+            .layout_of(bi)?
+            .hot
+            .iter()
+            .find_map(|h| match h.kind {
+                HotKind::Diagram { node } if h.rect.contains(x - cx, ly) => Some((bi, node)),
+                _ => None,
+            })
+    }
+
+    /// Context menu on a diagram: Copy as PNG (2×, `CF_DIB` + PNG) or Copy source.
+    pub(in crate::window) fn diagram_copy(&mut self, sh: &Shared, png: bool) {
+        let Some((bi, node)) = self.ctx_diagram else {
+            return;
+        };
+        let ok = if png {
+            let fv = self.open_diagram(sh, bi, node);
+            match fv.as_ref().map(|f| &f.kind) {
+                Some(FvKind::Block { viewer, .. }) => {
+                    self.diagram_png(sh, viewer).is_some_and(|(w, h, px)| {
+                        let png = crate::snapshot::encode_png(w, h, &px).ok();
+                        sys::copy_image(self.hwnd, w, h, &px, png.as_deref())
+                    })
+                }
+                _ => false,
+            }
+        } else {
+            self.node_source(bi, node).is_some_and(|md| {
+                let body = fence_body(&md);
+                sys::copy_text(self.hwnd, body)
+            })
+        };
+        if ok {
+            self.toast(if png { Msg::CopiedImage } else { Msg::Copied });
         }
     }
 
@@ -506,7 +641,10 @@ impl Win {
         );
         b.push_clip(body);
         match &fv.kind {
-            FvKind::Image { bmp, .. } => b.image_scaled(dst, bmp.w, bmp.h, &bmp.px),
+            FvKind::Image { bmp, anim, .. } => {
+                let bmp = anim.as_ref().map_or(bmp, |(a, _)| &a.out);
+                b.image_scaled(dst, bmp.w, bmp.h, &bmp.px);
+            }
             FvKind::Block { viewer, .. } => {
                 if fv.card.is_none() {
                     b.fill(dst, self.pal.bg, 1.0, 8.0 * fv.z.scale);
@@ -669,7 +807,7 @@ impl Win {
         }
         if dbl {
             fv.z.toggle();
-            self.invalidate();
+            self.fv_zoomed();
         } else if body.contains(x, y) {
             fv.drag = Some(Drag::Pan(x, y));
         }
@@ -738,7 +876,7 @@ impl Win {
         } else {
             fv.z.wheel(notches, x - body.x, y - body.y);
         }
-        self.invalidate();
+        self.fv_zoomed();
     }
 
     /// Keys: + − zoom, 0 fit, 1 actual size, Ctrl+C copy, Esc closes.
@@ -753,7 +891,7 @@ impl Win {
             0x43 if ctrl => return self.fv_copy(sh),
             _ => return,
         }
-        self.invalidate();
+        self.fv_zoomed();
     }
 
     /// The content area changed size.
@@ -860,7 +998,7 @@ impl Win {
         let before = fv.z.to_content(px, py);
         fv.z.wheel(notches, px, py);
         let after = fv.z.to_content(px, py);
-        self.invalidate();
+        self.fv_zoomed();
         Some((before, after))
     }
 
@@ -878,5 +1016,19 @@ impl Win {
         };
         self.fv_key(sh, vk, ctrl);
         true
+    }
+}
+
+/// The code inside a fenced block (`md` without its opening and closing fence lines).
+fn fence_body(md: &str) -> &str {
+    let md = md.trim_end_matches(['\n', '\r']);
+    let start = md.find('\n').map_or(md.len(), |i| i + 1);
+    let body = md.get(start..).unwrap_or("");
+    let last = body.rfind('\n').map_or(0, |i| i + 1);
+    let tail = body.get(last..).unwrap_or("").trim();
+    if tail.starts_with("```") || tail.starts_with("~~~") {
+        body.get(..last).unwrap_or(body)
+    } else {
+        body
     }
 }

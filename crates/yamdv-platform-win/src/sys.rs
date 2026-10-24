@@ -369,8 +369,16 @@ pub fn save_dialog_spec(owner: HWND, f: &Filters<'_>, spec: &SaveSpec) -> Option
     }
 }
 
+/// Driver override (`ui motion-on`): CI runners disable client-area animations.
+#[cfg(feature = "dev-tools")]
+pub static MOTION_FORCED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Client-area animations enabled? Off → reduced motion (R-A11Y-02).
 pub fn animations_enabled() -> bool {
+    #[cfg(feature = "dev-tools")]
+    if MOTION_FORCED.load(std::sync::atomic::Ordering::Relaxed) {
+        return true;
+    }
     let mut on = BOOL(1);
     // SAFETY: valid out-pointer for a BOOL.
     let r = unsafe {

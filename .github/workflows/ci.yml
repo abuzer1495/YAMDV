@@ -4,7 +4,9 @@ name: ci
 on:
   push:
     branches: [main]
-    tags: ['phase-*', 'v*']
+    # F-32 (1): phase-* tags trigger no workflow. GitHub forbids `tags` and `tags-ignore` on one event,
+    # so the ignore is the `!phase-*` pattern; only v* tags run (the release job alone, F-32 (2)).
+    tags: ['v*', '!phase-*']
   pull_request:
   workflow_dispatch:
 
@@ -22,6 +24,9 @@ env:
 jobs:
   pure:
     name: pure crates (ubuntu)
+    # F-32 (2)/(3): no test jobs on v* tags (release job only) or on a `chore(release):` push (its tree
+    # equals a green head, A-9 / F-25).
+    if: ${{ !startsWith(github.ref, 'refs/tags/') && !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -43,6 +48,8 @@ jobs:
 
   windows:
     name: windows (gates + measurements)
+    # F-32: same rule as `pure`.
+    if: ${{ !startsWith(github.ref, 'refs/tags/') && !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')) }}
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -105,11 +112,22 @@ jobs:
           # runs ~30-page PDF jobs: it gets 300 s like in the owner test pack.
           if (-not (Test-Path tests/fixtures/large-1mb.md)) { cargo xtask gen-large tests/fixtures/large-1mb.md }
           foreach ($s in Get-ChildItem tests/driver/*.yds) {
-            $env:APPDATA = $env:LOCALAPPDATA = (New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP/prof-$($s.BaseName)").FullName
             $limit = if ($s.BaseName -eq 'export-progress') { 300000 } else { 30000 }
-            $p = Start-Process target/dev/release/yamdv.exe -ArgumentList '--script', $s.FullName, $doc -PassThru
-            $null = $p.Handle
-            if (-not $p.WaitForExit($limit)) {
+            # F-31: a script whose only failures are pws_delta_kib / cpu_delta_ms asserts (noise) gets a
+            # second attempt; it fails only if both attempts exceed (two-attempt rule, F-21/F-22).
+            foreach ($attempt in 1, 2) {
+              $env:APPDATA = $env:LOCALAPPDATA = (New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP/prof-$($s.BaseName)-$attempt").FullName
+              $p = Start-Process target/dev/release/yamdv.exe -ArgumentList '--script', $s.FullName, $doc -PassThru
+              $null = $p.Handle
+              if (-not $p.WaitForExit($limit)) { break }
+              if ($p.ExitCode -eq 0 -or $attempt -eq 2 -or -not (Test-Path "$($s.FullName).log")) { break }
+              $fails = @(Get-Content "$($s.FullName).log" | Where-Object { $_ -like 'FAIL assert *' })
+              $noise = @($fails | Where-Object { $_ -match '^FAIL assert (pws_delta_kib|cpu_delta_ms) ' })
+              if ($fails.Count -eq 0 -or $noise.Count -ne $fails.Count) { break }
+              Write-Host "::warning::$($s.Name): attempt 1 failed only on memory/CPU deltas; attempt 2"
+              $fails | ForEach-Object { Write-Host "  $_" }
+            }
+            if (-not $p.HasExited) {
               $p.Kill(); Write-Host "::error::$($s.Name) timed out"; $fail = 1
               if (Test-Path "$($s.FullName).log") { Get-Content "$($s.FullName).log" | Where-Object { $_ -notlike 'dump *' } }
               continue
@@ -252,8 +270,8 @@ jobs:
     # Prompt 008 §5.3 + A-5: on tag v1.0.0 build the zip + SHA-256 and create a DRAFT release.
     # Never published from CI (the owner publishes); the only job with write access.
     name: draft release (never published)
+    # F-32 (2): runs alone on v* tags; the tagged release commit's tree equals a green head (F-25).
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [pure, windows]
     runs-on: windows-latest
     timeout-minutes: 30
     permissions:

@@ -1,0 +1,24 @@
+# F2 image resize (prompt 017 §3 item 7, R-F2-12): handles write width / |N; one Ctrl+Z restores; Esc cancels
+write-file ir1.tmp.md "Intro.\n\n![pic](v2c-img.png)\n\nMiddle.\n\n![[v2c-img.png|80]]\n\nEnd.\n"
+open ir1.tmp.md
+wait-idle
+key f2
+wait-idle
+ui v2f-img "v2c-img.png -40 esc"
+wait-idle
+assert buffer contains "![pic](v2c-img.png)"
+ui v2f-img "v2c-img.png -40"
+wait-idle
+assert img_sel == 1
+assert buffer contains "<img src="v2c-img.png" alt="pic" width="56">"
+key ctrl+z
+wait-idle
+assert buffer contains "![pic](v2c-img.png)"
+ui v2f-caret "1|End"
+wait-idle
+ui v2f-img "v2c-img.png@2 -30"
+wait-idle
+assert buffer contains "![[v2c-img.png|50]]"
+key ctrl+z
+wait-idle
+assert buffer contains "![[v2c-img.png|80]]"

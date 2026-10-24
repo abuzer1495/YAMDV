@@ -53,6 +53,11 @@ pub trait RichHost {
     fn render_mermaid(&self) -> bool;
     /// Per-document cache (`None` = no caching).
     fn cache(&self) -> Option<&RichCache>;
+    /// Local wall clock (s since 1970-01-01, local zone applied) for the gantt today marker;
+    /// `None` (tests, goldens) draws no marker.
+    fn now_local(&self) -> Option<i64> {
+        None
+    }
 }
 
 /// A host without math font or cache (pure tests, fuzzing): math and diagrams render as source.
@@ -123,7 +128,8 @@ const CACHE_CAP: usize = 4096;
 /// the user chose to render anyway (R-MMD-05).
 #[derive(Debug, Default)]
 pub struct RichCache {
-    math: RefCell<HashMap<(u64, u32, bool), MathResult>>,
+    math: RefCell<HashMap<(u64, u32, bool, u64), MathResult>>,
+    scopes: RefCell<Rc<crate::macros::MacroScopes>>,
     pub(crate) diagrams: RefCell<HashMap<(u64, u32), Rc<crate::diagram::Laid>>>,
     forced: RefCell<HashSet<u64>>,
     rendered: RefCell<HashSet<u64>>,
@@ -165,6 +171,32 @@ impl RichCache {
         f.insert(h);
         true
     }
+    /// Brings the macro scopes (R-MATH-07) up to date with `text` / `ix`; cheap when the
+    /// defining blocks did not change.
+    pub fn prepare_macros(&self, text: &str, ix: &yamdv_core::doc::index::Index) {
+        let cur = self.scopes.borrow().key();
+        if ix.macro_blocks.is_empty() && cur == 0 {
+            return;
+        }
+        let key = if ix.macro_blocks.is_empty() {
+            0
+        } else {
+            crate::macros::scope_key(text, ix)
+        };
+        if key != cur {
+            let s = if key == 0 {
+                crate::macros::MacroScopes::default()
+            } else {
+                crate::macros::MacroScopes::build(text, ix)
+            };
+            *self.scopes.borrow_mut() = Rc::new(s);
+            self.math.borrow_mut().clear();
+        }
+    }
+    /// The macro environment of top-level block `b` and its id (0 = none).
+    pub fn macros_for(&self, b: usize) -> (u64, Option<Rc<yamdv_math::macros::Macros>>) {
+        self.scopes.borrow().for_block(b)
+    }
     /// Cached entries (formulas, diagrams).
     pub fn len(&self) -> (usize, usize) {
         (self.math.borrow().len(), self.diagrams.borrow().len())
@@ -173,6 +205,25 @@ impl RichCache {
     pub fn is_empty(&self) -> bool {
         self.len() == (0, 0)
     }
+}
+
+/// Formulas of a Markdown document that fail to expand or parse (they show in the error
+/// color); font-independent driver probe. Macros are scoped per top-level block.
+pub fn math_errors(doc: &yamdv_core::doc::Document) -> usize {
+    (0..doc.index.blocks.len())
+        .map(|i| {
+            let d = doc.detail_uncached(i);
+            let mut env = yamdv_math::macros::Macros::default();
+            d.runs
+                .iter()
+                .filter(|r| r.style & yamdv_core::doc::detail::style::MATH != 0)
+                .filter(|r| {
+                    let (tex, _) = strip_delims(r.text(&doc.source));
+                    yamdv_math::layout::check(tex, &mut env).is_err()
+                })
+                .count()
+        })
+        .sum()
 }
 
 /// Stable-within-the-process hash of a source string.
@@ -209,13 +260,26 @@ pub fn math_box(ctx: &Ctx<'_>, tex: &str, size: f32, display: bool) -> Option<Ma
     if ctx.rich.cache().is_some_and(|c| !c.admit_formula(h)) {
         return None;
     }
-    let key = (h, size.to_bits(), display);
+    let (env_id, env) = ctx
+        .rich
+        .cache()
+        .map_or((0, None), |c| c.macros_for(ctx.block));
+    let key = (h, size.to_bits(), display, env_id);
     if let Some(c) = ctx.rich.cache()
         && let Some(r) = c.math.borrow().get(&key)
     {
         return Some(r.clone());
     }
-    let r = yamdv_math::render(tex, face.font.as_ref(), &face.table, size, display).map(Rc::new);
+    let mut env = env.map(|e| (*e).clone()).unwrap_or_default();
+    let r = yamdv_math::layout::render_with(
+        tex,
+        &mut env,
+        face.font.as_ref(),
+        &face.table,
+        size,
+        display,
+    )
+    .map(Rc::new);
     if let Some(c) = ctx.rich.cache() {
         let mut m = c.math.borrow_mut();
         if m.len() >= CACHE_CAP {
@@ -248,11 +312,30 @@ pub(crate) fn display_math(
             card(ctx, pt, Some(&label), x, y, w, out)
         }
         Some(Ok(mb)) => {
-            let h = mb.ascent + mb.descent;
-            if mb.width <= w {
+            // `\tag{…}` (R-MATH-02): right-aligned on the formula's baseline.
+            let tag = mb.tag.as_ref().map(|t| Rc::new((**t).clone()));
+            let tag_w = tag.as_ref().map_or(0.0, |t| t.width + size);
+            let h = (mb.ascent + mb.descent).max(
+                tag.as_ref()
+                    .map_or(0.0, |t| mb.ascent.max(t.ascent) + mb.descent.max(t.descent)),
+            );
+            let asc = tag.as_ref().map_or(mb.ascent, |t| mb.ascent.max(t.ascent));
+            if mb.width + tag_w <= w {
+                let centered = x + (w - mb.width) / 2.0;
+                // Centered unless that collides with the tag.
+                let fx = centered.min(x + w - tag_w - mb.width);
+                if let Some(t) = tag {
+                    out.items.push(Item::Math {
+                        x: x + w - t.width,
+                        y: y + asc,
+                        mb: t,
+                        color: ctx.pal.text,
+                        hscroll: None,
+                    });
+                }
                 out.items.push(Item::Math {
-                    x: x + (w - mb.width) / 2.0,
-                    y: y + mb.ascent,
+                    x: fx,
+                    y: y + asc,
                     mb,
                     color: ctx.pal.text,
                     hscroll: None,
@@ -268,9 +351,20 @@ pub(crate) fn display_math(
                     track: Rect::new(x, y + h + 4.0, w, 6.0),
                 });
                 out.items.push(Item::PushClip(view));
+                if let Some(t) = tag {
+                    // Wide formulas carry the tag at the end of the scrolled content.
+                    out.regions[region].content_w += tag_w;
+                    out.items.push(Item::Math {
+                        x: x + mb.width + size,
+                        y: y + asc,
+                        mb: t,
+                        color: ctx.pal.text,
+                        hscroll: Some(region as u16),
+                    });
+                }
                 out.items.push(Item::Math {
                     x,
-                    y: y + mb.ascent,
+                    y: y + asc,
                     mb,
                     color: ctx.pal.text,
                     hscroll: Some(region as u16),
@@ -458,11 +552,18 @@ mod tests {
                 ..
             }
         )));
-        let seq = "```mermaid\nsequenceDiagram\nA->>B: hi\n```\n";
-        assert!(count(&lay(seq, &r, 600.0).0, is_path) > 3);
+        for src in [
+            "```mermaid\nsequenceDiagram\nA->>B: hi\n```\n",
+            "```mermaid\npie\n\"a\": 1\n\"b\": 2\n```\n",
+            "```mermaid\ngantt\n x :2024-01-01, 3d\n y : 2d\n```\n",
+            "```mermaid\nstateDiagram-v2\n[*] --> A\nA --> [*]\n```\n",
+            "```mermaid\nmindmap\n  r\n    a\n    b\n```\n",
+        ] {
+            assert!(count(&lay(src, &r, 600.0).0, is_path) > 3, "{src}");
+        }
         // Unsupported type and syntax error: code card, no diagram.
         for src in [
-            "```mermaid\npie\n\"a\": 1\n```\n",
+            "```mermaid\ntimeline\n  2026 : a\n```\n",
             "```mermaid\ngraph TD\nA -->\n```\n",
         ] {
             let (it, _) = lay(src, &r, 600.0);

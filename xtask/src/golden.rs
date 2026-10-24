@@ -214,7 +214,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
 /// Window-level goldens of prompt 005 (welcome, sidebar, find bar, scheme), produced by the
 /// driver script `tests/golden/v1a/shots.yds` through the same draw path as `WM_PAINT`.
 /// V1-B adds the Split Edit and Live Edit (active source block) shots (prompt 006 §2.7).
-pub const SHELL_SHOTS: [&str; 21] = [
+pub const SHELL_SHOTS: [&str; 24] = [
     // V1-D: the welcome page gained [Install YAMDV for this user] (prompt 008 §4).
     "welcome-install-light.png",
     "doc-sidebar-light.png",
@@ -240,6 +240,10 @@ pub const SHELL_SHOTS: [&str; 21] = [
     // V2-F (prompt 016 §4): F2 inline reveal, F2 table with its tool strip and grips.
     "top-v2f-reveal-light.png",
     "top-v2f-table-dark.png",
+    // V2-G (prompt 017 §4): gantt + pie, state + class + ER, SVG + math.
+    "top-v2g-a-light.png",
+    "top-v2g-b-dark.png",
+    "top-v2g-c-light.png",
 ];
 
 /// `golden-shell --exe <yamdv.exe (dev-tools)> [--out dir] [--update]`: runs the shot script with
@@ -320,12 +324,23 @@ pub fn shell(root: &Path, args: &[String]) -> Result<(), String> {
     }
 }
 
-/// ACG matrix formats (prompt 004 §4.1 item 4): `tests/corpus/acg/<ext>.md` each shows one
-/// 64×48 (ICO 48×48) solid `#C03020` image.
-pub const ACG_FORMATS: [&str; 7] = ["png", "jpg", "gif", "bmp", "ico", "tiff", "webp"];
+/// ACG matrix formats (prompt 004 §4.1 item 4, ADR-0022 rows): `tests/corpus/acg/<row>.md` each
+/// shows one 64×48 (ICO 48×48) solid `#C03020` image.
+pub const ACG_FORMATS: [&str; 10] = [
+    "png",
+    "jpg",
+    "gif",
+    "bmp",
+    "ico-png",
+    "ico-bmp",
+    "tiff",
+    "webp-lossy",
+    "webp-lossless",
+    "webp-alpha",
+];
 
-/// Formats reported but not gated (ADR-0015).
-pub const ACG_REPORT_ONLY: [&str; 2] = ["ico", "webp"];
+/// ADR-0022: WebP shows the "WebP codec not installed" placeholder, so it must not decode.
+pub const ACG_PLACEHOLDER: [&str; 3] = ["webp-lossy", "webp-lossless", "webp-alpha"];
 
 /// `acg-matrix --exe <yamdv.exe with dev-tools> [--out <dir>]`: renders every ACG document
 /// (the process runs with ProhibitDynamicCode, S-PROC-04) and checks that the image pixels
@@ -373,20 +388,24 @@ pub fn acg_matrix(root: &Path, args: &[String]) -> Result<(), String> {
                     .then(|| format!("#{r:02X}{g:02X}{b:02X} @y={y}"))
             })
         });
+        let placeholder = ACG_PLACEHOLDER.contains(&f);
         println!(
             "| {f} | {} | {} |",
-            if hit.is_some() { "yes" } else { "NO" },
+            match (hit.is_some(), placeholder) {
+                (true, _) => "yes",
+                (false, true) => "placeholder (ADR-0022)",
+                (false, false) => "NO",
+            },
             hit.as_deref().unwrap_or("-")
         );
-        // ICO and WebP are recorded, not gated (ADR-0015: under investigation).
-        if hit.is_none() && !ACG_REPORT_ONLY.contains(&f) {
+        if hit.is_some() == placeholder {
             bad.push(f);
         }
     }
     if bad.is_empty() {
         Ok(())
     } else {
-        Err(format!("acg-matrix: not decoded: {}", bad.join(", ")))
+        Err(format!("acg-matrix: unexpected result: {}", bad.join(", ")))
     }
 }
 

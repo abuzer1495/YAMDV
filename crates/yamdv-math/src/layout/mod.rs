@@ -3,9 +3,13 @@
 //! stretchy delimiters. Output: [`MathBox`] display ops (glyphs in the math font + rules).
 
 use crate::font::MathFont;
+use crate::macros::Macros;
 use crate::parse::{Env, Font, FracStyle, MathError, Node, styled};
 use crate::symbols::Class;
 use crate::table::{self as t, MathTable};
+
+mod ext;
+mod matrix;
 
 /// Maximum display ops per formula (bounds memory; S-PARSE-05).
 pub const MAX_OPS: usize = 50_000;
@@ -40,6 +44,21 @@ pub enum Op {
         /// Color override.
         color: Option<u32>,
     },
+    /// A straight line (`\cancel`, `\not` overlays).
+    Line {
+        /// Start x.
+        x1: f32,
+        /// Start y.
+        y1: f32,
+        /// End x.
+        x2: f32,
+        /// End y.
+        y2: f32,
+        /// Stroke width.
+        w: f32,
+        /// Color override.
+        color: Option<u32>,
+    },
 }
 
 /// A laid-out formula.
@@ -53,6 +72,9 @@ pub struct MathBox {
     pub descent: f32,
     /// Display ops.
     pub ops: Vec<Op>,
+    /// `\tag{…}`: the equation number, laid out on its own; display math draws it
+    /// right-aligned on the formula's baseline (R-MATH-02).
+    pub tag: Option<Box<MathBox>>,
 }
 
 /// Style: 0 display, 1 text, 2 script, 3 scriptscript.
@@ -117,17 +139,39 @@ struct B {
     glyph: Option<(u16, f32)>,
 }
 
+impl Op {
+    /// Moves the op by (dx, dy).
+    pub fn shift(&mut self, dx: f32, dy: f32) {
+        match self {
+            Op::Glyph { x, y, .. } | Op::Rule { x, y, .. } => {
+                *x += dx;
+                *y += dy;
+            }
+            Op::Line { x1, y1, x2, y2, .. } => {
+                *x1 += dx;
+                *x2 += dx;
+                *y1 += dy;
+                *y2 += dy;
+            }
+        }
+    }
+}
+
+impl MathBox {
+    /// Moves every op by (dx, dy) (the box metrics are unchanged).
+    pub fn shift(&mut self, dx: f32, dy: f32) {
+        for o in &mut self.ops {
+            o.shift(dx, dy);
+        }
+    }
+}
+
 impl B {
     fn put(&mut self, c: B, dx: f32, dy: f32) {
         self.h = self.h.max(c.h - dy);
         self.d = self.d.max(c.d + dy);
         for mut o in c.ops {
-            match &mut o {
-                Op::Glyph { x, y, .. } | Op::Rule { x, y, .. } => {
-                    *x += dx;
-                    *y += dy;
-                }
-            }
+            o.shift(dx, dy);
             self.ops.push(o);
         }
     }
@@ -138,6 +182,8 @@ struct L<'a> {
     t: &'a MathTable,
     base: f32,
     ops: usize,
+    /// Size of `\middle` delimiters in the `\left … \right` being laid out.
+    middle: Option<f32>,
 }
 
 const NULL_DELIM: f32 = 0.12;
@@ -155,17 +201,40 @@ pub fn layout(
         t: table,
         base: size,
         ops: 0,
+        middle: None,
     };
     let st = St {
         level: if display { 0 } else { 1 },
         cramped: false,
     };
-    let b = l.hlist(nodes, st, None)?;
+    let mut tag = None;
+    let mut body: Vec<Node> = Vec::with_capacity(nodes.len());
+    for n in nodes {
+        match n {
+            Node::Tag(s) => tag = Some(s.clone()),
+            _ => body.push(n.clone()),
+        }
+    }
+    let b = l.hlist(&body, st, None)?;
+    let tag = match tag {
+        Some(s) => {
+            let t = l.string_box(&s, St { level: 1, ..st }, None)?;
+            Some(Box::new(MathBox {
+                width: t.w,
+                ascent: t.h,
+                descent: t.d,
+                ops: t.ops,
+                tag: None,
+            }))
+        }
+        None => None,
+    };
     Ok(MathBox {
         width: b.w,
         ascent: b.h,
         descent: b.d,
         ops: b.ops,
+        tag,
     })
 }
 
@@ -177,8 +246,36 @@ pub fn render(
     size: f32,
     display: bool,
 ) -> Result<MathBox, MathError> {
-    let nodes = crate::parse::parse(src)?;
+    render_with(src, &mut Macros::default(), font, table, size, display)
+}
+
+/// Expands the document macros `env` (R-MATH-07; definitions in `src` are added to `env`),
+/// then parses and lays out `src`. Export and print use the same entry point.
+pub fn render_with(
+    src: &str,
+    env: &mut Macros,
+    font: &dyn MathFont,
+    table: &MathTable,
+    size: f32,
+    display: bool,
+) -> Result<MathBox, MathError> {
+    let nodes = nodes_of(src, env)?;
     layout(&nodes, font, table, size, display)
+}
+
+/// Expands and parses `src` without a font: the same errors [`render_with`] reports before
+/// layout (driver probe for the error color on machines without a math font).
+pub fn check(src: &str, env: &mut Macros) -> Result<(), MathError> {
+    nodes_of(src, env).map(|_| ())
+}
+
+fn nodes_of(src: &str, env: &mut Macros) -> Result<Vec<crate::parse::Node>, MathError> {
+    let expanded = crate::macros::expand(src, env)?;
+    if matches!(expanded, std::borrow::Cow::Borrowed(_)) {
+        crate::parse::parse(&expanded)
+    } else {
+        crate::parse::parse_limited(&expanded, crate::parse::MAX_EXPANDED)
+    }
 }
 
 fn spacing(left: Class, right: Class, script: bool) -> f32 {
@@ -395,11 +492,14 @@ impl L<'_> {
                 (b, Some(Class::Ord))
             }
             Node::Scripts { base, sup, sub } => {
-                let limits = st.display()
-                    && matches!(
-                        **base,
-                        Node::BigOp { limits: true, .. } | Node::Func { limits: true, .. }
-                    );
+                let limits = match &**base {
+                    Node::Limits { on, .. } => *on,
+                    Node::Stretch { limits: true, .. } => true,
+                    Node::BigOp { limits: true, .. } | Node::Func { limits: true, .. } => {
+                        st.display()
+                    }
+                    _ => false,
+                };
                 let (bb, cls) = self.node(base, st, color)?;
                 let is_char = matches!(**base, Node::Char { .. });
                 let b = if limits {
@@ -435,7 +535,14 @@ impl L<'_> {
                 Some(Class::Ord),
             ),
             Node::LeftRight { left, right, body } => {
-                let inner = self.hlist(body, st, color)?;
+                let mut inner = self.hlist(body, st, color)?;
+                if body.iter().any(|n| matches!(n, Node::Middle(_))) {
+                    // Second pass with `\middle` sized like the outer delimiters.
+                    let outer = self.middle;
+                    self.middle = Some(self.delim_target(&inner, st));
+                    inner = self.hlist(body, st, color)?;
+                    self.middle = outer;
+                }
                 (
                     self.delimited(*left, inner, *right, st, color)?,
                     Some(Class::Inner),
@@ -456,9 +563,21 @@ impl L<'_> {
                 };
                 (b, Some(*class))
             }
-            Node::Matrix { env, rows } => {
-                let b = self.matrix(*env, rows, st, color)?;
+            Node::Matrix { env, rows, cols } => {
+                let b = self.matrix(*env, rows, cols, st, color)?;
                 match env {
+                    Env::BraceMatrix => (
+                        self.delimited(Some('{'), b, Some('}'), st, color)?,
+                        Some(Class::Inner),
+                    ),
+                    Env::DoubleVMatrix => (
+                        self.delimited(Some('‖'), b, Some('‖'), st, color)?,
+                        Some(Class::Inner),
+                    ),
+                    Env::DCases => (
+                        self.delimited(Some('{'), b, None, st, color)?,
+                        Some(Class::Inner),
+                    ),
                     Env::PMatrix => (
                         self.delimited(Some('('), b, Some(')'), st, color)?,
                         Some(Class::Inner),
@@ -475,7 +594,9 @@ impl L<'_> {
                         self.delimited(Some('{'), b, None, st, color)?,
                         Some(Class::Inner),
                     ),
-                    Env::Matrix | Env::Aligned => (b, Some(Class::Ord)),
+                    Env::Matrix | Env::Aligned | Env::Small | Env::Gathered | Env::Array => {
+                        (b, Some(Class::Ord))
+                    }
                 }
             }
             Node::Accent { c, body } => (self.accent(*c, body, st, color)?, Some(Class::Ord)),
@@ -533,6 +654,7 @@ impl L<'_> {
                 None,
             ),
             Node::Color { color: c, body } => (self.hlist(body, st, Some(*c))?, Some(Class::Ord)),
+            other => self.node_ext(other, st, color)?,
         })
     }
 
@@ -895,10 +1017,8 @@ impl L<'_> {
         st: St,
         color: Option<u32>,
     ) -> Result<B, MathError> {
-        let axis = self.c(st, t::AXIS_HEIGHT);
-        let delta = (inner.h - axis).max(inner.d + axis);
+        let target = self.delim_target(&inner, st);
         let em = self.size(st);
-        let target = (2.0 * delta * 0.901).max(2.0 * delta - 0.5 * em);
         let mut out = B::default();
         let mut x = 0.0f32;
         let side =
@@ -921,6 +1041,14 @@ impl L<'_> {
         side(self, &mut out, &mut x, r)?;
         out.w = x;
         Ok(out)
+    }
+
+    /// TeX's delimiter size for content `inner` (`\left`, `\middle`, `\right`).
+    fn delim_target(&self, inner: &B, st: St) -> f32 {
+        let axis = self.c(st, t::AXIS_HEIGHT);
+        let delta = (inner.h - axis).max(inner.d + axis);
+        let em = self.size(st);
+        (2.0 * delta * 0.901).max(2.0 * delta - 0.5 * em)
     }
 
     fn accent(&mut self, c: char, body: &Node, st: St, color: Option<u32>) -> Result<B, MathError> {
@@ -946,119 +1074,5 @@ impl L<'_> {
         out.ic = ic;
         out.glyph = g;
         Ok(out)
-    }
-
-    fn matrix(
-        &mut self,
-        env: Env,
-        rows: &[Vec<Node>],
-        st: St,
-        color: Option<u32>,
-    ) -> Result<B, MathError> {
-        let cst = match env {
-            Env::Aligned => St { level: 0, ..st },
-            _ => St {
-                level: st.level.max(1),
-                ..st
-            },
-        };
-        let em = self.size(st);
-        let stretch = if env == Env::Cases { 1.2 } else { 1.0 };
-        let strut_h = 0.84 * em * stretch;
-        let strut_d = 0.36 * em * stretch;
-        let jot = if env == Env::Aligned { 0.3 * em } else { 0.0 };
-        let mut cells: Vec<Vec<B>> = Vec::with_capacity(rows.len());
-        let mut ncols = 0usize;
-        for row in rows {
-            let mut r = Vec::with_capacity(row.len());
-            for (ci, cell) in row.iter().enumerate() {
-                let b = if env == Env::Aligned && ci % 2 == 1 {
-                    // `{}` before the right-hand side so a leading relation gets its spacing.
-                    let list = match cell {
-                        Node::Group(v) => {
-                            let mut l = vec![Node::Group(Vec::new())];
-                            l.extend(v.iter().cloned());
-                            l
-                        }
-                        n => vec![Node::Group(Vec::new()), n.clone()],
-                    };
-                    self.hlist(&list, cst, color)?
-                } else {
-                    self.node(cell, cst, color)?.0
-                };
-                r.push(b);
-            }
-            ncols = ncols.max(r.len());
-            cells.push(r);
-        }
-        let mut widths = vec![0.0f32; ncols];
-        for r in &cells {
-            for (ci, b) in r.iter().enumerate() {
-                if let Some(w) = widths.get_mut(ci) {
-                    *w = w.max(b.w);
-                }
-            }
-        }
-        let gap_after = |ci: usize| -> f32 {
-            match env {
-                Env::Aligned => {
-                    if ci % 2 == 1 {
-                        2.0 * em
-                    } else {
-                        0.0
-                    }
-                }
-                Env::Cases => em,
-                _ => em,
-            }
-        };
-        let mut xs = Vec::with_capacity(ncols);
-        let mut x = 0.0f32;
-        for (ci, w) in widths.iter().enumerate() {
-            xs.push(x);
-            x += w;
-            if ci + 1 < ncols {
-                x += gap_after(ci);
-            }
-        }
-        let total_w = x;
-        let mut out = B::default();
-        let mut y = 0.0f32; // top of the current row (from the array top, downwards)
-        for (ri, r) in cells.into_iter().enumerate() {
-            let h = r.iter().map(|b| b.h).fold(strut_h, f32::max);
-            let d = r.iter().map(|b| b.d).fold(strut_d, f32::max);
-            if ri > 0 {
-                y += jot;
-            }
-            let base = y + h;
-            for (ci, b) in r.into_iter().enumerate() {
-                let cw = widths.get(ci).copied().unwrap_or(0.0);
-                let cx = xs.get(ci).copied().unwrap_or(0.0);
-                let left = match env {
-                    Env::Cases => true,
-                    Env::Aligned => ci % 2 == 1,
-                    _ => false,
-                };
-                let right = env == Env::Aligned && ci % 2 == 0;
-                let bx = if left {
-                    cx
-                } else if right {
-                    cx + cw - b.w
-                } else {
-                    cx + (cw - b.w) / 2.0
-                };
-                out.put(b, bx, base);
-            }
-            y = base + d;
-        }
-        // Center the array on the axis.
-        let axis = self.c(st, t::AXIS_HEIGHT);
-        let shift = -(y / 2.0) - axis;
-        let mut moved = B::default();
-        moved.put(out, 0.0, shift);
-        moved.h = moved.h.max(-shift);
-        moved.d = moved.d.max(y + shift);
-        moved.w = total_w;
-        Ok(moved)
     }
 }

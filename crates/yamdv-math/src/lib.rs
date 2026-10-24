@@ -5,14 +5,18 @@
 //! [`font::MathFont`] (Cambria Math through DirectWrite) and draws the [`layout::Op`]s.
 #![forbid(unsafe_code)]
 
+pub mod extra;
 pub mod font;
 pub mod layout;
+pub mod macros;
 pub mod parse;
 pub mod symbols;
 pub mod table;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_cov;
 
 pub use layout::{MathBox, Op, render};
 pub use parse::MathError;

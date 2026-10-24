@@ -38,6 +38,7 @@
 - **S-RES-04 MUST** Limits: image file ≤ 50 MB; `data:` URI ≤ 10 MB decoded; dimensions ≤ 16 384 × 16 384 and ≤ 64 megapixels (checked from the header **before** decoding); animated GIF ≤ 1 000 frames; decoded-image cache within the Appendix D budget.
 - **S-RES-05 MUST** Referenced files are only ever *decoded as images* — never opened with another app automatically. Exports embed only files that decoded successfully as images (so `![](C:/Users/me/.ssh/id_rsa)` can never be exfiltrated into an exported HTML/PDF).
 - **S-RES-06 MUST** Fonts come only from the system/user font collections via DirectWrite; documents cannot load fonts.
+- **S-RES-07 MUST** SVG images: no external references (only same-document `#id` references are resolved; `href`/`xlink:href`/`url()` to files or URLs are ignored), no scripts, no `foreignObject`, no event attributes, no CSS `@import`; DTDs and entity declarations are rejected (no entity expansion); limits: file ≤ 10 MB, ≤ 50 000 elements, nesting ≤ 64, `use` depth ≤ 8 and ≤ 10 000 resolved instances, ≤ 1 000 000 path commands; rendering is bounded by the display size and the S-RES-04 pixel limits.
 
 ## C.5 Links (S-LINK)
 - **S-LINK-01 MUST** External schemes allowlist: `http`, `https`, `mailto` (ASCII-case-insensitive). Every other scheme is inert (R-LINK-06).

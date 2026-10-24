@@ -178,6 +178,11 @@ pub const DEFS: &[Def] = &[
         default: "true",
     },
     Def {
+        key: "reading.animate_gifs",
+        kind: Kind::Bool,
+        default: "false",
+    },
+    Def {
         key: "reading.render_html",
         kind: Kind::Bool,
         default: "true",

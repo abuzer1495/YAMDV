@@ -6,6 +6,7 @@ members = [
     "crates/yamdv-highlight",
     "crates/yamdv-math",
     "crates/yamdv-mermaid",
+    "crates/yamdv-svg",
     "crates/yamdv-editor",
     "crates/yamdv-ui",
     "crates/yamdv-export",
@@ -72,6 +73,18 @@ strip = "symbols"
 debug = false
 overflow-checks = true   # security over micro-speed
 incremental = false
+
+# V2-G (prompt 017 size budget): the content engines render once into caches, never per frame.
+[profile.release.package.yamdv-mermaid]
+opt-level = "z"
+[profile.release.package.yamdv-svg]
+opt-level = "z"
+[profile.release.package.yamdv-math]
+opt-level = "z"
+[profile.release.package.yamdv-highlight]
+opt-level = "z"
+[profile.release.package.yamdv-export]
+opt-level = "z"
 
 [profile.release-dbg]    # for profiling/analysis
 inherits = "release"

@@ -63,6 +63,7 @@ pub(crate) fn json(state: State, line: &str, out: &mut Out) -> State {
                     return State {
                         mode: J_COMMENT,
                         arg: 0,
+                        ext: 0,
                     };
                 }
             }
@@ -183,6 +184,7 @@ pub(crate) fn yaml(state: State, line: &str, out: &mut Out) -> State {
                 next = State {
                     mode: Y_BLOCK,
                     arg: u8::try_from(ind).unwrap_or(u8::MAX),
+                    ext: 0,
                 };
             }
             b'{' | b'}' | b'[' | b']' | b',' | b':' => {
@@ -275,6 +277,7 @@ pub(crate) fn toml(state: State, line: &str, out: &mut Out) -> State {
                             return State {
                                 mode: T_MSTR,
                                 arg: if ch == b'"' { 1 } else { 2 },
+                                ext: 0,
                             };
                         }
                     }
@@ -304,6 +307,44 @@ pub(crate) fn toml(state: State, line: &str, out: &mut Out) -> State {
         }
     }
     State::NORMAL
+}
+
+/// Shell session (`console`): prompt lines are Bash after a `Meta` prompt (`$ `, `# `, `% `,
+/// `> `, `user@host:~$ `, `PS C:\> `), `\` continues a command, other lines are output.
+pub(crate) fn console(state: State, line: &str, out: &mut Out) -> State {
+    let Some(p) = (if state.mode == 1 {
+        Some(0)
+    } else {
+        prompt_len(line)
+    }) else {
+        return State::NORMAL;
+    };
+    out.push(0..p, Tok::Meta);
+    let rest = line.get(p..).unwrap_or("");
+    let mut sub = Out::default();
+    let _ = crate::clike::lex(&crate::langs::SHELL, State::NORMAL, rest, &mut sub);
+    out.append(p, sub);
+    if rest.trim_end().ends_with('\\') {
+        State {
+            mode: 1,
+            arg: 0,
+            ext: 0,
+        }
+    } else {
+        State::NORMAL
+    }
+}
+
+fn prompt_len(line: &str) -> Option<usize> {
+    let t = line.trim_start();
+    let ind = line.len() - t.len();
+    if let Some(r) = t.strip_prefix("PS ") {
+        return r.find("> ").map(|k| ind + 3 + k + 2);
+    }
+    let k = t.find(' ').unwrap_or(t.len()).min(81);
+    let head = t.get(..k)?;
+    (!head.is_empty() && head.len() <= 80 && head.ends_with(['$', '#', '%', '>']))
+        .then(|| ind + (k + 1).min(t.len()))
 }
 
 /// INI / conf / properties.

@@ -14,6 +14,7 @@ pub mod fold;
 pub mod front;
 pub mod geom;
 pub mod img;
+pub mod macros;
 pub mod plain;
 pub mod reveal;
 pub mod rich;

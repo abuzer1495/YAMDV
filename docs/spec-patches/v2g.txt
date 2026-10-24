@@ -1,0 +1,8 @@
+# Spec patches of prompt 017 (Phase V2-G) §2.3, extracted verbatim from docs/prompts/017_V2G_CONTENT_ENGINES.md.
+
+=== P-48 docs/SECURITY.md INSERT_AFTER
+--- anchor
+- **S-RES-06 MUST** Fonts come only from the system/user font collections via DirectWrite; documents cannot load fonts.
+--- new
+- **S-RES-07 MUST** SVG images: no external references (only same-document `#id` references are resolved; `href`/`xlink:href`/`url()` to files or URLs are ignored), no scripts, no `foreignObject`, no event attributes, no CSS `@import`; DTDs and entity declarations are rejected (no entity expansion); limits: file ≤ 10 MB, ≤ 50 000 elements, nesting ≤ 64, `use` depth ≤ 8 and ≤ 10 000 resolved instances, ≤ 1 000 000 path commands; rendering is bounded by the display size and the S-RES-04 pixel limits.
+=== end

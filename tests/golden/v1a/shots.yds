@@ -133,3 +133,19 @@ ui shot-window v2f-table-dark.png
 key f2
 wait-idle
 command mode system
+# V2-G (prompt 017 §4): gantt + pie (light), state + class + ER (dark), SVG + math (light).
+command mode light
+open ../../driver/v2g-golden-a.md
+wait-idle
+ui shot-window v2g-a-light.png
+command mode dark
+open ../../driver/v2g-golden-b.md
+wait-idle
+ui shot-window v2g-b-dark.png
+command mode light
+open ../../driver/v2g-golden-c.md
+wait-idle
+sleep 300
+wait-idle
+ui shot-window v2g-c-light.png
+command mode system

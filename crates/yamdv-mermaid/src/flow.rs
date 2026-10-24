@@ -18,7 +18,7 @@ pub enum Dir {
     RL,
 }
 
-/// Node shape (other Mermaid shapes fall back to [`Shape::Rect`]).
+/// Node shape (R-MMD-06; `Start`/`End`/`Class` serve state and class/ER diagrams).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Shape {
     /// `[text]`.
@@ -36,10 +36,30 @@ pub enum Shape {
     Circle,
     /// `{text}`.
     Rhombus,
+    /// `(((text)))`.
+    DoubleCircle,
+    /// `>text]`.
+    Asymmetric,
+    /// `{{text}}`.
+    Hexagon,
+    /// `[/text/]`.
+    Parallelogram,
+    /// `[\text\]`.
+    ParallelogramAlt,
+    /// `[/text\]`.
+    Trapezoid,
+    /// `[\text/]`.
+    TrapezoidAlt,
+    /// State `[*]` start: a small filled circle.
+    Start,
+    /// State `[*]` end: a ringed filled circle.
+    End,
+    /// A box with a bold title and compartments ([`Node::sections`]): classes, ER entities.
+    Class,
 }
 
-/// Explicit node colors (`style`, `classDef`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Explicit node colors and strokes (`style`, `classDef`, `linkStyle`).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Colors {
     /// `fill`.
     pub fill: Option<u32>,
@@ -47,6 +67,10 @@ pub struct Colors {
     pub stroke: Option<u32>,
     /// `color` (text).
     pub color: Option<u32>,
+    /// `stroke-width` (px).
+    pub width: Option<f32>,
+    /// `stroke-dasharray` (any non-`0`/`none` value dashes).
+    pub dash: Option<bool>,
 }
 
 impl Colors {
@@ -54,6 +78,8 @@ impl Colors {
         self.fill = o.fill.or(self.fill);
         self.stroke = o.stroke.or(self.stroke);
         self.color = o.color.or(self.color);
+        self.width = o.width.or(self.width);
+        self.dash = o.dash.or(self.dash);
     }
 }
 
@@ -72,6 +98,8 @@ pub struct Node {
     pub style: Colors,
     /// Innermost subgraph.
     pub sub: Option<usize>,
+    /// Compartments under the title ([`Shape::Class`]), one string per compartment.
+    pub sections: Vec<String>,
 }
 
 /// Edge line kind.
@@ -85,6 +113,36 @@ pub enum Line {
     Thick,
 }
 
+/// An edge end marker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum End {
+    /// None.
+    #[default]
+    None,
+    /// Filled arrowhead (`>`).
+    Arrow,
+    /// Circle (`o`).
+    Circle,
+    /// Cross (`x`).
+    Cross,
+    /// Hollow triangle (class inheritance / realization).
+    Triangle,
+    /// Hollow diamond (aggregation).
+    Diamond,
+    /// Filled diamond (composition).
+    DiamondFilled,
+    /// Open arrow (class dependency/association `>`).
+    Open,
+    /// ER: exactly one `||`.
+    One,
+    /// ER: zero or one `|o` / `o|`.
+    ZeroOne,
+    /// ER: one or more `}|` / `|{`.
+    OneMany,
+    /// ER: zero or more `}o` / `o{`.
+    ZeroMany,
+}
+
 /// An edge.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Edge {
@@ -94,10 +152,32 @@ pub struct Edge {
     pub to: usize,
     /// Line kind.
     pub line: Line,
-    /// Arrowhead at the target.
-    pub arrow: bool,
+    /// Marker at the target.
+    pub head: End,
+    /// Marker at the source.
+    pub tail: End,
     /// Label.
     pub label: Option<String>,
+    /// Minimum rank distance (extra-length operators `--->` add one per extra character).
+    pub len: u8,
+    /// `linkStyle` stroke (fill unused).
+    pub style: Colors,
+}
+
+impl Edge {
+    /// A plain edge.
+    pub fn new(from: usize, to: usize, line: Line, head: End) -> Self {
+        Self {
+            from,
+            to,
+            line,
+            head,
+            tail: End::None,
+            label: None,
+            len: 1,
+            style: Colors::default(),
+        }
+    }
 }
 
 /// A subgraph.
@@ -145,21 +225,45 @@ impl Flow {
     }
 }
 
-fn props(s: &str) -> Colors {
+pub(crate) fn props(s: &str) -> Colors {
     let mut c = Colors::default();
     for p in s.split([',', ';']) {
         let Some((k, v)) = p.split_once(':') else {
             continue;
         };
+        let raw = v.trim();
         let v = crate::color(v);
         match k.trim() {
             "fill" => c.fill = v,
             "stroke" => c.stroke = v,
             "color" => c.color = v,
+            "stroke-width" => {
+                c.width = raw
+                    .trim_end_matches("px")
+                    .trim()
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|w| w.is_finite() && *w >= 0.0)
+                    .map(|w| w.min(20.0));
+            }
+            "stroke-dasharray" => c.dash = Some(!matches!(raw, "" | "0" | "none")),
             _ => {}
         }
     }
     c
+}
+
+/// A parsed edge operator.
+struct Op {
+    line: Line,
+    head: End,
+    tail: End,
+    label: Option<String>,
+    len: u8,
+}
+
+fn arrow(a: bool) -> End {
+    if a { End::Arrow } else { End::None }
 }
 
 struct P<'a> {
@@ -170,6 +274,8 @@ struct P<'a> {
     chars: Vec<char>,
     pos: usize,
     _src: &'a str,
+    link_default: Option<Colors>,
+    link_styles: Vec<(usize, Colors)>,
 }
 
 fn is_id(c: char) -> bool {
@@ -283,12 +389,12 @@ impl P<'_> {
             ("([", "])", Shape::Stadium),
             ("[[", "]]", Shape::Subroutine),
             ("[(", ")]", Shape::Cylinder),
-            ("(((", ")))", Shape::Circle),
+            ("(((", ")))", Shape::DoubleCircle),
             ("((", "))", Shape::Circle),
-            ("{{", "}}", Shape::Rect),
-            ("[/", "/]", Shape::Rect),
-            ("[\\", "\\]", Shape::Rect),
-            (">", "]", Shape::Rect),
+            ("{{", "}}", Shape::Hexagon),
+            ("[/", "/]", Shape::Parallelogram),
+            ("[\\", "\\]", Shape::ParallelogramAlt),
+            (">", "]", Shape::Asymmetric),
             ("[", "]", Shape::Rect),
             ("(", ")", Shape::Round),
             ("{", "}", Shape::Rhombus),
@@ -297,13 +403,17 @@ impl P<'_> {
             if self.at(open) {
                 self.pos += open.chars().count();
                 let save = self.pos;
-                let t = match self.text_until(close) {
-                    Ok(t) => t,
-                    // Trapezoids: `[/ \]`, `[\ /]` (drawn as rect).
+                let (t, shape) = match self.text_until(close) {
+                    Ok(t) => (t, shape),
+                    // Trapezoids: `[/ \]`, `[\ /]`.
                     Err(e) if open == "[/" || open == "[\\" => {
                         self.pos = save;
-                        let other = if open == "[/" { "\\]" } else { "/]" };
-                        self.text_until(other).map_err(|_| e)?
+                        let (other, sh) = if open == "[/" {
+                            ("\\]", Shape::Trapezoid)
+                        } else {
+                            ("/]", Shape::TrapezoidAlt)
+                        };
+                        (self.text_until(other).map_err(|_| e)?, sh)
                     }
                     Err(e) => return Err(e),
                 };
@@ -350,50 +460,83 @@ impl P<'_> {
         n
     }
 
+    /// `o` / `x` end marker right after an operator (followed by space, `|` or the end).
+    fn end_mark(&mut self) -> Option<End> {
+        let m = match self.peek() {
+            Some('o') => End::Circle,
+            Some('x') => End::Cross,
+            _ => return None,
+        };
+        let next = self.chars.get(self.pos + 1).copied();
+        if next.is_none_or(|c| c.is_whitespace() || c == '|') {
+            self.pos += 1;
+            return Some(m);
+        }
+        None
+    }
+
     /// An edge operator, or `None` at end of statement.
-    fn edge_op(&mut self) -> Result<Option<(Line, bool, Option<String>)>, Error> {
+    fn edge_op(&mut self) -> Result<Option<Op>, Error> {
         self.ws();
         if self.peek().is_none() {
             return Ok(None);
         }
-        if self.peek() == Some('<') {
+        let next = self.chars.get(self.pos + 1).copied();
+        let tail = match (self.peek(), next) {
+            (Some('<'), _) => {
+                self.pos += 1;
+                End::Arrow
+            }
+            (Some('o'), Some('-' | '=' | '.')) => {
+                self.pos += 1;
+                End::Circle
+            }
+            (Some('x'), Some('-' | '=' | '.')) => {
+                self.pos += 1;
+                End::Cross
+            }
+            _ => End::None,
+        };
+        let (line, head, mut label, n) = if self.at("-.") {
             self.pos += 1;
-        }
-        let (line, arrow, mut label) = if self.at("-.") {
-            self.pos += 1;
-            self.count('.');
+            let n = self.count('.');
             if self.at("->") {
                 self.pos += 2;
-                (Line::Dotted, true, None)
+                (Line::Dotted, End::Arrow, None, n)
             } else if self.peek() == Some('-') {
                 self.pos += 1;
-                (Line::Dotted, false, None)
+                let m = self.end_mark().unwrap_or(End::None);
+                (Line::Dotted, m, None, n)
             } else {
                 // `-. text .->`
                 let t = self.labeled(&[(".->", true), (".-", false)])?;
-                (Line::Dotted, t.1, Some(t.0))
+                (Line::Dotted, arrow(t.1), Some(t.0), 1)
             }
         } else if self.at("==") {
             let n = self.count('=');
             if self.peek() == Some('>') {
                 self.pos += 1;
-                (Line::Thick, true, None)
+                (Line::Thick, End::Arrow, None, n - 1)
+            } else if let Some(m) = self.end_mark() {
+                (Line::Thick, m, None, n - 1)
             } else if n >= 3 {
-                (Line::Thick, false, None)
+                (Line::Thick, End::None, None, n - 2)
             } else {
                 let t = self.labeled(&[("==>", true), ("===", false)])?;
-                (Line::Thick, t.1, Some(t.0))
+                (Line::Thick, arrow(t.1), Some(t.0), 1)
             }
         } else if self.at("--") {
             let n = self.count('-');
             if self.peek() == Some('>') {
                 self.pos += 1;
-                (Line::Solid, true, None)
+                (Line::Solid, End::Arrow, None, n - 1)
+            } else if let Some(m) = self.end_mark() {
+                (Line::Solid, m, None, n - 1)
             } else if n >= 3 {
-                (Line::Solid, false, None)
+                (Line::Solid, End::None, None, n - 2)
             } else {
                 let t = self.labeled(&[("-->", true), ("---", false)])?;
-                (Line::Solid, t.1, Some(t.0))
+                (Line::Solid, arrow(t.1), Some(t.0), 1)
             }
         } else {
             return Err(self.e(format!("Unexpected '{}'", self.peek().unwrap_or(' '))));
@@ -403,7 +546,13 @@ impl P<'_> {
             self.pos += 1;
             label = Some(self.text_until("|")?);
         }
-        Ok(Some((line, arrow, label)))
+        Ok(Some(Op {
+            line,
+            head,
+            tail,
+            label,
+            len: u8::try_from(n.clamp(1, 8)).unwrap_or(1),
+        }))
     }
 
     fn labeled(&mut self, ends: &[(&str, bool)]) -> Result<(String, bool), Error> {
@@ -470,7 +619,22 @@ impl P<'_> {
                 }
                 return Ok(());
             }
-            "direction" | "click" | "linkStyle" | "callback" => return Ok(()),
+            "direction" | "click" | "callback" => return Ok(()),
+            "linkStyle" => {
+                let mut it = after.splitn(2, char::is_whitespace);
+                let which = it.next().unwrap_or("");
+                let p = props(it.next().unwrap_or(""));
+                if which == "default" {
+                    self.link_default = Some(p);
+                } else {
+                    for k in which.split(',') {
+                        if let Ok(k) = k.trim().parse::<usize>() {
+                            self.link_styles.push((k, p));
+                        }
+                    }
+                }
+                return Ok(());
+            }
             "classDef" => {
                 let mut it = after.splitn(2, char::is_whitespace);
                 let names = it.next().unwrap_or("");
@@ -504,7 +668,7 @@ impl P<'_> {
             _ => {}
         }
         let mut left = self.group()?;
-        while let Some((line, arrow, label)) = self.edge_op()? {
+        while let Some(op) = self.edge_op()? {
             let right = self.group()?;
             for &a in &left {
                 for &b in &right {
@@ -512,11 +676,10 @@ impl P<'_> {
                         return Err(self.e("Too many edges"));
                     }
                     self.f.edges.push(Edge {
-                        from: a,
-                        to: b,
-                        line,
-                        arrow,
-                        label: label.clone(),
+                        tail: op.tail,
+                        label: op.label.clone(),
+                        len: op.len,
+                        ..Edge::new(a, b, op.line, op.head)
                     });
                 }
             }
@@ -561,6 +724,8 @@ pub fn parse(src: &str) -> Result<Flow, Error> {
         chars: Vec::new(),
         pos: 0,
         _src: src,
+        link_default: None,
+        link_styles: Vec::new(),
     };
     let mut header = true;
     let mut open_line = Vec::new();
@@ -602,6 +767,16 @@ pub fn parse(src: &str) -> Result<Flow, Error> {
     }
     if let Some(ln) = open_line.last() {
         return Err(err("Unclosed subgraph", *ln, 0));
+    }
+    if let Some(d) = p.link_default {
+        for e in &mut p.f.edges {
+            e.style.apply(&d);
+        }
+    }
+    for (k, st) in &p.link_styles {
+        if let Some(e) = p.f.edges.get_mut(*k) {
+            e.style.apply(st);
+        }
     }
     Ok(p.f)
 }

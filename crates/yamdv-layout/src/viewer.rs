@@ -163,6 +163,9 @@ impl Content {
     pub(crate) fn layout(&mut self, i: usize, ctx: &mut Ctx<'_>, w: f32) -> BlockLayout {
         match self {
             Content::Markdown(d) => {
+                if let Some(c) = ctx.rich.cache() {
+                    c.prepare_macros(&d.source, &d.index);
+                }
                 let det = d.detail(i);
                 if i + 1 == d.index.blocks.len() && !d.index.footnote_order.is_empty() {
                     let notes = notes(d);

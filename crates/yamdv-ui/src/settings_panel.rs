@@ -188,6 +188,7 @@ rows! {
     Reading "reading.front_matter", "Front matter", "Ön bilgi", "YAML header display", "YAML üst bilgisinin gösterimi";
     Reading "reading.render_math", "Render math", "Matematiği işle", "Typeset $…$ formulas", "$…$ formüllerini dizer";
     Reading "reading.render_mermaid", "Render diagrams", "Diyagramları işle", "Draw Mermaid code blocks", "Mermaid kod bloklarını çizer";
+    Reading "reading.animate_gifs", "Animate GIFs", "GIF'leri oynat", "Play animated GIFs while visible (first frame when off)", "Görünürken hareketli GIF'leri oynatır (kapalıyken ilk kare)";
     Reading "reading.smooth_scrolling", "Smooth scrolling", "Yumuşak kaydırma", "Animate wheel and key scrolling", "Tekerlek ve tuş kaydırmasını canlandırır";
     Reading "reading.scrollbar_autohide", "Auto-hide scrollbar", "Kaydırma çubuğunu gizle", "Show the scrollbar only while scrolling", "Kaydırma çubuğunu yalnızca kaydırırken gösterir";
     Reading "reading.word_count_badge", "Word count", "Kelime sayısı", "Badge with words and reading time", "Kelime ve okuma süresi rozeti";

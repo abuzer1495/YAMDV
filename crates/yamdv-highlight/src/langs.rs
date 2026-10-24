@@ -33,6 +33,8 @@ pub(crate) struct Spec {
     pub(crate) line_start_keywords: bool,
     /// `name:` at line start is a target / label (Makefile).
     pub(crate) targets: bool,
+    /// JSX elements in expression position (`jsx`, `tsx`).
+    pub(crate) jsx: bool,
 }
 
 const fn spec() -> Spec {
@@ -56,6 +58,7 @@ const fn spec() -> Spec {
         regex: false,
         line_start_keywords: false,
         targets: false,
+        jsx: false,
     }
 }
 
@@ -64,6 +67,10 @@ const fn spec() -> Spec {
 pub(crate) enum Kind {
     CLike(&'static Spec),
     Markup,
+    /// HTML / Vue: markup with embedded `<script>` (JS) and `<style>` (CSS).
+    Html,
+    /// Shell session: prompts + commands (Bash), output as text.
+    Console,
     Css,
     Markdown,
     Json,
@@ -606,7 +613,7 @@ const JS_CONST: &[&str] = &[
     "window",
     "document",
 ];
-static JS: Spec = Spec {
+const JS_SPEC: Spec = Spec {
     keywords: JS_KW,
     constants: JS_CONST,
     squote: true,
@@ -615,7 +622,7 @@ static JS: Spec = Spec {
     ident_extra: b"$",
     ..spec()
 };
-static TS: Spec = Spec {
+const TS_SPEC: Spec = Spec {
     keywords: &[
         "abstract",
         "as",
@@ -684,8 +691,18 @@ static TS: Spec = Spec {
     ident_extra: b"$",
     ..spec()
 };
+pub(crate) static JS: Spec = JS_SPEC;
+static JSX: Spec = Spec {
+    jsx: true,
+    ..JS_SPEC
+};
+static TS: Spec = TS_SPEC;
+static TSX: Spec = Spec {
+    jsx: true,
+    ..TS_SPEC
+};
 
-static SHELL: Spec = Spec {
+pub(crate) static SHELL: Spec = Spec {
     keywords: &[
         "if", "then", "else", "elif", "fi", "for", "while", "until", "do", "done", "case", "esac",
         "in", "function", "select", "return", "exit", "local", "export", "readonly", "declare",
@@ -1486,7 +1503,8 @@ static MAKEFILE: Spec = Spec {
 };
 
 langs! {
-    Bash ["bash", "sh", "shell", "zsh", "console", "shellsession"] => Kind::CLike(&SHELL);
+    Bash ["bash", "sh", "shell", "zsh"] => Kind::CLike(&SHELL);
+    Console ["console", "shellsession"] => Kind::Console;
     PowerShell ["powershell", "ps1", "pwsh", "ps"] => Kind::CLike(&POWERSHELL);
     Bat ["bat", "cmd", "batch"] => Kind::CLike(&BAT);
     C ["c"] => Kind::CLike(&C);
@@ -1497,13 +1515,16 @@ langs! {
     Go ["go", "golang"] => Kind::CLike(&GO);
     Rust ["rust", "rs"] => Kind::CLike(&RUST);
     Python ["python", "py", "py3", "python3"] => Kind::CLike(&PYTHON);
-    JavaScript ["javascript", "js", "mjs", "cjs", "jsx"] => Kind::CLike(&JS);
-    TypeScript ["typescript", "ts", "tsx", "mts", "cts"] => Kind::CLike(&TS);
+    JavaScript ["javascript", "js", "mjs", "cjs"] => Kind::CLike(&JS);
+    Jsx ["jsx"] => Kind::CLike(&JSX);
+    TypeScript ["typescript", "ts", "mts", "cts"] => Kind::CLike(&TS);
+    Tsx ["tsx"] => Kind::CLike(&TSX);
     Json ["json", "jsonc", "json5"] => Kind::Json;
     Yaml ["yaml", "yml"] => Kind::Yaml;
     Toml ["toml"] => Kind::Toml;
     Ini ["ini", "conf", "properties", "cfg", "editorconfig", "gitconfig"] => Kind::Ini;
-    Xml ["xml", "html", "htm", "svg", "xaml", "vue", "xhtml", "plist"] => Kind::Markup;
+    Xml ["xml", "svg", "xaml", "plist"] => Kind::Markup;
+    Html ["html", "htm", "xhtml", "vue"] => Kind::Html;
     Css ["css", "scss", "less", "sass"] => Kind::Css;
     Sql ["sql", "mysql", "postgresql", "psql", "sqlite"] => Kind::CLike(&SQL);
     Markdown ["markdown", "md", "mdx"] => Kind::Markdown;

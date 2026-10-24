@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="320" height="120" viewBox="0 0 320 120" onload="alert(1)">
+  <script>alert('no scripts')</script>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4f8cff"/>
+      <stop offset="1" stop-color="#9b5cff"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.4" cy="0.4" r="0.6">
+      <stop offset="0" stop-color="#fff6a0"/>
+      <stop offset="1" stop-color="#ffb300"/>
+    </radialGradient>
+    <path id="leaf" d="M0 0 C 8 -14, 22 -14, 30 0 C 22 14, 8 14, 0 0 Z"/>
+  </defs>
+  <rect x="2" y="2" width="316" height="116" rx="16" fill="url(#sky)" stroke="currentColor" stroke-width="2"/>
+  <circle cx="60" cy="60" r="34" fill="url(#sun)"/>
+  <path d="M110 92 Q 140 30 170 92 T 230 92" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-dasharray="10 6"/>
+  <use xlink:href="#leaf" x="250" y="40" fill="#3ddc84"/>
+  <use href="#leaf" x="262" y="74" fill="#2bb673" transform="rotate(-20 277 74)"/>
+  <use href="external.svg#leaf" x="0" y="0"/>
+  <image href="https://example.com/x.png" width="320" height="120"/>
+  <text x="200" y="30" text-anchor="middle" font-family="sans-serif" font-size="18" font-weight="bold" fill="#fff">YAMDV <tspan fill="#fff6a0">SVG</tspan></text>
+</svg>

@@ -272,6 +272,8 @@ messages! {
     MPrint => "Print…", "Yazdır…";
     MCopyTableCsv => "Copy table as CSV", "Tabloyu CSV olarak kopyala";
     MExportTableCsv => "Export table as CSV…", "Tabloyu CSV olarak dışa aktar…";
+    MCopyPng => "Copy as PNG", "PNG olarak kopyala";
+    MCopySource => "Copy source", "Kaynağı kopyala";
     PdfPrinterMissingTitle => "Export PDF", "PDF olarak dışa aktar";
     PdfPrinterMissing => "Microsoft Print to PDF is not installed — use Print… and choose a PDF printer.", "Microsoft Print to PDF yüklü değil — Yazdır… seçeneğini kullanıp bir PDF yazıcısı seçin.";
     Exported => "Exported", "Dışa aktarıldı";

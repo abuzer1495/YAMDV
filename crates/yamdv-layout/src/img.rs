@@ -122,7 +122,10 @@ fn icon(p: &Placeholder) -> &'static str {
         Placeholder::Remote => "\u{1F310}",
         Placeholder::Network => "\u{26D4}",
         Placeholder::TooLarge => "\u{2196}",
-        Placeholder::Unsupported | Placeholder::Invalid | Placeholder::InvalidPath => "\u{26A0}",
+        Placeholder::Unsupported
+        | Placeholder::Invalid
+        | Placeholder::InvalidPath
+        | Placeholder::NoCodec => "\u{26A0}",
         Placeholder::Missing => "\u{25A3}",
     }
 }

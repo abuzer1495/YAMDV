@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="40" height="40" onload="alert(1)">
+  <script>alert(1)</script>
+  <image href="file:///c:/x.png" width="40" height="40"/>
+  <use xlink:href="https://example.com/a.svg#r"/>
+  <rect width="40" height="40" fill="url(other.svg#g)"/>
+</svg>

@@ -1,0 +1,46 @@
+# V2-G content engines (prompt 017 §3): diagrams without badge, Copy as PNG, math errors, SVG/ICO/WebP, GIF timers
+open v2g-golden-a.md
+wait-idle
+assert diagrams_cached == 2
+ui diagram-copy-png
+wait-idle
+assert clip_img == 1
+open v2g-golden-b.md
+wait-idle
+assert diagrams_cached == 4
+write-file ce1.tmp.md "# Init\n\n```mermaid\n%%{init: {"theme": "forest"}}%%\nflowchart LR\n  A[Start] --> B{Ok?}\n  B -->|yes| C[Done]\n```\n\n```mermaid\nsequenceDiagram\n  Alice->>Bob: Hi\n  Bob-->>Alice: Hello\n```\n"
+open ce1.tmp.md
+wait-idle
+assert diagrams_cached == 2
+open v2g-golden-c.md
+wait-idle
+assert math_errors == 0
+assert img_decoded == 1
+write-file ce2.tmp.md "# Bomb\n\n$$\def\a{xxxxxxxxxx}\def\b{\a\a\a\a\a\a\a\a\a\a}\def\c{\b\b\b\b\b\b\b\b\b\b}\def\d{\c\c\c\c\c\c\c\c\c\c}\def\e{\d\d\d\d\d\d\d\d\d\d}\e$$\n"
+open ce2.tmp.md
+wait-idle
+assert math_errors == 1
+open ce-img.md
+wait-idle
+sleep 500
+wait-idle
+assert img_decoded == 5
+assert img_fail == "Invalid image source|WebP codec not installed"
+open ce-gif.md
+wait-idle
+ui cpu-mark
+sleep 1500
+assert gif_frames == 0
+assert cpu_delta_ms < 60
+ui motion-on
+ui settings-set reading.animate_gifs=true
+wait-idle
+sleep 1200
+assert gif_frames >= 4
+key ctrl+end
+wait-idle
+sleep 2000
+assert gif_playing == 0
+ui cpu-mark
+sleep 1500
+assert cpu_delta_ms < 60

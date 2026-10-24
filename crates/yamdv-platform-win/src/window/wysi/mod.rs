@@ -7,6 +7,7 @@ use yamdv_core::keymap::Chord;
 
 #[cfg(feature = "dev-tools")]
 mod drive;
+mod imgsize;
 mod insert;
 mod lang;
 mod linkpop;
@@ -44,11 +45,21 @@ pub(super) struct Wysi {
     pub tsv_offer: Option<table::TsvOffer>,
     /// Context-menu point (source offset) for Table ▸ on a table that is not open.
     pub tbl_at: Option<usize>,
+    /// Selected image with resize handles (R-F2-12).
+    pub img: Option<imgsize::ImgSel>,
 }
 
 impl Win {
     /// Key hook (before the V2-E hooks): `Some` when consumed.
     pub(super) fn v2f_key(&mut self, sh: &Shared, c: Chord) -> Option<Option<Action>> {
+        if self.wysi.img.is_some() {
+            if c.vk == VK_ESCAPE.0 && self.img_esc() {
+                return Some(None);
+            }
+            // Any other key ends the image selection.
+            self.wysi.img = None;
+            self.invalidate();
+        }
         if self.dialog.is_some() || self.settings.is_some() {
             return None;
         }
@@ -84,13 +95,16 @@ impl Win {
 
     /// Mouse-move hook: true when consumed (grip drag).
     pub(super) fn v2f_move(&mut self, sh: &Shared, x: f32, y: f32) -> bool {
+        if self.img_move(sh, x) {
+            return true;
+        }
         self.pick_hover(sh, x, y);
         self.grip_move(sh, x, y)
     }
 
     /// Mouse-up hook: true when consumed (grip drop).
     pub(super) fn v2f_up(&mut self, sh: &Shared) -> bool {
-        self.grip_up(sh)
+        self.img_up(sh) || self.grip_up(sh)
     }
 
     /// Overlay paint hook (content origin).
@@ -98,6 +112,7 @@ impl Win {
         self.lang_draw(sh, b);
         self.table_tools_draw(sh, b);
         self.grips_draw(sh, b);
+        self.img_draw(sh, b);
         self.tsv_draw(sh, b);
         self.linkpop_draw(sh, b);
         self.pick_draw(sh, b);

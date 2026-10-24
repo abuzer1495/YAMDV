@@ -18,6 +18,8 @@ use yamdv_ui::transient::{BannerKind, Banners, Bx, ZoomView};
 const TIMER_TIP: usize = 20;
 /// Fold animation frames (only while a fold animates).
 const TIMER_FOLD: usize = 21;
+/// One-shot: the viewer's next GIF frame (only while an animated GIF is open, T7).
+const TIMER_FVGIF: usize = 24;
 
 /// A tooltip, shown or waiting for its delay.
 #[derive(Debug, Clone, PartialEq)]
@@ -267,6 +269,12 @@ impl Win {
         match msg {
             WM_TIMER if wp.0 == TIMER_TIP => {
                 self.tip_fire();
+                Some(LRESULT(0))
+            }
+            WM_TIMER if wp.0 == TIMER_FVGIF => {
+                // SAFETY: valid hwnd.
+                let _ = unsafe { KillTimer(Some(self.hwnd), TIMER_FVGIF) };
+                self.fv_tick_gif();
                 Some(LRESULT(0))
             }
             WM_TIMER if wp.0 == TIMER_FOLD => {

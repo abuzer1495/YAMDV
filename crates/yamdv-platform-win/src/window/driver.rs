@@ -72,6 +72,12 @@ fn pws_now() -> u64 {
     crate::perf::private_ws_bytes()
 }
 
+/// Private working set growth since `ui mem-mark`, KiB.
+fn pws_delta_kib() -> f64 {
+    let mark = MEM_MARK.with(std::cell::Cell::get);
+    (pws_now() as f64 - mark as f64) / 1024.0
+}
+
 /// GDI and USER objects this process owns now (exact, unlike the working set).
 fn gui_now() -> (u32, u32) {
     use windows::Win32::System::Threading::{
@@ -245,14 +251,23 @@ fn run(w: &mut Win, sh: &Shared, cmd: &Cmd) -> String {
             "ok wait-idle".into()
         }
         Cmd::Assert(f, op, v) => {
-            let st = state(w, sh);
-            let actual = st
-                .get(f)
-                .map(|x| match x {
-                    serde_like::V::S(s) => s.clone(),
-                    serde_like::V::N(n) => format!("{n}"),
-                })
-                .unwrap_or_else(|| "<missing>".into());
+            // `math_errors` walks every block of the document: computed only when asserted, so
+            // the other asserts stay cheap and do not grow the heap. `pws_delta_kib` is sampled
+            // before anything else: building the full state on a 1 MB document commits ~200 KiB
+            // of transient heap that the assert itself would measure (V2-G export-progress).
+            let actual = if f == "math_errors" {
+                format!("{}", math_errors(w))
+            } else if f == "pws_delta_kib" {
+                format!("{}", pws_delta_kib())
+            } else {
+                state(w, sh)
+                    .get(f)
+                    .map(|x| match x {
+                        serde_like::V::S(s) => s.clone(),
+                        serde_like::V::N(n) => format!("{n}"),
+                    })
+                    .unwrap_or_else(|| "<missing>".into())
+            };
             let pass = devscript::check(&actual, *op, v);
             format!(
                 "{} assert {f} {op:?} {v} (actual {actual})",
@@ -582,6 +597,15 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
             w.tz_tip_hide();
             "ok ui hover-off".into()
         }
+        // Copy as PNG on the first diagram (the context-menu command).
+        "diagram-copy-png" => match w.tz_drive_hot(sh, "diagram") {
+            Some((x, y)) => {
+                w.ctx_diagram = w.diagram_at(sh, x, y);
+                w.diagram_copy(sh, true);
+                "ok ui diagram-copy-png".into()
+            }
+            None => "FAIL ui diagram-copy-png: no diagram".into(),
+        },
         "dblclick-media" => {
             if w.tz_drive_open(sh, arg) {
                 format!("ok ui dblclick-media {arg}")
@@ -668,6 +692,11 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
         "job-reset" => {
             JOB_SEQ.with(|q| q.set((0, 0, true, 0)));
             "ok ui job-reset".into()
+        }
+        "motion-on" => {
+            // The GIF check needs animations; CI runners run with reduced motion.
+            sys::MOTION_FORCED.store(true, std::sync::atomic::Ordering::Relaxed);
+            "ok ui motion-on".into()
         }
         "cpu-mark" => {
             CPU_MARK.with(|m| m.set(crate::perf::cpu_ms()));
@@ -894,6 +923,17 @@ fn doc_height(w: &Win) -> f64 {
     }
 }
 
+/// Formulas of the open Markdown document that fail to expand or parse (font-free probe).
+fn math_errors(w: &Win) -> usize {
+    match &w.view {
+        View::Doc(d) => match &d.content {
+            yamdv_layout::viewer::Content::Markdown(doc) => yamdv_layout::rich::math_errors(doc),
+            _ => 0,
+        },
+        _ => 0,
+    }
+}
+
 fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
     use serde_like::V;
     let doc = match &w.view {
@@ -1051,6 +1091,49 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         ("source_len".into(), V::N(source_len as f64)),
         ("math_cached".into(), V::N(math_cached as f64)),
         ("diagrams_cached".into(), V::N(diagrams_cached as f64)),
+        (
+            "img_decoded".into(),
+            V::N(match &w.view {
+                View::Doc(d) => d.images.summary().0 as f64,
+                _ => 0.0,
+            }),
+        ),
+        (
+            "img_fail".into(),
+            V::S(match &w.view {
+                View::Doc(d) => d.images.summary().1,
+                _ => String::new(),
+            }),
+        ),
+        (
+            "gif_playing".into(),
+            V::N(match &w.view {
+                View::Doc(d) => d.images.anims_playing() as f64,
+                _ => 0.0,
+            }),
+        ),
+        (
+            "window_active".into(),
+            V::N(f64::from(u8::from(!w.cap.inactive))),
+        ),
+        (
+            "gif_due_ms".into(),
+            V::N(match &w.view {
+                View::Doc(d) => d
+                    .images
+                    .anim_due()
+                    .map_or(-1.0, |t| t as f64 - crate::images::gif::now_ms() as f64),
+                _ => -1.0,
+            }),
+        ),
+        (
+            "reduced_motion".into(),
+            V::N(f64::from(u8::from(!crate::sys::animations_enabled()))),
+        ),
+        (
+            "gif_frames".into(),
+            V::N(crate::images::gif::FRAMES.load(std::sync::atomic::Ordering::Relaxed) as f64),
+        ),
         ("menu_items".into(), V::N(menu_items as f64)),
         ("menu_checked".into(), V::S(menu_checked)),
         ("edit_mode".into(), V::S(edit_mode.into())),
@@ -1081,6 +1164,7 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
             V::N(f64::from(u8::from(w.tsv_offered()))),
         ),
         ("table_tools".into(), V::N(w.table_tools(sh).len() as f64)),
+        ("img_sel".into(), V::N(f64::from(u8::from(w.img_probe().0)))),
         (
             "xsel".into(),
             V::S(w.xsel().map_or(String::new(), |r| {
@@ -1098,6 +1182,10 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
         (
             "clip_text".into(),
             V::S(sys::paste_text(w.hwnd).unwrap_or_default()),
+        ),
+        (
+            "clip_img".into(),
+            V::N(f64::from(u8::from(sys::clip_has(8)))),
         ),
         (
             "clip_html".into(),
@@ -1188,13 +1276,8 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
             .into_iter()
             .map(|(k, n)| (k.to_string(), V::N(n))),
     );
-    let pws = pws_now();
-    let mark = MEM_MARK.with(std::cell::Cell::get);
-    out.push(("pws_kib".into(), V::N((pws / 1024) as f64)));
-    out.push((
-        "pws_delta_kib".into(),
-        V::N((pws as f64 - mark as f64) / 1024.0),
-    ));
+    out.push(("pws_kib".into(), V::N((pws_now() / 1024) as f64)));
+    out.push(("pws_delta_kib".into(), V::N(pws_delta_kib())));
     let (g0, u0) = GUI_MARK.with(std::cell::Cell::get);
     let (g, u) = gui_now();
     out.push(("gdi_delta".into(), V::N(f64::from(g) - f64::from(g0))));

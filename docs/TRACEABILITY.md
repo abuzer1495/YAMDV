@@ -14,7 +14,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | M5 | 013 | planned |
 | M6 | 013 | measured (002): memprobe --open-dialog gate |
 | M7 | 013 | measured (002): commit ≤ 3×PWS gate |
-| R-CODE-01 | 003 | implemented (003); part deferred: FUT-01 |
+| R-CODE-01 | 003 | implemented (017): 42 lexers incl. Console/JSX/TSX/HTML embedded (docs/CODE_LANGUAGES.md) |
 | R-CODE-02 | 003 | implemented (003) |
 | R-CODE-03 | 003 | implemented (003) |
 | R-CODE-04 | 003 | implemented (003) |
@@ -45,7 +45,7 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-EXT-02 | 005 | deferred (FUT-10) |
 | R-EXT-03 | 005 | partial (005): template tokenizer + CreateProcessW; no settings UI |
 | R-EXT-04 | 005 | planned |
-| R-IMG-01 | 003 | partial (003): header probe for all formats; WIC decode not done; part deferred: FUT-20, FUT-48 |
+| R-IMG-01 | 003 | implemented (017): WIC decode + SVG (yamdv-svg, ADR-0021), animated GIF, ICO; WebP placeholder (ADR-0022) |
 | R-IMG-02 | 003 | partial (003): yamdv_core::image::resolve (tests); not wired to a decoder |
 | R-IMG-03 | 003 | partial (003): display_size/obsidian_size/html_len (tests); not used by layout |
 | R-IMG-04 | 003 | partial (003): probe + LRU (tests); no worker/decode |
@@ -61,12 +61,12 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-MAP-01 | 010 | implemented (V2-D 014): mind map viewer, right/balanced, accent hues (FUT-37); mindmap layout tests |
 | R-MAP-02 | 010 | implemented (V2-D 014): wheel zoom, pan, click collapse, double-click jump, Esc, Ctrl+C PNG; driver palette-mindmap-toc |
 | R-MATH-01 | 009 | implemented (007): yamdv-math + Cambria Math MATH table (dwrite.rs) |
-| R-MATH-02 | 009 | partial (007): core subset (parse.rs); part deferred: FUT-17 |
+| R-MATH-02 | 009 | implemented (017): KaTeX subset complete (matrices, environments, accents, fonts; 123/123 coverage test) |
 | R-MATH-03 | 009 | implemented (007): error color + message line; tooltip (V2-C 013, FUT-40) |
 | R-MATH-04 | 009 | implemented (007): copy maps to source with delimiters (detail.rs test) |
 | R-MATH-05 | 009 | implemented (007): centered, HRegion scroll (rich.rs tests) |
 | R-MATH-06 | 009 | implemented (007): theme text color; \color override |
-| R-MATH-07 | 009 | deferred (FUT-17) |
+| R-MATH-07 | 009 | implemented (017): \newcommand/\renewcommand/\def per block, bounded expansion (macro bomb → error; content-engines.yds) |
 | R-MD-01 | 002/003 | implemented (002) |
 | R-MD-02 | 002/003 | implemented (003): GFM tables, tasks, strikethrough, autolinks |
 | R-MD-03 | 002/003 | partial (003): highlight/sup/sub; no baseline shift |
@@ -86,16 +86,16 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-MD-17 | 002/003 | implemented (002) |
 | R-MD-18 | 002/003 | implemented (003) |
 | R-MD-19 | 002/003 | implemented (V2-D 014): [TOC] / [[_TOC_]] Contents list, HTML/PDF/Print (doc::toc tests, toc_marker_exports_anchored_list) |
-| R-MMD-01 | 010 | partial (007): flowchart + sequence (yamdv-mermaid); part deferred: FUT-18 |
+| R-MMD-01 | 010 | implemented (017): flowchart, sequence, gantt, pie, state, class, ER, mindmap; MAY types → badge |
 | R-MMD-02 | 010 | implemented (007 + V2-C 013): card, fit-to-column, min scale + hscroll (BUG-08), diagram viewer (FUT-36); part deferred: FUT-18 |
-| R-MMD-03 | 010 | partial (007): B.3.6 light/dark palettes; part deferred: FUT-18 (init) |
+| R-MMD-03 | 010 | implemented (017): light/dark palettes + %%{init}%% themes default/neutral/dark/forest/base, themeVariables subset |
 | R-MMD-04 | 010 | implemented (007): source card + line/column message; part deferred: FUT-18 |
 | R-MMD-05 | 010 | implemented (007): placeholder + Render anyway (mermaid.yds); part deferred: FUT-18 |
-| R-MMD-06 | 010 | partial (007): directions, core shapes/edges, subgraph, classDef/style; part deferred: FUT-18 |
+| R-MMD-06 | 010 | implemented (017): full flowchart shape/edge set (flow tests) |
 | R-MMD-07 | 010 | implemented (007): seq.rs + tests; part deferred: FUT-18 |
-| R-MMD-08 | 010 | deferred (FUT-18) |
-| R-MMD-09 | 010 | deferred (FUT-18) |
-| R-MMD-10 | 010 | deferred (FUT-18) |
+| R-MMD-08 | 010 | partial (017): gantt parser/layout + tests; no today marker |
+| R-MMD-09 | 010 | implemented (017): pie title/showData/legend (pie tests, golden top-v2g-a-light) |
+| R-MMD-10 | 010 | implemented (017): diagram context menu Copy as PNG (CF_DIB + PNG) / Copy source (content-engines.yds) |
 | R-NAV-01 | 004/005 | implemented (005 + V2-D 014): Contents/History/Favorites/Files tabs, each hideable; no tab row when all three hidden |
 | R-NAV-02 | 004/005 | implemented (V2-D 014): left/right docked and floating card (FUT-02); driver keyboard-reach, golden v2d-floating-dark |
 | R-NAV-03 | 004/005 | planned |
@@ -300,8 +300,8 @@ Status values: `planned`, `partial (NNN)`, `implemented (NNN)`, `measured (NNN)`
 | R-F2-08 | 007 | implemented (V2-F 016): click places caret, Ctrl+click follows, Ctrl+K popover; driver f2-reveal |
 | R-F2-09 | 007 | implemented (V2-F 016): code language input with autocomplete; driver f2-reveal |
 | R-F2-10 | 007 | implemented (006 V1-B) |
-| R-F2-11 | 007 | deferred (FUT-18) |
-| R-F2-12 | 007 | deferred (FUT-26) |
+| R-F2-11 | 007 | deferred (IDEA-05 #86) |
+| R-F2-12 | 007 | implemented (017): F2 image resize handles, width/|N write-back, one undo (image-resize.yds) |
 | R-F3-01 | 006 | implemented (006 V1-B) |
 | R-F3-02 | 006 | implemented (006 V1-B) |
 | R-F3-03 | 006 | implemented (006 V1-B): 30 ms debounce + Viewer::splice |

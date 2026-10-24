@@ -222,6 +222,17 @@ impl RichHost for Rich<'_> {
     fn cache(&self) -> Option<&RichCache> {
         Some(self.cache)
     }
+    fn now_local(&self) -> Option<i64> {
+        use windows::Win32::System::SystemInformation::GetLocalTime;
+        // SAFETY: GetLocalTime has no preconditions.
+        let t = unsafe { GetLocalTime() };
+        let day = yamdv_mermaid::gantt::days_from_civil(
+            i64::from(t.wYear),
+            u32::from(t.wMonth),
+            u32::from(t.wDay),
+        );
+        Some(day * 86_400 + i64::from(t.wHour) * 3600 + i64::from(t.wMinute) * 60)
+    }
 }
 
 /// Shared DirectWrite state.

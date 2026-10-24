@@ -32,6 +32,10 @@ use windows::core::HSTRING;
 use yamdv_core::image::{self, DriveKind, Fs, Placeholder, Source};
 use yamdv_layout::img::{ImageHost, ImgState};
 
+pub mod gif;
+mod svg;
+pub use svg::set_text_color;
+
 /// Window message posted when a decode finished (`wParam` = generation).
 pub const WM_IMAGE_DONE: u32 = WM_APP + 0x31;
 /// Worker stack size (E.10).
@@ -192,16 +196,19 @@ pub struct Bitmap {
     pub h: u32,
     /// `w * h * 4` bytes.
     pub px: Vec<u8>,
+    /// SVG only: the `currentColor` it was rendered with (re-rendered when the theme changes).
+    pub svg_color: Option<u32>,
 }
 
-/// WIC decode of `src` scaled (high-quality cubic) to `w × h` device pixels.
-pub fn decode(f: &IWICImagingFactory, src: &Source, w: u32, h: u32) -> Result<Bitmap, Placeholder> {
-    let w = w.clamp(1, image::MAX_DIM);
-    let h = h.clamp(1, image::MAX_DIM);
-    // SAFETY: COM initialized on this thread; all objects released by Drop; the buffer size is
-    // `w*h*4` and the stride `w*4`.
+/// A WIC decoder for `src`.
+pub(crate) fn open_decoder(
+    f: &IWICImagingFactory,
+    src: &Source,
+) -> Result<IWICBitmapDecoder, Placeholder> {
+    // SAFETY: COM initialized on this thread; the memory stream borrows `d`, which outlives it
+    // only as long as the caller keeps `src` (the decoder is used while `src` is alive).
     unsafe {
-        let dec: IWICBitmapDecoder = match src {
+        Ok(match src {
             Source::File(p) => f
                 .CreateDecoderFromFilename(
                     &HSTRING::from(p.as_str()),
@@ -217,7 +224,24 @@ pub fn decode(f: &IWICImagingFactory, src: &Source, w: u32, h: u32) -> Result<Bi
                 f.CreateDecoderFromStream(&s, std::ptr::null(), WICDecodeMetadataCacheOnDemand)
                     .map_err(|_| Placeholder::Unsupported)?
             }
-        };
+        })
+    }
+}
+
+/// WIC decode of `src` scaled (high-quality cubic) to `w × h` device pixels.
+pub fn decode(f: &IWICImagingFactory, src: &Source, w: u32, h: u32) -> Result<Bitmap, Placeholder> {
+    let w = w.clamp(1, image::MAX_DIM);
+    let h = h.clamp(1, image::MAX_DIM);
+    if let Some(b) = svg_bytes(src)? {
+        return svg::decode(&b, w, h);
+    }
+    if let Some(b) = ico_bytes(src)? {
+        return decode_ico(f, &b, w, h);
+    }
+    // SAFETY: COM initialized on this thread; all objects released by Drop; the buffer size is
+    // `w*h*4` and the stride `w*4`.
+    unsafe {
+        let dec = open_decoder(f, src)?;
         let frame = dec.GetFrame(0).map_err(|_| Placeholder::Unsupported)?;
         let sc = f
             .CreateBitmapScaler()
@@ -239,7 +263,110 @@ pub fn decode(f: &IWICImagingFactory, src: &Source, w: u32, h: u32) -> Result<Bi
         let mut px = vec![0u8; (w as usize) * (h as usize) * 4];
         cv.CopyPixels(std::ptr::null(), w * 4, &mut px)
             .map_err(|_| Placeholder::Unsupported)?;
-        Ok(Bitmap { w, h, px })
+        Ok(Bitmap {
+            w,
+            h,
+            px,
+            svg_color: None,
+        })
+    }
+}
+
+/// The whole ICO file behind `src` (≤ `MAX_FILE`), or `None` when it is not an icon.
+fn ico_bytes(src: &Source) -> Result<Option<std::borrow::Cow<'_, [u8]>>, Placeholder> {
+    let is_ico = |h: &[u8]| h.starts_with(&[0, 0, 1, 0]);
+    match src {
+        Source::Data(d) => Ok(is_ico(d).then_some(std::borrow::Cow::Borrowed(d.as_slice()))),
+        Source::File(p) => {
+            if !read_head(p, 4).is_some_and(|h| is_ico(&h)) {
+                return Ok(None);
+            }
+            let max = usize::try_from(image::MAX_FILE).unwrap_or(usize::MAX);
+            let b = read_head(p, max.saturating_add(1)).ok_or(Placeholder::Missing)?;
+            if b.len() > max {
+                return Err(Placeholder::TooLarge);
+            }
+            Ok(Some(std::borrow::Cow::Owned(b)))
+        }
+    }
+}
+
+/// ADR-0022: our directory parser picks the entry; WIC decodes its PNG or BMP payload.
+fn decode_ico(f: &IWICImagingFactory, b: &[u8], w: u32, h: u32) -> Result<Bitmap, Placeholder> {
+    use yamdv_core::image::ico;
+    let dir = ico::directory(b).ok_or(Placeholder::Invalid)?;
+    let e = ico::pick(&dir, w.max(h)).ok_or(Placeholder::Invalid)?;
+    match ico::payload(b, &e).ok_or(Placeholder::Invalid)? {
+        ico::Payload::Png(p) => decode(f, &Source::Data(p), w, h),
+        ico::Payload::Bgra { px, w: bw, h: bh } => scale_bgra(
+            f,
+            &Bitmap {
+                w: bw,
+                h: bh,
+                px,
+                svg_color: None,
+            },
+            w,
+            h,
+        ),
+        ico::Payload::Bmp {
+            file,
+            mask,
+            w: bw,
+            h: bh,
+        } => match mask {
+            None => decode(f, &Source::Data(file), w, h),
+            Some(m) => {
+                // Mask at the entry's own size, then scale.
+                let mut full = decode(f, &Source::Data(file), bw, bh)?;
+                ico::apply_mask(&mut full.px, &m, bw, bh);
+                if (bw, bh) == (w, h) {
+                    return Ok(full);
+                }
+                scale_bgra(f, &full, w, h)
+            }
+        },
+    }
+}
+
+/// High-quality scale of premultiplied BGRA pixels.
+fn scale_bgra(f: &IWICImagingFactory, b: &Bitmap, w: u32, h: u32) -> Result<Bitmap, Placeholder> {
+    // SAFETY: COM initialized on this thread; buffers sized `w*h*4`, stride `w*4`.
+    unsafe {
+        let src = f
+            .CreateBitmapFromMemory(b.w, b.h, &GUID_WICPixelFormat32bppPBGRA, b.w * 4, &b.px)
+            .map_err(|_| Placeholder::Unsupported)?;
+        let sc = f
+            .CreateBitmapScaler()
+            .map_err(|_| Placeholder::Unsupported)?;
+        sc.Initialize(&src, w, h, WICBitmapInterpolationModeHighQualityCubic)
+            .map_err(|_| Placeholder::Unsupported)?;
+        let mut px = vec![0u8; (w as usize) * (h as usize) * 4];
+        sc.CopyPixels(std::ptr::null(), w * 4, &mut px)
+            .map_err(|_| Placeholder::Unsupported)?;
+        Ok(Bitmap {
+            w,
+            h,
+            px,
+            svg_color: None,
+        })
+    }
+}
+
+/// The whole SVG document behind `src` (≤ 10 MB, S-RES-07), or `None` when it is not SVG.
+fn svg_bytes(src: &Source) -> Result<Option<std::borrow::Cow<'_, [u8]>>, Placeholder> {
+    match src {
+        Source::Data(d) => Ok(svg::is_svg(d).then_some(std::borrow::Cow::Borrowed(d.as_slice()))),
+        Source::File(p) => {
+            if !read_head(p, 512).is_some_and(|h| svg::is_svg(&h)) {
+                return Ok(None);
+            }
+            let b = read_head(p, yamdv_svg::xml::MAX_INPUT + 1).ok_or(Placeholder::Missing)?;
+            if b.len() > yamdv_svg::xml::MAX_INPUT {
+                return Err(Placeholder::TooLarge);
+            }
+            Ok(Some(std::borrow::Cow::Owned(b)))
+        }
     }
 }
 
@@ -330,7 +457,12 @@ struct Entry {
     state: ImgState,
     src: Option<Source>,
     bmp: Option<Bitmap>,
+    /// The previously decoded size (one image shown at two sizes must not ping-pong decodes).
+    alt: Option<Bitmap>,
     pending: Option<(u32, u32)>,
+    /// `Some(true)`: an animated GIF candidate (checked once from the header).
+    gif: Option<bool>,
+    anim: Option<Box<gif::Anim>>,
 }
 
 /// Per-document image store: policy, probe, decoded pixels and the P-13 LRU.
@@ -347,6 +479,12 @@ pub struct Store {
     generation: u64,
     /// Synchronous decode (`--render-png`, tests): no worker.
     sync: Option<IWICImagingFactory>,
+    /// `reading.animate_gifs` (and no reduced motion).
+    animate: std::cell::Cell<bool>,
+    /// UI-thread WIC factory for GIF frames (created on first use).
+    ui: RefCell<Option<IWICImagingFactory>>,
+    /// Animated GIFs inside the viewport this frame (they play).
+    playing: RefCell<Vec<Box<str>>>,
 }
 
 impl std::fmt::Debug for Store {
@@ -373,6 +511,9 @@ impl Store {
             done: Arc::default(),
             generation,
             sync: None,
+            animate: std::cell::Cell::new(false),
+            ui: RefCell::new(None),
+            playing: RefCell::default(),
         }
     }
     /// Store that decodes on the calling thread (COM must be initialized).
@@ -387,8 +528,11 @@ impl Store {
         self.map
             .borrow()
             .values()
-            .filter_map(|e| e.bmp.as_ref())
-            .map(|b| b.px.len())
+            .map(|e| {
+                e.bmp.as_ref().map_or(0, |b| b.px.len())
+                    + e.alt.as_ref().map_or(0, |b| b.px.len())
+                    + e.anim.as_ref().map_or(0, |a| a.bytes())
+            })
             .sum()
     }
     /// Bytes in the LRU part.
@@ -420,19 +564,25 @@ impl Store {
         let keys: Vec<Box<str>> = map.keys().cloned().collect();
         for k in keys {
             let id = self.id(&k);
+            if !pinned.contains(&k)
+                && let Some(e) = map.get_mut(&k)
+            {
+                e.anim = None;
+            }
             let Some(e) = map.get(&k) else { continue };
             let Some(b) = &e.bmp else { continue };
             if pinned.contains(&k) {
                 self.lru.borrow_mut().remove(id);
                 continue;
             }
-            let size = b.px.len();
+            let size = b.px.len() + e.alt.as_ref().map_or(0, |a| a.px.len());
             let evict = self.lru.borrow_mut().touch(id, size, image::LRU_BYTES);
             for v in evict {
                 if let Some((vk, _)) = self.ids.borrow().iter().find(|(_, x)| **x == v)
                     && let Some(e) = map.get_mut(vk)
                 {
                     e.bmp = None;
+                    e.alt = None;
                 }
             }
         }
@@ -451,13 +601,23 @@ impl Store {
     /// Pixels of `key` at `w × h` device px, if decoded; otherwise queues a decode.
     pub fn pixels(&self, key: &str, w: u32, h: u32) -> Option<std::cell::Ref<'_, Bitmap>> {
         self.pinned.borrow_mut().push(key.into());
+        if self.animate.get() && self.anim_at(key, w, h) {
+            let map = self.map.borrow();
+            return std::cell::Ref::filter_map(map, |m| {
+                m.get(key).and_then(|e| e.anim.as_ref()).map(|a| &a.out)
+            })
+            .ok();
+        }
         let need = {
             let mut map = self.map.borrow_mut();
             let e = map.get_mut(key)?;
             if !matches!(e.state, ImgState::Ready { .. }) {
                 return None;
             }
-            let ok = e.bmp.as_ref().is_some_and(|b| b.w == w && b.h == h);
+            let fits = |b: &Bitmap| {
+                b.w == w && b.h == h && b.svg_color.is_none_or(|c| c == svg::text_color())
+            };
+            let ok = e.bmp.as_ref().is_some_and(fits) || e.alt.as_ref().is_some_and(fits);
             if !ok && e.pending != Some((w, h)) {
                 e.pending = Some((w, h));
                 e.src.clone()
@@ -480,11 +640,133 @@ impl Store {
         }
         let map = self.map.borrow();
         std::cell::Ref::filter_map(map, |m| {
-            m.get(key)
-                .and_then(|e| e.bmp.as_ref())
-                .filter(|b| b.w == w && b.h == h)
+            m.get(key).and_then(|e| {
+                e.bmp
+                    .as_ref()
+                    .filter(|b| b.w == w && b.h == h)
+                    .or_else(|| e.alt.as_ref().filter(|b| b.w == w && b.h == h))
+            })
         })
         .ok()
+    }
+
+    /// Ensures a playing [`gif::Anim`] of `key` at `w × h`; false when it is not animated.
+    fn anim_at(&self, key: &str, w: u32, h: u32) -> bool {
+        let mut map = self.map.borrow_mut();
+        let Some(e) = map.get_mut(key) else {
+            return false;
+        };
+        if !matches!(e.state, ImgState::Ready { .. }) || e.gif == Some(false) {
+            return false;
+        }
+        if e.anim
+            .as_ref()
+            .is_some_and(|a| a.out.w == w && a.out.h == h)
+        {
+            return true;
+        }
+        let Some(src) = e.src.as_ref() else {
+            return false;
+        };
+        if e.gif.is_none() {
+            let head = match src {
+                Source::Data(d) => d.get(..6).map(<[u8]>::to_vec),
+                Source::File(p) => read_head(p, 6),
+            };
+            e.gif = Some(head.is_some_and(|h| h.starts_with(b"GIF8")));
+        }
+        if e.gif != Some(true) {
+            return false;
+        }
+        let mut ui = self.ui.borrow_mut();
+        if ui.is_none() {
+            *ui = self.sync.clone().or_else(factory);
+        }
+        let Some(f) = ui.as_ref() else { return false };
+        e.anim = gif::Anim::open(f, src, w, h, gif::now_ms()).map(Box::new);
+        if e.anim.is_none() {
+            e.gif = Some(false);
+        }
+        e.anim.is_some()
+    }
+
+    /// `reading.animate_gifs` without reduced motion; off drops every animation (first frames show).
+    pub fn set_animate(&self, on: bool) {
+        if self.animate.replace(on) && !on {
+            for e in self.map.borrow_mut().values_mut() {
+                e.anim = None;
+            }
+        }
+    }
+
+    /// The images inside the viewport this frame; their animations play.
+    pub fn set_playing(&self, keys: Vec<Box<str>>) {
+        let now = gif::now_ms();
+        let mut map = self.map.borrow_mut();
+        let old = self.playing.borrow();
+        for k in &keys {
+            if !old.contains(k)
+                && let Some(a) = map.get_mut(k).and_then(|e| e.anim.as_mut())
+            {
+                a.resume(now);
+            }
+        }
+        drop(old);
+        *self.playing.borrow_mut() = keys;
+    }
+
+    /// Driver: images with decoded pixels, and the sorted placeholder messages of failures.
+    pub fn summary(&self) -> (usize, String) {
+        let map = self.map.borrow();
+        let ok = map
+            .values()
+            .filter(|e| e.bmp.is_some() || e.anim.is_some())
+            .count();
+        let mut fails: Vec<&str> = map
+            .values()
+            .filter_map(|e| match &e.state {
+                ImgState::Fail(p) => Some(p.message()),
+                _ => None,
+            })
+            .collect();
+        fails.sort_unstable();
+        (ok, fails.join("|"))
+    }
+
+    /// Visible animations that play (driver `gif_playing`).
+    pub fn anims_playing(&self) -> usize {
+        let map = self.map.borrow();
+        self.playing
+            .borrow()
+            .iter()
+            .filter(|k| map.get(*k).is_some_and(|e| e.anim.is_some()))
+            .count()
+    }
+
+    /// When the next visible frame is due (ms clock), if any GIF plays.
+    pub fn anim_due(&self) -> Option<u64> {
+        let map = self.map.borrow();
+        self.playing
+            .borrow()
+            .iter()
+            .filter_map(|k| map.get(k)?.anim.as_ref())
+            .filter(|a| a.player.frames > 1)
+            .map(|a| a.player.due)
+            .min()
+    }
+
+    /// Advances every visible animation that is due; returns whether any frame changed.
+    pub fn tick_anims(&self, now: u64) -> bool {
+        let ui = self.ui.borrow();
+        let Some(f) = ui.as_ref() else { return false };
+        let mut map = self.map.borrow_mut();
+        let mut any = false;
+        for k in self.playing.borrow().iter() {
+            if let Some(a) = map.get_mut(k).and_then(|e| e.anim.as_mut()) {
+                any |= a.tick(f, now);
+            }
+        }
+        any
     }
 
     fn queue(&self, j: Job) {
@@ -523,12 +805,16 @@ impl Store {
         }
         match r {
             Ok(b) => {
+                if e.bmp.as_ref().is_some_and(|o| o.w != b.w || o.h != b.h) {
+                    e.alt = e.bmp.take();
+                }
                 e.bmp = Some(b);
                 false
             }
             Err(p) => {
                 e.state = ImgState::Fail(p);
                 e.bmp = None;
+                e.alt = None;
                 true
             }
         }
@@ -551,6 +837,28 @@ impl Store {
         (any, relayout)
     }
 
+    /// SVG: the intrinsic size from the parsed document, scaled into `MAX_DIM`.
+    fn probe_svg(src: &Source) -> ImgState {
+        let bytes = match svg_bytes(src) {
+            Ok(Some(b)) => b,
+            Ok(None) => return ImgState::Fail(Placeholder::Invalid),
+            Err(p) => return ImgState::Fail(p),
+        };
+        match svg::size(&bytes) {
+            Err(p) => ImgState::Fail(p),
+            Ok((w, h)) => {
+                let k = f64::from(image::MAX_DIM) / f64::from(w.max(h));
+                if k < 1.0 {
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let f = |v: u32| ((f64::from(v) * k).round() as u32).max(1);
+                    ImgState::Ready { w: f(w), h: f(h) }
+                } else {
+                    ImgState::Ready { w, h }
+                }
+            }
+        }
+    }
+
     pub(crate) fn probe_source(src: &Source) -> ImgState {
         let head = match src {
             Source::Data(d) => Some(d.get(..d.len().min(65_536)).unwrap_or(&[]).to_vec()),
@@ -561,7 +869,9 @@ impl Store {
         };
         match image::probe(&head) {
             None => ImgState::Fail(Placeholder::Unsupported),
-            Some(p) if p.format == image::Format::Svg => ImgState::Fail(Placeholder::Unsupported),
+            Some(p) if p.format == image::Format::Svg => Self::probe_svg(src),
+            // ADR-0022: no WebP decoder under ACG.
+            Some(p) if p.format == image::Format::Webp => ImgState::Fail(Placeholder::NoCodec),
             Some(p) if !image::within_limits(&p) => ImgState::Fail(Placeholder::TooLarge),
             Some(p) if p.w == 0 || p.h == 0 => ImgState::Pending,
             Some(p) => ImgState::Ready { w: p.w, h: p.h },
@@ -583,7 +893,10 @@ impl ImageHost for Store {
                     state: st.clone(),
                     src: None,
                     bmp: None,
+                    alt: None,
                     pending: None,
+                    gif: None,
+                    anim: None,
                 },
             );
             return st;
@@ -594,7 +907,10 @@ impl ImageHost for Store {
                 state: ImgState::Pending,
                 src: None,
                 bmp: None,
+                alt: None,
                 pending: None,
+                gif: None,
+                anim: None,
             },
         );
         // File-system policy checks and the header probe run on the worker (E.10); the
