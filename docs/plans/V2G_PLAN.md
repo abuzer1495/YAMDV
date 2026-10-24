@@ -49,3 +49,6 @@ Order: §1.1 F-31 → F-32 → §2 ADR-0021 (before SVG code), ADR-0022, P-48, I
 ## CHECKPOINT 9 (CI run 40040071370 → fix push)
 - Run 1 red on: (1) view goldens mermaid-light/dark (pie now renders instead of the "unsupported" card — intended; t0 PNGs replaced from the artifact); (2) content-engines `gif_frames >= 4` = 0: the runner has client-area animations off (reduced motion, correct behavior) → dev-tools `ui motion-on` override; (3) export-progress `pws_delta_kib` 372/468 > 205: every driver assert built the full state incl. the new `math_errors` probe, which walks all blocks of the 1 MB doc → now computed only when asserted.
 - Gates from run 1 (green): M0 2.37 / M1 4.67 MiB, T4 typical warm 10.4 ms, T5 split 14.3 / live 25.9 / live-large 20.3 ms, T7 0/0, MSVC exe 3,599,872 B (+213,504 B). Window shots v2g-a/b/c committed from the artifact (self-reviewed).
+
+## CHECKPOINT 10 (final for this session: CI red, stopped)
+- Run 40043352587 (54bbca7): all green except export-progress `pws_delta_kib` 492 / 256 > 205 (two attempts). Lazy math_errors did not cure it. Per the instruction there is no further fix: not merged, not tagged. Report docs/reports/v2g_REPORT.md lists the Next action.
