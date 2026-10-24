@@ -52,3 +52,8 @@ Order: §1.1 F-31 → F-32 → §2 ADR-0021 (before SVG code), ADR-0022, P-48, I
 
 ## CHECKPOINT 10 (final for this session: CI red, stopped)
 - Run 40043352587 (54bbca7): all green except export-progress `pws_delta_kib` 492 / 256 > 205 (two attempts). Lazy math_errors did not cure it. Per the instruction there is no further fix: not merged, not tagged. Report docs/reports/v2g_REPORT.md lists the Next action.
+
+## CHECKPOINT 11 (final: merged, tagged)
+- Owner approved extra CI runs (2026-10-24) to fix the export-progress PWS growth. Diagnostic run 40069253365 (adcf06b; counting allocator + `ui mem-report`, removed afterwards): no retained memory after the cancel; the `pws_delta_kib` assert measured PWS after building the full driver state (~190–250 KiB transient on the 1 MB doc).
+- Fix a26d927: `pws_delta_kib` is sampled before the state is built; limit unchanged (205). Run 40070840370 green: export-progress 100 KiB (first attempt), M0 2.40 / M1 4.71 MiB, T4 typical 13.4 / 8.7 ms, T5 12.9 / 22.6 / 19.5 ms, T7 0/0, MSVC exe 3,599,872 B.
+- PR #87 squash-merged as a66c426 (F-24: tree == a26d927), tag phase-v2g on a66c426 (no workflow ran). Issues #20 #21 #46 #8 #25 still open (only #19 auto-closed). Report: docs/reports/v2g_REPORT.md.

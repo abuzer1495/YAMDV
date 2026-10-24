@@ -1,10 +1,22 @@
 # V2-G report: content engines (prompt 017)
 
-Status: **not merged — CI red on one driver assert** (stop rule of the user instruction: no further fix push).
-PR #87 https://github.com/abuzer1495/YAMDV/pull/87 (branch `phase/v2g-content`). `phase-v2g` **not tagged**.
-CI: run 40040071370 (a343a40) red on mermaid view goldens, `content-engines` GIF check, `export-progress` PWS;
-fix push 54bbca7 → run 40043352587 red **only** on `export-progress.yds`: `pws_delta_kib <= 205` failed twice
-(attempt 1: 492, attempt 2: 256 KiB; V2-F: 196). Every other step is green (goldens, window goldens, ACG, measurements).
+Status: **merged and tagged.** PR #87 squash-merged as `a66c426` (tree equals green head `a26d927`, F-24 OK); tag
+`phase-v2g` on `a66c426` started no workflow (F-32). #19 closed by the merge; #20 #21 #46 #8 #25 are still open (the PR
+body listed them on one `Closes` line, so GitHub linked only the first one) and need a manual close.
+CI: 40040071370 (a343a40) red → 40043352587 (54bbca7) red only on export-progress PWS (492 / 256 KiB). **Owner-approved budget extension (2026-10-24):** "Ek CI çalışmalarına izin veriyorum, bellek artışını düzelt sonra
+birleştir" (extra runs allowed to fix the memory growth, then merge). 2 of the ≤ 4 extra runs were used: 40069253365 (adcf06b,
+temporary diagnostic) and **40070840370 (a26d927) green**. 40070817248 was cancelled after 23 s (a stray file was committed).
+
+## Export-progress PWS: cause and fix
+- Diagnostic (removed before merge): dev-tools counting allocator + `ui mem-report` around the cancel. After cancelling the
+  1 MB PDF job: Rust live heap 2,766 → 2,768 KiB, process heap commit unchanged (6,060 KiB), GDI/USER unchanged. Real PWS
+  growth was 6,288 → 6,440 KiB (+152). Nothing is retained (the print job runs in a worker process). PWS with 5 GIFs: not measured separately.
+- **Cause:** the driver measured PWS **after building its own state**. `assert pws_delta_kib` built the full driver
+  state (≈ 60 fields, some of them scan the whole 1 MB document) and only then read PWS. On a 1 MB document that build alone
+  commits about 190–250 KiB of transient heap. An idle control with no export showed +248 KiB from the assert alone.
+  V2-G added more state fields, which pushed the reading over 205.
+- **Fix:** `pws_delta_kib` is sampled first, before the state is built (as `math_errors` is). The limit stays 205.
+  Result in run 40070840370: **100 KiB** on the first attempt (V2-F: 196), with no F-31 retry.
 
 ## Done / partial / not started
 | Item | Status |
@@ -16,7 +28,7 @@ fix push 54bbca7 → run 40043352587 red **only** on `export-progress.yds`: `pws
 | §3.4 animated GIF, §3.5 ICO / WebP placeholder | done |
 | §3.6 lexers (Console, Jsx, Tsx, Html; LESS) | done |
 | §3.7 F2 image resize (R-F2-12) | done |
-| §4 merge, tag, issues closed | **not started** (CI red) |
+| §4 merge, tag | done (`a66c426`, `phase-v2g`); issues #20 #21 #46 #8 #25 need a manual close |
 
 ## Acceptance criteria
 | AC | Status | Evidence |
@@ -24,19 +36,19 @@ fix push 54bbca7 → run 40043352587 red **only** on `export-progress.yds`: `pws
 | AC-1 | done | F-31 retry rule, F-32 triggers; ADR-0021/0022; P-48 spec-check green; IDEA-05 #86 |
 | AC-2 | done | TRACEABILITY via `tools/trace_set.py` (12 rows); MATH_COVERAGE 123/123; CODE_LANGUAGES 42 lexers |
 | AC-3 | done | `content-engines`, `image-resize` PASS on CI; goldens v2g-a/b/c committed (self-reviewed); unit tests; fuzz `svg_parse`; artifact `yamdv-exe` |
-| AC-4 | **open** | gates and size green, but the CI run is red (export-progress PWS) → not merged, not tagged |
+| AC-4 | done | run 40070840370 green; gates below; merged, tagged |
 
-## Gates (run 40043352587; run 1 in brackets)
+## Gates (final run 40070840370; run 40043352587 in brackets)
 | Gate | V2-F | V2-G | Limit | |
 |---|---|---|---|---|
-| M0 private WS | 2.35 MiB | 2.39 (2.37) | ≤ 2.65 | OK |
-| M1 private WS | 4.72 MiB | 4.63 (4.67) | ≤ 5.02 | OK |
-| T4 typical cold / warm p99 | 13.8 / 9.4 ms | 13.3 / 9.3 (14.5 / 10.4) | gate | OK |
-| T5 F3 split p99 | 14.0 | 13.0 (14.3) ms | ≤ 25 | OK |
-| T5 F2 live p99 typical / 1 MB | 24.8 / 18.7 | 23.0 / 19.4 (**25.9** / 20.3) ms | ≤ 40 (stretch 25) | OK; run 1 missed the stretch |
+| M0 private WS | 2.35 MiB | 2.40 (2.39) | ≤ 2.65 | OK |
+| M1 private WS | 4.72 MiB | 4.71 (4.63) | ≤ 5.02 | OK |
+| T4 typical cold / warm p99 | 13.8 / 9.4 ms | 13.4 / 8.7 (13.3 / 9.3) | gate | OK |
+| T5 F3 split p99 | 14.0 | 12.9 (13.0) ms | ≤ 25 | OK |
+| T5 F2 live p99 typical / 1 MB | 24.8 / 18.7 | 22.6 / 19.5 (23.0 / 19.4) ms | ≤ 40 (stretch 25) | OK; run 40040071370 had 25.9 (missed the stretch) |
 | T7 idle CPU (empty, doc) | 0 / 0 | 0 / 0 µs | 0 | OK |
-| M3 math / mermaid-heavy (report) | — | 2.73 / 3.07 MiB | — | report |
-| PWS with 5 GIFs (report) | — | not measured as its own number (`content-engines` T7 CPU asserts pass) | — | report |
+| M3 math / mermaid-heavy (report) | — | 2.74 / 3.10 MiB | — | report |
+| export-progress `pws_delta_kib` | 196 | **100** (256 / 492) | ≤ 205 | OK |
 | Exe MSVC release | 3,386,368 B | 3,599,872 B (**+213,504 B**) | ≤ +250 KB | OK |
 
 Size shares (hardened lld map, 3,381,760 → 3,626,496 B, +244,736 B; `docs/reports/v2g_sizemap.md`):
@@ -50,21 +62,12 @@ Budget fix: `opt-level = "z"` for yamdv-mermaid/svg/math/highlight/export (befor
 - ADR-0022: ICO uses our own directory parser and picks the best-fit entry; the PNG/BMP payloads go through WIC (ACG matrix rows).
   WebP: `image-webp` measured at +138 KB, over the 80 KB budget, so the "WebP codec not installed" placeholder stays.
 
-Math coverage: **123/123** MUST items (docs/MATH_COVERAGE.md). Lexers: see docs/CODE_LANGUAGES.md (42, none unmapped).
-
 ## Deviations
-- **Red CI:** export-progress PWS after cancelling the 1 MB PDF export is 256–492 KiB (limit 205). The fix push made the
-  driver's full-document `math_errors` probe lazy; that did not cure it. Cause not found: Wine reports PWS as 0, so it
-  can't be measured locally.
 - A math macro applies to its whole block. Gantt has no today marker in goldens (only with a clock). Two items for the state/class/gantt list: the gantt milestone label may overflow the card edge; ER uses a basic notation.
 - SVG: group opacity is applied per shape; text has no shaping or fallback; unsupported features are skipped; ≤ 200k draws; a hostile SVG is drawn blank.
 - GIF: loops forever with no catch-up, is decoded on the UI thread, and is dropped outside ±1 screen. It respects reduced motion (CI uses the dev-tools `ui motion-on`).
 - ICO intrinsic size = the largest entry. The image store keeps 2 decoded sizes per image. Resize drops the height; reference images can't be resized.
-- Lexer limits are in docs/CODE_LANGUAGES.md. The `math_errors` probe is font-free. The mermaid view goldens were updated (pie now renders).
-
-**Next action:** find the PWS growth in export-progress (measure on Windows: V2-F vs V2-G, after cancelling the 1 MB PDF
-job: print Viewer math/macro caches, highlight `State` 2→8 B, heap retention). Fix it in a new CI run (it needs the owner's
-OK for a run beyond the budget), then merge #87 (closes #19 #20 #21 #46 #8 #25) and tag `phase-v2g`.
+- Math coverage 123/123 MUST items (docs/MATH_COVERAGE.md); lexer limits in docs/CODE_LANGUAGES.md (42, none unmapped). The `math_errors` probe is font-free. The mermaid view goldens were updated (pie now renders).
 
 ## Owner checklist / Sahip kontrol listesi
 1. EN: Open a doc with a real ```` ```mermaid gantt ```` (sections, `after`, `excludes weekends`, a milestone). TR: Gerçek bir gantt (bölümler, `after`, `excludes weekends`, kilometre taşı) içeren belge açın.
