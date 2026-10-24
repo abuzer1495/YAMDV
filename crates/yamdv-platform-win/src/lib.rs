@@ -12,8 +12,6 @@ pub mod console;
 pub mod crash;
 #[cfg(all(windows, feature = "dev-tools"))]
 pub mod devtools;
-#[cfg(all(windows, feature = "dev-tools"))]
-pub mod diagmem;
 #[cfg(windows)]
 pub mod dialog_host;
 #[cfg(windows)]

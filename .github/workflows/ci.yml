@@ -112,7 +112,7 @@ jobs:
           # runs ~30-page PDF jobs: it gets 300 s like in the owner test pack.
           if (-not (Test-Path tests/fixtures/large-1mb.md)) { cargo xtask gen-large tests/fixtures/large-1mb.md }
           foreach ($s in Get-ChildItem tests/driver/*.yds) {
-            $limit = if ($s.BaseName -eq 'export-progress' -or $s.BaseName -like 'zz-diag*') { 300000 } else { 30000 }
+            $limit = if ($s.BaseName -eq 'export-progress') { 300000 } else { 30000 }
             # F-31: a script whose only failures are pws_delta_kib / cpu_delta_ms asserts (noise) gets a
             # second attempt; it fails only if both attempts exceed (two-attempt rule, F-21/F-22).
             foreach ($attempt in 1, 2) {

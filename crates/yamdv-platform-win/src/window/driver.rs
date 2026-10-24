@@ -72,6 +72,12 @@ fn pws_now() -> u64 {
     crate::perf::private_ws_bytes()
 }
 
+/// Private working set growth since `ui mem-mark`, KiB.
+fn pws_delta_kib() -> f64 {
+    let mark = MEM_MARK.with(std::cell::Cell::get);
+    (pws_now() as f64 - mark as f64) / 1024.0
+}
+
 /// GDI and USER objects this process owns now (exact, unlike the working set).
 fn gui_now() -> (u32, u32) {
     use windows::Win32::System::Threading::{
@@ -246,9 +252,13 @@ fn run(w: &mut Win, sh: &Shared, cmd: &Cmd) -> String {
         }
         Cmd::Assert(f, op, v) => {
             // `math_errors` walks every block of the document: computed only when asserted, so
-            // the other asserts stay cheap and do not grow the heap (export-progress PWS).
+            // the other asserts stay cheap and do not grow the heap. `pws_delta_kib` is sampled
+            // before anything else: building the full state on a 1 MB document commits ~200 KiB
+            // of transient heap that the assert itself would measure (V2-G export-progress).
             let actual = if f == "math_errors" {
                 format!("{}", math_errors(w))
+            } else if f == "pws_delta_kib" {
+                format!("{}", pws_delta_kib())
             } else {
                 state(w, sh)
                     .get(f)
@@ -695,47 +705,6 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
         "height-mark" => {
             HEIGHT_MARK.with(|m| m.set(doc_height(w)));
             "ok ui height-mark".into()
-        }
-        // TEMPORARY V2-G diagnostic (export-progress PWS); removed before merge.
-        "mem-peak-reset" => {
-            use std::sync::atomic::Ordering::Relaxed;
-            crate::diagmem::PEAK.store(crate::diagmem::LIVE.load(Relaxed), Relaxed);
-            "ok ui mem-peak-reset".into()
-        }
-        "heap-compact" => {
-            use windows::Win32::System::Memory::{GetProcessHeap, HEAP_NONE, HeapCompact};
-            // SAFETY: the process heap handle.
-            let big = unsafe { GetProcessHeap().map_or(0, |h| HeapCompact(h, HEAP_NONE)) };
-            format!("ok ui heap-compact largest={big}")
-        }
-        "mem-report" => {
-            use std::sync::atomic::Ordering::Relaxed;
-            let (hc, ha) = crate::diagmem::heap_summary();
-            let (g, u) = gui_now();
-            let (img, lru, lay, rich, docb) = match &w.view {
-                View::Doc(d) => (
-                    d.images.decoded_bytes(),
-                    d.images.lru_bytes(),
-                    d.viewer.layout_stats(),
-                    d.rich.len(),
-                    match &d.content {
-                        yamdv_layout::viewer::Content::Markdown(doc) => doc.heap_bytes(),
-                        _ => (0, 0, 0),
-                    },
-                ),
-                _ => (0, 0, (0, 0, 0), (0, 0), (0, 0, 0)),
-            };
-            format!(
-                "ok ui mem-report {arg} pws_kib={} commit_kib={} heap_commit_kib={} heap_alloc_kib={} live_kib={} peak_kib={} blocks={} allocs={} gdi={g} user={u} img={img} lru={lru} layouts={lay:?} rich={rich:?} doc={docb:?}",
-                pws_now() / 1024,
-                crate::perf::commit_bytes() / 1024,
-                hc / 1024,
-                ha / 1024,
-                crate::diagmem::LIVE.load(Relaxed) / 1024,
-                crate::diagmem::PEAK.load(Relaxed) / 1024,
-                crate::diagmem::BLOCKS.load(Relaxed),
-                crate::diagmem::ALLOCS.load(Relaxed),
-            )
         }
         "mem-mark" => {
             MEM_MARK.with(|m| m.set(pws_now()));
@@ -1307,13 +1276,8 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
             .into_iter()
             .map(|(k, n)| (k.to_string(), V::N(n))),
     );
-    let pws = pws_now();
-    let mark = MEM_MARK.with(std::cell::Cell::get);
-    out.push(("pws_kib".into(), V::N((pws / 1024) as f64)));
-    out.push((
-        "pws_delta_kib".into(),
-        V::N((pws as f64 - mark as f64) / 1024.0),
-    ));
+    out.push(("pws_kib".into(), V::N((pws_now() / 1024) as f64)));
+    out.push(("pws_delta_kib".into(), V::N(pws_delta_kib())));
     let (g0, u0) = GUI_MARK.with(std::cell::Cell::get);
     let (g, u) = gui_now();
     out.push(("gdi_delta".into(), V::N(f64::from(g) - f64::from(g0))));
