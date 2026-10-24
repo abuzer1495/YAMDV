@@ -245,14 +245,19 @@ fn run(w: &mut Win, sh: &Shared, cmd: &Cmd) -> String {
             "ok wait-idle".into()
         }
         Cmd::Assert(f, op, v) => {
-            let st = state(w, sh);
-            let actual = st
-                .get(f)
-                .map(|x| match x {
-                    serde_like::V::S(s) => s.clone(),
-                    serde_like::V::N(n) => format!("{n}"),
-                })
-                .unwrap_or_else(|| "<missing>".into());
+            // `math_errors` walks every block of the document: computed only when asserted, so
+            // the other asserts stay cheap and do not grow the heap (export-progress PWS).
+            let actual = if f == "math_errors" {
+                format!("{}", math_errors(w))
+            } else {
+                state(w, sh)
+                    .get(f)
+                    .map(|x| match x {
+                        serde_like::V::S(s) => s.clone(),
+                        serde_like::V::N(n) => format!("{n}"),
+                    })
+                    .unwrap_or_else(|| "<missing>".into())
+            };
             let pass = devscript::check(&actual, *op, v);
             format!(
                 "{} assert {f} {op:?} {v} (actual {actual})",
@@ -678,6 +683,11 @@ fn ui(w: &mut Win, sh: &Shared, verb: &str, arg: &str) -> String {
             JOB_SEQ.with(|q| q.set((0, 0, true, 0)));
             "ok ui job-reset".into()
         }
+        "motion-on" => {
+            // The GIF check needs animations; CI runners run with reduced motion.
+            sys::MOTION_FORCED.store(true, std::sync::atomic::Ordering::Relaxed);
+            "ok ui motion-on".into()
+        }
         "cpu-mark" => {
             CPU_MARK.with(|m| m.set(crate::perf::cpu_ms()));
             "ok ui cpu-mark".into()
@@ -903,6 +913,17 @@ fn doc_height(w: &Win) -> f64 {
     }
 }
 
+/// Formulas of the open Markdown document that fail to expand or parse (font-free probe).
+fn math_errors(w: &Win) -> usize {
+    match &w.view {
+        View::Doc(d) => match &d.content {
+            yamdv_layout::viewer::Content::Markdown(doc) => yamdv_layout::rich::math_errors(doc),
+            _ => 0,
+        },
+        _ => 0,
+    }
+}
+
 fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
     use serde_like::V;
     let doc = match &w.view {
@@ -930,13 +951,6 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
     let (find, find_count, find_index) = match &w.find {
         Some(f) => ("open", f.matches.len(), f.cur.map_or(0, |c| c + 1)),
         None => ("closed", 0, 0),
-    };
-    let math_errors = match &w.view {
-        View::Doc(d) => match &d.content {
-            yamdv_layout::viewer::Content::Markdown(doc) => yamdv_layout::rich::math_errors(doc),
-            _ => 0,
-        },
-        _ => 0,
     };
     let (source_len, (math_cached, diagrams_cached)) = match &w.view {
         View::Doc(d) => (d.content.source().len(), d.rich.len()),
@@ -1163,7 +1177,6 @@ fn state(w: &mut Win, sh: &Shared) -> Vec<(String, serde_like::V)> {
             "clip_img".into(),
             V::N(f64::from(u8::from(sys::clip_has(8)))),
         ),
-        ("math_errors".into(), V::N(math_errors as f64)),
         (
             "clip_html".into(),
             V::N(f64::from(u8::from(sys::clip_has(sys::html_format())))),

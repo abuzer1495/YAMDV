@@ -45,3 +45,7 @@ Order: §1.1 F-31 → F-32 → §2 ADR-0021 (before SVG code), ADR-0022, P-48, I
 ## CHECKPOINT 8 (size budget)
 - Size map was +266,240 B (over +250 KB). Fix: release `opt-level = "z"` for mermaid/svg/math/highlight/export packages → 3,626,496 B, **+244,736 B**. Shares in docs/reports/v2g_sizemap.md. gate.sh GATE-OK.
 - Next: open PR (no [skip ci]), one CI run, fix push with v2g goldens from the artifact, gates (watch T4 with z-level engines), merge, tag phase-v2g, report.
+
+## CHECKPOINT 9 (CI run 40040071370 → fix push)
+- Run 1 red on: (1) view goldens mermaid-light/dark (pie now renders instead of the "unsupported" card — intended; t0 PNGs replaced from the artifact); (2) content-engines `gif_frames >= 4` = 0: the runner has client-area animations off (reduced motion, correct behavior) → dev-tools `ui motion-on` override; (3) export-progress `pws_delta_kib` 372/468 > 205: every driver assert built the full state incl. the new `math_errors` probe, which walks all blocks of the 1 MB doc → now computed only when asserted.
+- Gates from run 1 (green): M0 2.37 / M1 4.67 MiB, T4 typical warm 10.4 ms, T5 split 14.3 / live 25.9 / live-large 20.3 ms, T7 0/0, MSVC exe 3,599,872 B (+213,504 B). Window shots v2g-a/b/c committed from the artifact (self-reviewed).

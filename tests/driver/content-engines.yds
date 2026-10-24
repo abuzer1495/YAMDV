@@ -32,6 +32,7 @@ ui cpu-mark
 sleep 1500
 assert gif_frames == 0
 assert cpu_delta_ms < 60
+ui motion-on
 ui settings-set reading.animate_gifs=true
 wait-idle
 sleep 1200
